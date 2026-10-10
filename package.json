@@ -1,0 +1,40 @@
+{
+  "name": "feedback-loop",
+  "version": "1.0.0",
+  "description": "Drop-in feedback agent: in-app chat that answers from your docs, relays to Discord, and routes to your tracker.",
+  "main": "dist/src/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc && npm run build:widget",
+    "build:widget": "esbuild widget/widget.ts --bundle --minify --format=iife --target=es2019 --outfile=dist/widget.js",
+    "start": "node dist/src/index.js",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit && tsc -p widget",
+    "demo": "npm run build:widget && tsx scripts/demo.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.133.0",
+    "@hono/node-server": "^2.1.4",
+    "better-sqlite3": "^13.0.3",
+    "discord.js": "^14.27.0",
+    "drizzle-orm": "^0.45.4",
+    "hono": "^4.13.13",
+    "tar": "^7.5.22",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^26.6.5",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  }
+}
