@@ -34,8 +34,8 @@ export interface StaffReply {
 /** Mirrors conversations into the team's chat tool and brings replies back. */
 export interface Relay {
   name: string;
-  /** onResolved returns true when the conversation wasn't resolved yet. */
-  start(onStaffReply: (reply: StaffReply) => Promise<void>, onResolved?: (threadId: string) => Promise<boolean>): Promise<void>;
+  /** onResolved returns true when the conversation wasn't resolved yet. `deleted` means the thread is gone. */
+  start(onStaffReply: (reply: StaffReply) => Promise<void>, onResolved?: (threadId: string, deleted?: boolean) => Promise<boolean>): Promise<void>;
   /** Creates the team-side thread for a conversation; returns its id. */
   openThread(conversation: RelayConversation, firstMessage: string): Promise<string>;
   post(threadId: string, author: "user" | "agent" | "system", body: string, authorName?: string | null): Promise<void>;
@@ -62,4 +62,12 @@ export interface TicketDraft {
 export interface Tracker {
   name: string;
   create(ticket: TicketDraft): Promise<{ key: string; url: string }>;
+}
+
+/** Thrown by a relay when the team deleted a conversation's thread. */
+export class ThreadGoneError extends Error {
+  constructor(public threadId: string) {
+    super(`thread ${threadId} no longer exists`);
+    this.name = "ThreadGoneError";
+  }
 }

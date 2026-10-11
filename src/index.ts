@@ -123,7 +123,7 @@ setInterval(refreshDocs, config.DOCS_REINDEX_HOURS * 3_600_000).unref();
 if (relay) {
   await relay.start(
     ({ threadId, authorName, body }) => service.handleStaffReply(threadId, authorName, body),
-    (threadId) => service.resolve(threadId),
+    (threadId, deleted) => service.resolve(threadId, deleted),
   );
   console.log(`relay: ${relay.name} connected${config.LINEAR_API_KEY && anthropic ? ", tag the bot to file Linear tickets" : ""}`);
 }

@@ -18,7 +18,7 @@ function setup(responses: ConstructorParameters<typeof FakeClient>[0]) {
   const service = new ConversationService(db, new Agent(client, agentOpts), relay, () => {});
   void relay.start(
     ({ threadId, authorName, body }) => service.handleStaffReply(threadId, authorName, body),
-    (threadId) => service.resolve(threadId),
+    (threadId, deleted) => service.resolve(threadId, deleted),
   );
   const app = createServer(service, { allowedOrigins: [], maxConversationsPerIpPerHour: 5, maxMessagesPerConversationPerHour: 30 });
   return { db, client, relay, service, app };
@@ -133,6 +133,36 @@ describe("conversation flow", () => {
     expect(relay.events).toEqual(["resolved thread_1", "reopened thread_1"]);
     expect(client.requests).toHaveLength(3); // the assistant answered the new question
     expect(service.get(conv.id)?.status).toBe("agent");
+  });
+
+  it("resolves when the team deletes the post, and opens a new post if the user writes again", async () => {
+    const { app, relay, service } = setup([text("Here's how."), text("Sure.")]);
+    const conv = await startConversation(app);
+    await send(app, conv, "How do timers work?");
+    await service.idle(conv.id);
+    expect(await relay.delete("thread_1")).toBe(true);
+    expect(service.get(conv.id)).toMatchObject({ status: "resolved", relayThreadId: null });
+    expect(relay.events).toEqual([]); // nothing to mark on a deleted post
+
+    await send(app, conv, "Another question");
+    await service.idle(conv.id);
+    expect(service.get(conv.id)?.relayThreadId).toBe("thread_2");
+    expect(relay.threads.get("thread_2")!.posts[0]).toBe("user: Another question");
+  });
+
+  it("hands a conversation back to the assistant when its post was deleted without notice", async () => {
+    const { app, client, relay, service } = setup([toolCall("handoff_to_human", { reason: "Refund" }), text("Asked the team."), text("Here's how.")]);
+    const conv = await startConversation(app);
+    await send(app, conv, "I need a refund");
+    await service.idle(conv.id);
+    await relay.staffReply("thread_1", "On it");
+    relay.vanish("thread_1");
+
+    await send(app, conv, "How do timers work?");
+    await service.idle(conv.id);
+    expect(client.requests).toHaveLength(3); // the assistant answered again
+    expect(service.get(conv.id)).toMatchObject({ status: "agent", relayThreadId: "thread_2" });
+    expect(relay.threads.get("thread_2")!.posts).toEqual(["user: How do timers work?", "agent: Here's how."]);
   });
 
   it("hands off when the model declines or errors, without breaking the conversation", async () => {

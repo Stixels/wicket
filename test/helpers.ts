@@ -1,4 +1,4 @@
-import type { Relay, RelayConversation, StaffReply } from "../src/adapters/types.js";
+import { ThreadGoneError, type Relay, type RelayConversation, type StaffReply } from "../src/adapters/types.js";
 import type { MessagesClient } from "../src/agent/agent.js";
 
 /** Scripted stand-in for the Anthropic client: returns queued responses and records requests. */
@@ -30,10 +30,11 @@ export class FakeRelay implements Relay {
   name = "fake";
   threads = new Map<string, { conversation: RelayConversation; posts: string[] }>();
   humanRequests: string[] = [];
+  private opened = 0;
   events: string[] = [];
   private onReply?: (r: StaffReply) => Promise<void>;
-  private onResolved?: (threadId: string) => Promise<boolean>;
-  async start(onStaffReply: (r: StaffReply) => Promise<void>, onResolved?: (threadId: string) => Promise<boolean>) {
+  private onResolved?: (threadId: string, deleted?: boolean) => Promise<boolean>;
+  async start(onStaffReply: (r: StaffReply) => Promise<void>, onResolved?: (threadId: string, deleted?: boolean) => Promise<boolean>) {
     this.onReply = onStaffReply;
     this.onResolved = onResolved;
   }
@@ -47,13 +48,23 @@ export class FakeRelay implements Relay {
   close(threadId: string) {
     return this.onResolved!(threadId);
   }
+  /** Simulates the team deleting the post. */
+  delete(threadId: string) {
+    return this.onResolved!(threadId, true);
+  }
   async openThread(conversation: RelayConversation, firstMessage: string) {
-    const id = `thread_${this.threads.size + 1}`;
+    const id = `thread_${++this.opened}`;
     this.threads.set(id, { conversation, posts: [`user: ${firstMessage}`] });
     return id;
   }
   async post(threadId: string, author: string, body: string) {
-    this.threads.get(threadId)!.posts.push(`${author}: ${body}`);
+    const thread = this.threads.get(threadId);
+    if (!thread) throw new ThreadGoneError(threadId);
+    thread.posts.push(`${author}: ${body}`);
+  }
+  /** Deletes the thread without telling the service, like a missed Discord event. */
+  vanish(threadId: string) {
+    this.threads.delete(threadId);
   }
   async requestHuman(threadId: string, reason: string) {
     this.humanRequests.push(`${threadId}: ${reason}`);

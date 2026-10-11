@@ -212,41 +212,36 @@ button { font: inherit; color: inherit; }
   background: var(--wk-accent); color: var(--wk-on-accent); }
 .avatar img { width: 100%; height: 100%; object-fit: cover; }
 .avatar svg { width: 20px; height: 20px; }
-/* The assistant is a little orb with a face that looks around and blinks. While it thinks, the
-   header orb swirls faster and glows (both fade in and out), and the avatar in the conversation
-   shows bouncing dots. Only the header and the newest avatar move; older ones rest. */
+/* The assistant is a little orb with a face. Only the one in the header is alive: it looks around
+   and blinks, and while the assistant thinks its eyes ease into three bouncing dots, the swirl speeds
+   up and it glows (all faded in and out). The avatars beside messages stay still. */
 .avatar, .row .mini, .typing .mini { position: relative; }
 .bot { border-radius: 50% !important; isolation: isolate; font-size: 36px; overflow: visible !important; }
 .row .mini.bot, .typing .mini.bot { font-size: 26px; }
 .bot .orb, .bot .orb2 { position: absolute; inset: 0; z-index: -2; border-radius: 50%; overflow: hidden; }
 .bot .orb::before, .bot .orb2::before { content: ""; position: absolute; inset: -35%; filter: blur(2px);
   background: conic-gradient(from 0deg, var(--wk-accent), color-mix(in srgb, var(--wk-accent) 50%, white),
-    var(--wk-accent), color-mix(in srgb, var(--wk-accent) 60%, black), var(--wk-accent));
-  animation: wk-spin 8s linear infinite; }
+    var(--wk-accent), color-mix(in srgb, var(--wk-accent) 60%, black), var(--wk-accent)); }
 .bot .orb2 { opacity: 0; transition: opacity .6s ease; }
-.bot .orb2::before { animation-duration: 1.6s; }
 .bot::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: 50%;
   background: radial-gradient(circle at 32% 26%, rgba(255,255,255,.55), transparent 48%); }
-.bot::after { content: ""; position: absolute; inset: 0; z-index: -3; border-radius: 50%; opacity: 0;
+.bot .eyes { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
+.bot .eyes i { width: .12em; height: .2em; margin: 0 .06em; border-radius: 999px; background: var(--wk-on-accent);
+  transition: width .35s ease, height .35s ease, margin .35s ease, opacity .35s ease; }
+.bot .eyes i:nth-child(3) { width: 0; margin: 0; opacity: 0; }
+.head .bot .orb::before { animation: wk-spin 8s linear infinite; }
+.head .bot .orb2::before { animation: wk-spin 1.6s linear infinite; }
+.head .bot::after { content: ""; position: absolute; inset: 0; z-index: -3; border-radius: 50%; opacity: 0;
   transition: opacity .6s ease; animation: wk-ring 1.4s infinite ease-out; }
-.bot .eyes { display: flex; align-items: center; justify-content: center; gap: .12em; width: 100%; height: 100%;
-  animation: wk-look 9s infinite ease-in-out; }
-.bot .eyes i { width: .12em; height: .2em; border-radius: 999px; background: var(--wk-on-accent);
-  animation: wk-blink 4.6s infinite; }
-.bot .eyes i:nth-child(3) { display: none; }
-/* Two moving faces would compete, so the header blinks on its own beat. */
-.head .bot .eyes, .head .bot .eyes i { animation-delay: -2.3s; }
-.wk.thinking .avatar.bot .orb2 { opacity: 1; }
-.wk.thinking .avatar.bot::after { opacity: 1; }
-.typing .bot .orb2 { opacity: 1; }
-.typing .bot .eyes { gap: .07em; animation: none; }
-.typing .bot .eyes i { display: block; width: .11em; height: .11em; animation: wk-hop .9s infinite ease-in-out; }
-.typing .bot .eyes i:nth-child(2) { animation-delay: .12s; }
-.typing .bot .eyes i:nth-child(3) { animation-delay: .24s; }
-.typing .think { font-size: 13px; color: var(--wk-muted); padding-bottom: 4px;
+.head .bot .eyes { animation: wk-look 9s infinite ease-in-out; }
+.head .bot .eyes i { animation: wk-blink 4.6s infinite; }
+.wk.thinking .head .bot .orb2, .wk.thinking .head .bot::after { opacity: 1; }
+.wk.thinking .head .bot .eyes i { width: .11em; height: .11em; margin: 0 .035em; opacity: 1; animation: wk-hop .9s infinite ease-in-out; }
+.wk.thinking .head .bot .eyes i:nth-child(2) { animation-delay: .12s; }
+.wk.thinking .head .bot .eyes i:nth-child(3) { animation-delay: .24s; }
+.typing .think { font-size: 13px; padding-bottom: 4px;
   background: linear-gradient(90deg, var(--wk-muted) 40%, var(--wk-text) 50%, var(--wk-muted) 60%) 0 0 / 300% 100%;
   -webkit-background-clip: text; background-clip: text; color: transparent; animation: wk-shimmer 2s linear infinite; }
-.row .mini.bot:not(.live) .orb::before, .row .mini.bot:not(.live) .eyes, .row .mini.bot:not(.live) .eyes i { animation: none; }
 .row.agent .mini.bot.live { animation: wk-pop .45s cubic-bezier(.2,.8,.2,1) both; }
 .avatar:not(.bot)::after { content: ""; position: absolute; inset: 0; pointer-events: none;
   background: linear-gradient(115deg, transparent 35%, rgba(255,255,255,.5) 50%, transparent 65%) no-repeat;
@@ -297,9 +292,9 @@ button { font: inherit; color: inherit; }
 .typing { display: none; gap: 8px; align-items: flex-end; margin-top: 6px; }
 .typing.on { display: flex; }
 .typing .msg { display: inline-flex; gap: 4px; padding: 14px 14px; background: var(--wk-bubble); border: 1px solid var(--wk-border); border-bottom-left-radius: 6px; }
-.typing i { width: 6px; height: 6px; border-radius: 50%; background: var(--wk-muted); animation: wk-bounce 1.2s infinite ease-in-out; }
-.typing i:nth-child(2) { animation-delay: .15s; }
-.typing i:nth-child(3) { animation-delay: .3s; }
+.typing .msg i { width: 6px; height: 6px; border-radius: 50%; background: var(--wk-muted); animation: wk-bounce 1.2s infinite ease-in-out; }
+.typing .msg i:nth-child(2) { animation-delay: .15s; }
+.typing .msg i:nth-child(3) { animation-delay: .3s; }
 
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 4px 34px; }
 /* Conversation list */
@@ -745,12 +740,12 @@ class Widget {
     });
     es.addEventListener("typing", () => {
       this.typing.classList.add("on");
-      this.wrap.classList.add("thinking");
+      this.startThinking();
       this.scrollDown();
     });
     es.addEventListener("idle", () => {
       this.typing.classList.remove("on");
-      this.wrap.classList.remove("thinking");
+      this.stopThinking();
     });
     es.addEventListener("error", () => {
       // A 404 means the conversation is gone (e.g. database reset): start fresh.
@@ -761,6 +756,28 @@ class Widget {
           .catch(() => {});
       }
     });
+  }
+
+  private thinkingStop?: () => void;
+
+  private startThinking() {
+    this.thinkingStop?.();
+    this.wrap.classList.add("thinking");
+  }
+
+  /** Lets the bouncing dots finish their hop before the eyes come back, so nothing jumps. */
+  private stopThinking() {
+    if (!this.wrap.classList.contains("thinking") || this.thinkingStop) return;
+    const dot = this.wrap.querySelector(".head .bot .eyes i");
+    const done = () => {
+      dot?.removeEventListener("animationiteration", done);
+      clearTimeout(timer);
+      this.thinkingStop = undefined;
+      this.wrap.classList.remove("thinking");
+    };
+    const timer = setTimeout(done, 1000);
+    dot?.addEventListener("animationiteration", done);
+    this.thinkingStop = done;
   }
 
   /** Only the newest assistant avatar in the conversation stays animated. */
@@ -785,7 +802,7 @@ class Widget {
     }
     if (m.author !== "user") {
       this.typing.classList.remove("on");
-      this.wrap.classList.remove("thinking");
+      this.stopThinking();
     }
 
     if (m.author === "system") {

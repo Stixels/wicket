@@ -3,7 +3,7 @@ import { EventEmitter } from "node:events";
 import { asc, eq } from "drizzle-orm";
 import type Anthropic from "@anthropic-ai/sdk";
 import { schema, type Db } from "./db/index.js";
-import type { Relay } from "./adapters/types.js";
+import { ThreadGoneError, type Relay } from "./adapters/types.js";
 import type { Agent } from "./agent/agent.js";
 import { searchDocs } from "./knowledge/index.js";
 
@@ -123,12 +123,17 @@ export class ConversationService {
   }
 
   /** Called by the relay when the team closes a conversation's thread. Returns false if it already was. */
-  async resolve(threadId: string): Promise<boolean> {
+  async resolve(threadId: string, deleted = false): Promise<boolean> {
     const c = this.db.select().from(schema.conversations).where(eq(schema.conversations.relayThreadId, threadId)).get();
-    if (!c || c.status === "resolved") return false;
+    if (!c) return false;
+    if (deleted) {
+      // The post is gone: forget it, so a new message opens a fresh post.
+      this.db.update(schema.conversations).set({ relayThreadId: null }).where(eq(schema.conversations.id, c.id)).run();
+    }
+    if (c.status === "resolved") return false;
     this.setStatus(c.id, "resolved");
     this.addMessage(c.id, "system", "The team marked this conversation as resolved. Write here anytime if you need anything else.", null);
-    if (this.relay?.markResolved) await this.relay.markResolved(threadId).catch((err) => this.log("relay markResolved failed", err));
+    if (!deleted && this.relay?.markResolved) await this.relay.markResolved(threadId).catch((err) => this.log("relay markResolved failed", err));
     return true;
   }
 
@@ -151,6 +156,7 @@ export class ConversationService {
     if (!c) return;
 
     await this.mirror(id, "user", body, c.reporterName);
+    c.status = this.get(id)?.status ?? c.status; // mirroring can hand a conversation back (deleted post)
     if (c.status === "resolved") {
       // A new question after the team closed it: the assistant takes it first again.
       this.setStatus(id, "agent");
@@ -232,6 +238,15 @@ export class ConversationService {
       const threadId = this.get(id)?.relayThreadId;
       if (threadId) await this.relay.post(threadId, author, body, authorName);
     } catch (err) {
+      if (err instanceof ThreadGoneError) {
+        // The team deleted the post. Nobody can answer there, so the assistant takes over again,
+        // and the conversation gets a fresh post starting from this message.
+        this.db.update(schema.conversations).set({ relayThreadId: null }).where(eq(schema.conversations.id, id)).run();
+        if (this.get(id)?.status !== "agent") this.setStatus(id, "agent");
+        this.log(`relay thread for ${id} was deleted; opening a new one`);
+        if (author === "user") await this.ensureThread(id, body).catch((e) => this.log(`relay reopen failed for ${id}`, e));
+        return;
+      }
       this.log(`relay post failed for ${id}`, err);
     }
   }

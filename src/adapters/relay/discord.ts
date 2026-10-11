@@ -10,7 +10,7 @@ import {
   type TextChannel,
   type ThreadChannel,
 } from "discord.js";
-import type { Relay, RelayConversation, StaffReply } from "../types.js";
+import { ThreadGoneError, type Relay, type RelayConversation, type StaffReply } from "../types.js";
 import { attachVoiceRooms, type VoiceHub } from "../../discord/voiceRooms.js";
 import { attachTicketCommand, mentionsBot, type TicketCommandOptions } from "../../discord/tickets.js";
 
@@ -60,7 +60,7 @@ export class DiscordRelay implements Relay {
     if (opts.tickets) attachTicketCommand(this.client, opts.tickets);
   }
 
-  async start(onStaffReply: (reply: StaffReply) => Promise<void>, onResolved?: (threadId: string) => Promise<boolean>): Promise<void> {
+  async start(onStaffReply: (reply: StaffReply) => Promise<void>, onResolved?: (threadId: string, deleted?: boolean) => Promise<boolean>): Promise<void> {
     this.client.on(Events.MessageCreate, async (message: Message) => {
       if (message.author.bot || message.system || !message.channel.isThread()) return;
       if (message.channel.parentId !== this.opts.channelId) return;
@@ -84,7 +84,17 @@ export class DiscordRelay implements Relay {
         if (after.parentId !== this.opts.channelId) return;
         const closed = !before.archived && after.archived && !this.autoArchived(after);
         const tagged = this.hasTag(after, RESOLVED_TAG) && !this.hasTag(before, RESOLVED_TAG);
-        if (closed || tagged) await onResolved(after.id).catch((err) => console.error("discord: failed to resolve", err));
+        if (!before.archived && after.archived && !closed) console.log(`discord: post "${after.name}" auto-archived after inactivity, left open`);
+        if (closed || tagged) {
+          const done = await onResolved(after.id).catch((err) => (console.error("discord: failed to resolve", err), false));
+          if (done) console.log(`discord: post "${after.name}" ${closed ? "closed" : "tagged Resolved"}, conversation resolved`);
+        }
+      });
+      // Deleting a post also resolves it; a new message from the user then opens a fresh post.
+      this.client.on(Events.ThreadDelete, async (thread) => {
+        if (thread.parentId !== this.opts.channelId) return;
+        await onResolved(thread.id, true).catch((err) => console.error("discord: failed to resolve", err));
+        console.log(`discord: post "${thread.name}" deleted, conversation resolved`);
       });
     }
     if (this.opts.communityHelpChannelId && this.opts.answerCommunityPost) {
@@ -211,8 +221,11 @@ export class DiscordRelay implements Relay {
   }
 
   private async thread(id: string): Promise<ThreadChannel> {
-    const ch = await this.client.channels.fetch(id);
-    if (!ch?.isThread()) throw new Error(`Discord thread ${id} not found`);
+    const ch = await this.client.channels.fetch(id).catch((err) => {
+      if (err?.code === 10003) throw new ThreadGoneError(id); // Unknown Channel: the post was deleted
+      throw err;
+    });
+    if (!ch?.isThread()) throw new ThreadGoneError(id);
     if (ch.archived) await ch.setArchived(false).catch(() => {});
     return ch;
   }
@@ -239,6 +252,8 @@ function contextFields(ctx: Record<string, unknown> | null) {
   if (errors) fields.push({ name: "Recent errors", value: String(errors), inline: true });
   return fields;
 }
+
+export { ThreadGoneError };
 
 export function chunk(text: string, size = LIMIT): string[] {
   const out: string[] = [];
