@@ -85,6 +85,22 @@ export class ConversationService {
       .map(toPublic);
   }
 
+  /** What the widget's conversation list shows: the opening message and the latest one. */
+  summary(id: string) {
+    const c = this.get(id);
+    if (!c) return null;
+    const messages = this.list(id);
+    const first = messages.find((m) => m.author === "user");
+    const last = messages.at(-1);
+    return {
+      id: c.id,
+      status: c.status,
+      title: first?.body.slice(0, 140) ?? "",
+      last: last ? { author: last.author, authorName: last.authorName, body: last.body.slice(0, 200), createdAt: last.createdAt } : null,
+      updatedAt: last?.createdAt ?? c.createdAt.getTime(),
+    };
+  }
+
   /** Accepts a user message and processes it in the background (one at a time per conversation). */
   async postUserMessage(id: string, body: string, contextUpdate?: Record<string, unknown>): Promise<PublicMessage> {
     const text = body.trim().slice(0, MAX_BODY);

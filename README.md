@@ -61,21 +61,23 @@ You can also call `Wicket.open()`, `Wicket.close()`, `Wicket.setContext({ roomId
 
 The widget renders in a shadow DOM, so your app's CSS can't break it and its CSS can't leak into your app. On phones it opens full screen.
 
+Earlier conversations show under **Recent** on the start screen, and the clock button in the header lists all of them. The list lives in the browser (each conversation's access token is kept in `localStorage`, up to 50), so it doesn't follow someone to another device or browser yet.
+
 ## Set up Discord (community + support inbox)
 
 1. Go to https://discord.com/developers/applications and create a **New Application**. Under **Bot**, copy the token and turn on **Message Content Intent**.
-2. Under **OAuth2 → URL Generator**, pick the `bot` scope with these permissions: Manage Roles, Manage Channels, Move Members, View Channels, Send Messages, Send Messages in Threads, Create Public Threads, Manage Threads, Read Message History and Add Reactions. Open the URL and add the bot to your server.
+2. Under **OAuth2 → URL Generator**, pick the `bot` scope with these permissions: Manage Roles, Manage Channels, Move Members, View Channels, Send Messages, Send Messages in Threads, Create Public Threads, Manage Threads, Read Message History, Add Reactions, Embed Links and Manage Messages (to pin the welcome post). Manage Server is optional: with it the bot also points join messages and the Community welcome screen at `#welcome`. Open the URL and add the bot to your server.
 3. Turn on Developer Mode (User Settings → Advanced). Right-click your server and choose **Copy Server ID**.
 4. Set `DISCORD_BOT_TOKEN` and `DISCORD_GUILD_ID` in the service variables. On every boot the service makes sure the server has a **Team** role and these channels, creating only what's missing:
 
    | Category | Channels | Who sees it |
    |---|---|---|
-   | Start here | `#welcome`, `#announcements` | Everyone; only the team posts |
-   | Support | `#help` (forum), `🎧 Talk to support` (voice) | Everyone |
-| Community | `#general`, `#ideas` (forum), `#show-and-tell`, `➕ Start a call` (voice) | Everyone |
+   | Start here | `#👋・welcome`, `#📣・announcements` | Everyone; only the team posts |
+   | Support | `#❓・help` (forum), `🎧 Talk to support` (voice) | Everyone |
+   | Community | `#💬・general`, `#💡・ideas` (forum), `#📸・show-and-tell`, `➕ Start a call` (voice) | Everyone |
    | Team | `#support-inbox` (forum), `#team-chat` | Team role only |
 
-   Channels that already exist with the same name are reused as they are, and nothing is ever deleted. To use an existing staff role, set `DISCORD_TEAM_ROLE` to its name. You can also run it by hand with `npm run discord:setup`.
+   Channels are matched by name with or without the emoji, and nothing is ever deleted. An existing channel keeps its place and settings; the bot only adds the emoji while it still has the plain name, fills in an empty topic, and adds forum tags and the 👍 default reaction on `#ideas` when they're missing. It keeps **Start here** at the top so new members land in `#welcome`, and keeps a pinned welcome post there with the house rules and where to go. Anything it can't do itself is logged as `discord: needs you: …`. To use an existing staff role, set `DISCORD_TEAM_ROLE` to its name. You can also run it by hand with `npm run discord:setup`.
 5. Give your teammates the **Team** role.
 
 How it behaves:

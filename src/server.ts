@@ -24,6 +24,10 @@ const messageBody = z.object({
   context: z.record(z.string(), z.unknown()).optional(),
 });
 
+const summariesBody = z.object({
+  conversations: z.array(z.object({ id: z.string().max(64), token: z.string().max(128) })).max(50),
+});
+
 export function createServer(service: ConversationService, opts: ServerOptions) {
   const app = new Hono();
   const limiter = new RateLimiter();
@@ -71,6 +75,17 @@ export function createServer(service: ConversationService, opts: ServerOptions) 
     const parsed = createBody.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: "Invalid request" }, 400);
     return c.json(service.create(parsed.data.reporter, parsed.data.context), 201);
+  });
+
+  // The widget keeps the id and token of each conversation it started and asks for their summaries.
+  app.post("/api/conversations/summaries", async (c) => {
+    const parsed = summariesBody.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: "Invalid request" }, 400);
+    const conversations = parsed.data.conversations
+      .filter((x) => service.authorize(x.id, x.token))
+      .map((x) => service.summary(x.id)!)
+      .sort((a, b) => b.updatedAt - a.updatedAt);
+    return c.json({ conversations });
   });
 
   app.get("/api/conversations/:id/messages", (c) => {

@@ -148,6 +148,23 @@ describe("conversation flow", () => {
     expect((await app.request(`/api/conversations/${conv.id}/events?token=nope`)).status).toBe(404);
   });
 
+  it("lists summaries only for conversations whose token matches", async () => {
+    const { app, service } = setup([text("Open Live View settings to add a timer.")]);
+    const conv = await startConversation(app);
+    await send(app, conv, "How do I add a timer?");
+    await service.idle(conv.id);
+    const other = await startConversation(app);
+    const res = await app.request("/api/conversations/summaries", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ conversations: [conv, { id: other.id, token: "wrong" }] }),
+    });
+    const { conversations } = (await res.json()) as { conversations: any[] };
+    expect(conversations.map((c) => c.id)).toEqual([conv.id]);
+    expect(conversations[0].title).toBe("How do I add a timer?");
+    expect(conversations[0].last).toMatchObject({ author: "agent", body: "Open Live View settings to add a timer." });
+  });
+
   it("limits new conversations per IP", async () => {
     const { app } = setup([]);
     const statuses: number[] = [];

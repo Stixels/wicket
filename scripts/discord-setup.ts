@@ -13,9 +13,11 @@ if (!token || !guildId) {
   process.exit(1);
 }
 
-const result = await setupGuild(token, guildId, process.env.DISCORD_TEAM_ROLE);
-console.log(result.created.length ? `Created: ${result.created.join(", ")}` : "Everything already existed.");
+const result = await setupGuild(token, guildId, {
+  teamRoleName: process.env.DISCORD_TEAM_ROLE,
+  productName: process.env.PRODUCT_NAME,
+  docsUrl: process.env.DOCS_BASE_URL,
+});
+console.log(result.created.length ? `Changed: ${result.created.join(", ")}` : "Everything was already set up.");
 console.log(`\nsupport inbox ${result.supportInboxId}, help ${result.helpId}, team role ${result.teamRoleId}`);
-if (!result.hasCommunity) {
-  console.log("Tip: turn on Community in Server Settings to get a real announcement channel and a welcome screen.");
-}
+for (const step of result.manual) console.log(`Needs you: ${step}`);

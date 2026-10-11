@@ -62,6 +62,14 @@ interface InitOptions {
   accentColor?: string;
 }
 
+interface Summary {
+  id: string;
+  status: string;
+  title: string;
+  last: { author: string; authorName: string | null; body: string; createdAt: number } | null;
+  updatedAt: number;
+}
+
 interface Message {
   id: number;
   author: "user" | "agent" | "staff" | "system";
@@ -252,6 +260,28 @@ button { font: inherit; color: inherit; }
 .typing i:nth-child(3) { animation-delay: .3s; }
 
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 4px 34px; }
+/* Conversation list */
+.recent { margin: 18px 0 4px; display: flex; flex-direction: column; gap: 8px; }
+.recent-h { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .04em; color: var(--wk-muted); padding: 0 2px; }
+.linkish { border: 0; background: none; padding: 0; font: inherit; font-size: 12.5px; text-transform: none; letter-spacing: 0;
+  color: var(--wk-accent); cursor: pointer; font-weight: 600; }
+.wk.dark .linkish { color: color-mix(in srgb, var(--wk-accent) 60%, white); }
+.conv { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; width: 100%; text-align: left; font: inherit; color: inherit;
+  padding: 12px 14px; border-radius: 14px; border: 1px solid var(--wk-border); background: var(--wk-bubble); cursor: pointer;
+  transition: border-color .15s, transform .15s; }
+.conv:hover { border-color: color-mix(in srgb, var(--wk-accent) 40%, var(--wk-border)); transform: translateY(-1px); }
+.conv:focus-visible { outline: 3px solid color-mix(in srgb, var(--wk-accent) 45%, transparent); outline-offset: 2px; }
+.conv .ct { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.conv .cw { font-size: 12px; color: var(--wk-muted); }
+.conv .cl { grid-column: 1 / -1; font-size: 13px; color: var(--wk-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.conv .cl b { font-weight: 600; color: var(--wk-text); }
+.empty { color: var(--wk-muted); font-size: 14px; text-align: center; padding: 32px 0; }
+.new-conv { margin-top: 6px; align-self: center; border: 0; border-radius: 999px; padding: 10px 18px; font: inherit; font-size: 14px;
+  font-weight: 600; background: var(--wk-accent); color: var(--wk-on-accent); cursor: pointer; }
+.wk.list .composer { display: none; }
+.wk.list .titles .subtitle { display: none; }
+.wk.home .hist { display: none; }
 .chip { border: 1px solid color-mix(in srgb, var(--wk-accent) 35%, var(--wk-border)); background: var(--wk-bg); color: var(--wk-accent);
   border-radius: 999px; padding: 7px 13px; font-size: 13px; font-weight: 550; cursor: pointer; transition: background .15s, transform .15s; }
 .wk.dark .chip { color: color-mix(in srgb, var(--wk-accent) 60%, white); }
@@ -294,6 +324,7 @@ const ICONS = {
   x: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>`,
   plus: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.4 3.6a2 2 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>`,
   send: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>`,
+  history: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg>`,
   spark: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5c.4 3.9 1.9 6.3 4.3 7.6 1.2.7 2.6 1.1 4.2 1.4v1c-3.9.4-6.3 1.9-7.6 4.3-.7 1.2-1.1 2.6-1.4 4.2h-1c-.4-3.9-1.9-6.3-4.3-7.6-1.2-.7-2.6-1.1-4.2-1.4v-1c3.9-.4 6.3-1.9 7.6-4.3.7-1.2 1.1-2.6 1.4-4.2Z"/></svg>`,
 };
 
@@ -420,6 +451,7 @@ class Widget {
             <div class="title">${escapeHtml(o.title!)}</div>
             ${o.subtitle ? `<div class="subtitle"><span class="dot"></span><span>${escapeHtml(o.subtitle)}</span></div>` : ""}
           </div>
+          <button class="icon-btn hist" title="Your conversations" aria-label="Your conversations">${ICONS.history}</button>
           <button class="icon-btn new" title="New conversation" aria-label="New conversation">${ICONS.plus}</button>
           <button class="icon-btn x" title="Close" aria-label="Close">${ICONS.x}</button>
           </div>
@@ -462,6 +494,9 @@ class Widget {
     launcher.addEventListener("click", () => this.toggle());
     this.wrap.querySelector(".x")!.addEventListener("click", () => this.close());
     this.wrap.querySelector(".new")!.addEventListener("click", () => this.reset());
+    this.wrap.querySelector(".hist")!.addEventListener("click", () =>
+      this.wrap.classList.contains("list") ? this.reset() : void this.showHistory(),
+    );
     this.wrap.querySelector("form")!.addEventListener("submit", (e) => {
       e.preventDefault();
       void this.send();
@@ -505,6 +540,94 @@ class Widget {
       this.chips.appendChild(chip);
     }
     if (this.chips.childElementCount) this.log.insertBefore(this.chips, this.typing);
+    void this.showRecent();
+  }
+
+  /** Up to three earlier conversations under the start screen. */
+  private async showRecent() {
+    const list = await this.summaries();
+    if (!list.length || !this.wrap.classList.contains("home")) return;
+    const box = document.createElement("div");
+    box.className = "recent";
+    box.innerHTML = `<div class="recent-h"><span>Recent</span>${list.length > 3 ? `<button class="linkish" type="button">See all</button>` : ""}</div>`;
+    box.querySelector(".linkish")?.addEventListener("click", () => void this.showHistory());
+    for (const c of list.slice(0, 3)) box.appendChild(this.convCard(c));
+    this.log.querySelector(".recent")?.remove();
+    this.log.insertBefore(box, this.typing);
+  }
+
+  private async showHistory() {
+    this.source?.close();
+    this.source = null;
+    this.conv = null;
+    this.chips.remove();
+    this.wrap.classList.remove("home");
+    this.wrap.classList.add("list");
+    this.log.innerHTML = `<div class="empty">Loading…</div>`;
+    const list = await this.summaries();
+    if (!this.wrap.classList.contains("list")) return;
+    this.log.innerHTML = "";
+    const box = document.createElement("div");
+    box.className = "recent";
+    box.innerHTML = `<div class="recent-h"><span>Your conversations</span></div>`;
+    for (const c of list) box.appendChild(this.convCard(c));
+    if (!list.length) box.insertAdjacentHTML("beforeend", `<div class="empty">No conversations yet.</div>`);
+    const start = document.createElement("button");
+    start.className = "new-conv";
+    start.type = "button";
+    start.textContent = "Start a new conversation";
+    start.addEventListener("click", () => this.reset());
+    box.appendChild(start);
+    this.log.appendChild(box);
+  }
+
+  private convCard(c: Summary) {
+    const el = document.createElement("button");
+    el.type = "button";
+    el.className = "conv";
+    const who = !c.last ? "" : c.last.author === "user" ? "You" : c.last.author === "staff" ? c.last.authorName ?? "Team" : c.last.author === "agent" ? "Assistant" : "";
+    el.innerHTML = `<span class="ct">${escapeHtml(c.title || "Conversation")}</span><span class="cw">${timeAgo(c.updatedAt)}</span>
+      <span class="cl">${who ? `<b>${escapeHtml(who)}:</b> ` : ""}${escapeHtml(c.last?.body ?? "")}</span>`;
+    el.addEventListener("click", () => this.openConversation(c));
+    return el;
+  }
+
+  private openConversation(c: { id: string }) {
+    const saved = this.loadList().find((x) => x.id === c.id);
+    if (!saved) return;
+    this.source?.close();
+    this.source = null;
+    this.conv = saved;
+    this.store();
+    this.seen.clear();
+    this.lastId = 0;
+    this.lastAuthor = null;
+    this.chips.remove();
+    this.log.innerHTML = "";
+    this.log.appendChild(this.typing);
+    this.wrap.classList.remove("home", "list");
+    this.connect();
+    this.input.focus();
+  }
+
+  private async summaries(): Promise<Summary[]> {
+    const conversations = this.loadList();
+    if (!conversations.length) return [];
+    try {
+      const res = await fetch(`${this.opts.apiUrl}/api/conversations/summaries`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversations }),
+      });
+      if (!res.ok) return [];
+      const list = ((await res.json()).conversations ?? []) as Summary[];
+      // Forget conversations the server no longer knows (e.g. after a database reset).
+      const known = new Set(list.map((x) => x.id));
+      this.saveList(conversations.filter((x) => known.has(x.id)));
+      return list;
+    } catch {
+      return [];
+    }
   }
 
   private reset() {
@@ -516,6 +639,7 @@ class Widget {
     try {
       localStorage.removeItem(this.storageKey());
     } catch {}
+    this.wrap.classList.remove("list");
     this.showGreeting();
     this.input.focus();
   }
@@ -533,6 +657,7 @@ class Widget {
         const res = await this.api("/api/conversations", { reporter: this.opts.user ?? {}, context: this.collectContext() });
         this.conv = { id: res.id, token: res.token };
         this.store();
+        this.saveList([this.conv, ...this.loadList()]);
         this.connect();
       }
       this.input.value = "";
@@ -582,7 +707,11 @@ class Widget {
   }
 
   private appendBubble(m: Message) {
-    if (m.id > 0) this.wrap.classList.remove("home");
+    if (m.id > 0 && this.wrap.classList.contains("home")) {
+      this.wrap.classList.remove("home");
+      this.chips.remove();
+      this.log.querySelector(".recent")?.remove();
+    }
     if (m.id && this.seen.has(m.id)) return;
     if (m.id) {
       this.seen.add(m.id);
@@ -683,11 +812,38 @@ class Widget {
       localStorage.setItem(this.storageKey(), JSON.stringify(this.conv));
     } catch {}
   }
+
+  /** Every conversation started in this browser, newest first. */
+  private loadList(): { id: string; token: string }[] {
+    let list: { id: string; token: string }[] = [];
+    try {
+      list = JSON.parse(localStorage.getItem(`${this.storageKey()}:all`) ?? "[]");
+    } catch {}
+    const current = this.loadStored();
+    if (current && !list.some((x) => x.id === current.id)) list.unshift(current);
+    return list;
+  }
+
+  private saveList(list: { id: string; token: string }[]) {
+    try {
+      const unique = list.filter((x, i) => list.findIndex((y) => y.id === x.id) === i);
+      localStorage.setItem(`${this.storageKey()}:all`, JSON.stringify(unique.slice(0, 50)));
+    } catch {}
+  }
 }
 
 /** Drops undefined keys so they don't override defaults when spread. */
 function defined<T extends object>(o: T): T {
   return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as T;
+}
+
+function timeAgo(ms: number): string {
+  const s = Math.max(0, (Date.now() - ms) / 1000);
+  if (s < 60) return "now";
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h`;
+  if (s < 604800) return `${Math.floor(s / 86400)}d`;
+  return new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
 function escapeHtml(s: string): string {
