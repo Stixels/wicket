@@ -122,6 +122,16 @@ export class ConversationService {
     this.addMessage(c.id, "staff", body.slice(0, MAX_BODY), authorName);
   }
 
+  /** Called by the relay when the team closes a conversation's thread. Returns false if it already was. */
+  async resolve(threadId: string): Promise<boolean> {
+    const c = this.db.select().from(schema.conversations).where(eq(schema.conversations.relayThreadId, threadId)).get();
+    if (!c || c.status === "resolved") return false;
+    this.setStatus(c.id, "resolved");
+    this.addMessage(c.id, "system", "The team marked this conversation as resolved. Write here anytime if you need anything else.", null);
+    if (this.relay?.markResolved) await this.relay.markResolved(threadId).catch((err) => this.log("relay markResolved failed", err));
+    return true;
+  }
+
   /** Waits for queued work on a conversation (used by tests and graceful shutdown). */
   async idle(id: string): Promise<void> {
     await this.queues.get(id);
@@ -140,7 +150,13 @@ export class ConversationService {
     const c = this.get(id);
     if (!c) return;
 
-    await this.mirror(id, "user", body);
+    await this.mirror(id, "user", body, c.reporterName);
+    if (c.status === "resolved") {
+      // A new question after the team closed it: the assistant takes it first again.
+      this.setStatus(id, "agent");
+      c.status = "agent";
+      if (c.relayThreadId && this.relay?.reopen) await this.relay.reopen(c.relayThreadId).catch((err) => this.log("relay reopen failed", err));
+    }
     if (c.status !== "agent" || !this.agent) {
       if (!this.agent && c.status === "agent") {
         await this.handoff(id, "New message (no assistant configured).");
@@ -159,6 +175,7 @@ export class ConversationService {
     this.saveTurns(id, [userTurn]);
 
     this.events.emit(id, { type: "typing" });
+    const stopTyping = this.relayTyping(id);
     try {
       const result = await this.agent.respond(this.history(id), {
         searchDocs: (q) => searchDocs(this.db, q),
@@ -176,8 +193,20 @@ export class ConversationService {
       this.addMessage(id, "agent", msg, null);
       await this.mirror(id, "agent", msg);
     } finally {
+      stopTyping();
       this.events.emit(id, { type: "idle" });
     }
+  }
+
+  /** Keeps the relay's typing indicator on while the assistant works (Discord's lasts about 10s). */
+  private relayTyping(id: string): () => void {
+    const threadId = this.get(id)?.relayThreadId;
+    const relay = this.relay;
+    if (!threadId || !relay?.typing) return () => {};
+    const ping = () => void relay.typing!(threadId).catch(() => {});
+    ping();
+    const timer = setInterval(ping, 8000);
+    return () => clearInterval(timer);
   }
 
   private async handoff(id: string, reason: string) {
@@ -191,7 +220,7 @@ export class ConversationService {
   }
 
   /** Posts to the conversation's relay thread, creating it on the first message. */
-  private async mirror(id: string, author: "user" | "agent" | "system", body: string) {
+  private async mirror(id: string, author: "user" | "agent" | "system", body: string, authorName?: string | null) {
     if (!this.relay) return;
     const c = this.get(id);
     if (!c) return;
@@ -201,7 +230,7 @@ export class ConversationService {
         if (author === "user") return; // first message went into the thread opener
       }
       const threadId = this.get(id)?.relayThreadId;
-      if (threadId) await this.relay.post(threadId, author, body);
+      if (threadId) await this.relay.post(threadId, author, body, authorName);
     } catch (err) {
       this.log(`relay post failed for ${id}`, err);
     }
@@ -234,7 +263,7 @@ export class ConversationService {
     return msg;
   }
 
-  private setStatus(id: string, status: "agent" | "needs_human" | "human") {
+  private setStatus(id: string, status: "agent" | "needs_human" | "human" | "resolved") {
     this.db
       .update(schema.conversations)
       .set({ status, updatedAt: new Date() })

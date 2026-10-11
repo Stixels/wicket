@@ -34,11 +34,18 @@ export interface StaffReply {
 /** Mirrors conversations into the team's chat tool and brings replies back. */
 export interface Relay {
   name: string;
-  start(onStaffReply: (reply: StaffReply) => Promise<void>): Promise<void>;
+  /** onResolved returns true when the conversation wasn't resolved yet. */
+  start(onStaffReply: (reply: StaffReply) => Promise<void>, onResolved?: (threadId: string) => Promise<boolean>): Promise<void>;
   /** Creates the team-side thread for a conversation; returns its id. */
   openThread(conversation: RelayConversation, firstMessage: string): Promise<string>;
-  post(threadId: string, author: "user" | "agent" | "system", body: string): Promise<void>;
+  post(threadId: string, author: "user" | "agent" | "system", body: string, authorName?: string | null): Promise<void>;
   /** Flags a thread as needing a person (mention a role, tag the post, ...). */
   requestHuman(threadId: string, reason: string): Promise<void>;
+  /** Shows that the assistant is working (e.g. "is typing…"). Optional. */
+  typing?(threadId: string): Promise<void>;
+  /** Marks the team-side thread resolved after the team closed it. Optional. */
+  markResolved?(threadId: string): Promise<void>;
+  /** Clears the resolved state when the user writes again. Optional. */
+  reopen?(threadId: string): Promise<void>;
   stop(): Promise<void>;
 }

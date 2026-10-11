@@ -586,7 +586,7 @@ class Widget {
     el.type = "button";
     el.className = "conv";
     const who = !c.last ? "" : c.last.author === "user" ? "You" : c.last.author === "staff" ? c.last.authorName ?? "Team" : c.last.author === "agent" ? "Assistant" : "";
-    el.innerHTML = `<span class="ct">${escapeHtml(c.title || "Conversation")}</span><span class="cw">${timeAgo(c.updatedAt)}</span>
+    el.innerHTML = `<span class="ct">${escapeHtml(c.title || "Conversation")}</span><span class="cw">${c.status === "resolved" ? "Resolved · " : ""}${timeAgo(c.updatedAt)}</span>
       <span class="cl">${who ? `<b>${escapeHtml(who)}:</b> ` : ""}${escapeHtml(c.last?.body ?? "")}</span>`;
     el.addEventListener("click", () => this.openConversation(c));
     return el;

@@ -101,7 +101,10 @@ await refreshDocs();
 setInterval(refreshDocs, config.DOCS_REINDEX_HOURS * 3_600_000).unref();
 
 if (relay) {
-  await relay.start(({ threadId, authorName, body }) => service.handleStaffReply(threadId, authorName, body));
+  await relay.start(
+    ({ threadId, authorName, body }) => service.handleStaffReply(threadId, authorName, body),
+    (threadId) => service.resolve(threadId),
+  );
   console.log(`relay: ${relay.name} connected`);
 }
 

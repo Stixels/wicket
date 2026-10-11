@@ -35,6 +35,8 @@ interface ChannelSpec {
   topic: string;
   access: "public" | "read-only" | "team";
   tags?: { name: string; emoji: string }[];
+  /** Earlier default topics, replaced with the current one since nobody chose them by hand. */
+  oldTopics?: string[];
   /** Forums only: the reaction every new post starts with. */
   reaction?: string;
 }
@@ -100,7 +102,10 @@ const LAYOUT: { category: string; channels: ChannelSpec[] }[] = [
         name: "support-inbox",
         kind: "forum",
         access: "team",
-        topic: "Every in-app conversation lands here. Reply in a post to answer the user in the app.",
+        topic:
+          "Every in-app conversation lands here. Reply in a post to answer the user in the app. " +
+          "Close the post (or tag it Resolved) when you're done: the user is told, and it reopens if they write again.",
+        oldTopics: ["Every in-app conversation lands here. Reply in a post to answer the user in the app."],
         tags: [
           { name: "Needs a person", emoji: "🙋" },
           { name: "Bug", emoji: "🐛" },
@@ -307,7 +312,7 @@ async function freshen(channel: GuildBasedChannel, spec: ChannelSpec): Promise<s
     await c.setName(displayName(spec));
     done.push(`renamed #${spec.name} to #${displayName(spec)}`);
   }
-  if (spec.topic && "topic" in c && !c.topic) {
+  if (spec.topic && "topic" in c && (!c.topic || spec.oldTopics?.includes(c.topic))) {
     await c.setTopic(spec.topic);
     done.push(`topic on #${spec.name}`);
   }

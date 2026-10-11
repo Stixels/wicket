@@ -5,13 +5,14 @@ import { sqliteTable, text, integer, index } from "drizzle-orm/sqlite-core";
  *  - "agent": the agent answers
  *  - "needs_human": the agent asked for a person; it stays quiet until someone replies
  *  - "human": a team member replied in the relay; the agent stays quiet
+ *  - "resolved": the team closed it; the next user message hands it back to the agent
  */
 export const conversations = sqliteTable(
   "conversations",
   {
     id: text("id").primaryKey(),
     token: text("token").notNull(),
-    status: text("status", { enum: ["agent", "needs_human", "human"] }).notNull().default("agent"),
+    status: text("status", { enum: ["agent", "needs_human", "human", "resolved"] }).notNull().default("agent"),
     reporterId: text("reporter_id"),
     reporterName: text("reporter_name"),
     reporterEmail: text("reporter_email"),

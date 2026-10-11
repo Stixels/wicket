@@ -81,7 +81,8 @@ Earlier conversations show under **Recent** on the start screen, and the clock b
 5. Give your teammates the **Team** role.
 
 How it behaves:
-- **In-app conversations** become posts in `#support-inbox`. Reply in a post to answer the user in the app. The assistant stops replying once someone from the team does. When the assistant asks for a person, it pings the Team role and tags the post **Needs a person**.
+- **In-app conversations** become posts in `#support-inbox`. The user's messages show as blue cards and the assistant's as gray cards, so your own replies (plain messages) stand out. While the assistant is working the bot shows as typing. Reply in a post to answer the user in the app. The assistant stops replying once someone from the team does. When the assistant asks for a person, it pings the Team role and tags the post **Needs a person**. Only a reply that fails to reach the app gets a ⚠️ reaction.
+- **When you're done**, close the post (or tag it **Resolved**). The user sees "resolved" in the widget, the post is tagged Resolved, and if they write again the post reopens and the assistant takes the new question first. Posts Discord archives on its own after inactivity aren't treated as resolved.
 - **Voice:** joining `➕ Start a call` creates a voice room named after you and moves you in. It's deleted when the last person leaves. `🎧 Talk to support` works the same way, but the room is visible only to the caller and the Team role, and it pings the team. The bot needs the **Move Members** permission for both.
 - **Community questions:** when someone opens a post in `#help`, the assistant answers once from the docs. If it can't, it pings the team. Everyone else can keep the thread going.
 

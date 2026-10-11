@@ -16,7 +16,10 @@ function setup(responses: ConstructorParameters<typeof FakeClient>[0]) {
   const client = new FakeClient(responses);
   const relay = new FakeRelay();
   const service = new ConversationService(db, new Agent(client, agentOpts), relay, () => {});
-  void relay.start(({ threadId, authorName, body }) => service.handleStaffReply(threadId, authorName, body));
+  void relay.start(
+    ({ threadId, authorName, body }) => service.handleStaffReply(threadId, authorName, body),
+    (threadId) => service.resolve(threadId),
+  );
   const app = createServer(service, { allowedOrigins: [], maxConversationsPerIpPerHour: 5, maxMessagesPerConversationPerHour: 30 });
   return { db, client, relay, service, app };
 }
@@ -107,6 +110,29 @@ describe("conversation flow", () => {
       "user:",
     ]);
     expect(relay.threads.get("thread_1")!.posts.at(-1)).toBe("user: Thank you!");
+  });
+
+  it("resolves when the team closes the post, and hands a new question back to the assistant", async () => {
+    const { app, client, relay, service } = setup([
+      toolCall("handoff_to_human", { reason: "Refund" }),
+      text("I've asked the team."),
+      text("Happy to help with that too."),
+    ]);
+    const conv = await startConversation(app);
+    await send(app, conv, "I need a refund");
+    await service.idle(conv.id);
+    await relay.staffReply("thread_1", "Done!");
+
+    expect(await relay.close("thread_1")).toBe(true);
+    expect(await relay.close("thread_1")).toBe(false); // closing again is a no-op
+    expect(service.get(conv.id)?.status).toBe("resolved");
+    expect(service.list(conv.id).at(-1)).toMatchObject({ author: "system", body: expect.stringMatching(/resolved/) });
+
+    await send(app, conv, "One more question");
+    await service.idle(conv.id);
+    expect(relay.events).toEqual(["resolved thread_1", "reopened thread_1"]);
+    expect(client.requests).toHaveLength(3); // the assistant answered the new question
+    expect(service.get(conv.id)?.status).toBe("agent");
   });
 
   it("hands off when the model declines or errors, without breaking the conversation", async () => {

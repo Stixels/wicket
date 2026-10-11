@@ -1,7 +1,9 @@
 import {
   ChannelType,
   Client,
+  EmbedBuilder,
   Events,
+  SnowflakeUtil,
   GatewayIntentBits,
   type ForumChannel,
   type Message,
@@ -25,10 +27,14 @@ export interface DiscordRelayOptions {
 }
 
 const NEEDS_PERSON_TAG = "needs a person";
+const RESOLVED_TAG = "resolved";
 
 const LIMIT = 1900; // Discord's hard limit is 2000 characters
+const EMBED_LIMIT = 4000; // embed descriptions allow 4096
 
-const LABEL = { user: "💬 **User**", agent: "🤖 **Assistant**", system: "ℹ️" } as const;
+// The user and the assistant show as colored cards; the team's own replies stay plain messages,
+// so it's easy to see at a glance who said what.
+const COLOR = { user: 0x5865f2, agent: 0x8b8f98 } as const;
 
 /**
  * Each in-app conversation becomes a forum post (or thread). Anything the team
@@ -50,7 +56,7 @@ export class DiscordRelay implements Relay {
     if (opts.voiceHubs?.length) attachVoiceRooms(this.client, opts.voiceHubs);
   }
 
-  async start(onStaffReply: (reply: StaffReply) => Promise<void>): Promise<void> {
+  async start(onStaffReply: (reply: StaffReply) => Promise<void>, onResolved?: (threadId: string) => Promise<boolean>): Promise<void> {
     this.client.on(Events.MessageCreate, async (message: Message) => {
       if (message.author.bot || message.system || !message.channel.isThread()) return;
       if (message.channel.parentId !== this.opts.channelId) return;
@@ -62,12 +68,20 @@ export class DiscordRelay implements Relay {
           authorName: message.member?.displayName ?? message.author.globalName ?? message.author.username,
           body,
         });
-        await message.react("✅").catch(() => {});
       } catch (err) {
         console.error("discord: failed to relay staff reply", err);
         await message.react("⚠️").catch(() => {});
       }
     });
+    if (onResolved) {
+      // Closing a post, or tagging it Resolved, resolves the conversation in the app.
+      this.client.on(Events.ThreadUpdate, async (before, after) => {
+        if (after.parentId !== this.opts.channelId) return;
+        const closed = !before.archived && after.archived && !this.autoArchived(after);
+        const tagged = this.hasTag(after, RESOLVED_TAG) && !this.hasTag(before, RESOLVED_TAG);
+        if (closed || tagged) await onResolved(after.id).catch((err) => console.error("discord: failed to resolve", err));
+      });
+    }
     if (this.opts.communityHelpChannelId && this.opts.answerCommunityPost) {
       this.client.on(Events.ThreadCreate, (thread, newlyCreated) => {
         if (newlyCreated && thread.parentId === this.opts.communityHelpChannelId) void this.answerPost(thread);
@@ -83,38 +97,48 @@ export class DiscordRelay implements Relay {
   async openThread(c: RelayConversation, firstMessage: string): Promise<string> {
     const who = c.reporterName ?? c.reporterEmail ?? "Anonymous user";
     const name = `${who}: ${firstMessage.replace(/\s+/g, " ")}`.slice(0, 95);
-    const header = [
-      `**From:** ${who}${c.reporterEmail && c.reporterName ? ` (${c.reporterEmail})` : ""}`,
-      contextLine(c.context),
-      "",
-      `${LABEL.user}\n${firstMessage}`,
-      "",
-      "_Reply in this thread to answer them in the app. The assistant stops replying once someone from the team does._",
-    ]
-      .filter((l) => l !== null)
-      .join("\n");
-    const [first, ...rest] = chunk(header);
+    const about = new EmbedBuilder()
+      .setColor(COLOR.user)
+      .setTitle(who)
+      .setDescription(c.reporterEmail && c.reporterName ? c.reporterEmail : null)
+      .addFields(contextFields(c.context))
+      .setFooter({ text: "Reply here to answer them in the app. The assistant stops once someone from the team replies. Close the post when you're done." });
 
     const channel = await this.channel();
+    const message = { embeds: [about, card("user", firstMessage, c.reporterName)], allowedMentions: { parse: [] } };
     let thread: ThreadChannel;
     if (channel.type === ChannelType.GuildForum) {
-      thread = await (channel as ForumChannel).threads.create({
-        name,
-        message: { content: first, allowedMentions: { parse: [] } },
-      });
+      thread = await (channel as ForumChannel).threads.create({ name, message });
     } else {
-      const starter = await (channel as TextChannel).send({ content: first, allowedMentions: { parse: [] } });
+      const starter = await (channel as TextChannel).send(message);
       thread = await starter.startThread({ name });
     }
-    for (const part of rest) await thread.send({ content: part, allowedMentions: { parse: [] } });
     return thread.id;
   }
 
-  async post(threadId: string, author: "user" | "agent" | "system", body: string): Promise<void> {
+  async post(threadId: string, author: "user" | "agent" | "system", body: string, authorName?: string | null): Promise<void> {
     const thread = await this.thread(threadId);
-    for (const part of chunk(`${LABEL[author]}\n${body}`)) {
-      await thread.send({ content: part, allowedMentions: { parse: [] } });
+    if (author === "system") {
+      await thread.send({ content: `-# ${body}`.slice(0, LIMIT), allowedMentions: { parse: [] } });
+      return;
     }
+    await thread.send({ embeds: [card(author, body, authorName, this.client.user?.displayAvatarURL())], allowedMentions: { parse: [] } });
+  }
+
+  async typing(threadId: string): Promise<void> {
+    await (await this.thread(threadId)).sendTyping();
+  }
+
+  async markResolved(threadId: string): Promise<void> {
+    const thread = await this.thread(threadId); // unarchives it so we can post
+    await thread.send({ content: "-# ✅ Resolved. They've been told in the app, and this post reopens if they write again.", allowedMentions: { parse: [] } });
+    await this.setTags(thread, [RESOLVED_TAG], [NEEDS_PERSON_TAG]);
+    await thread.setArchived(true).catch(() => {});
+  }
+
+  async reopen(threadId: string): Promise<void> {
+    const thread = await this.thread(threadId);
+    await this.setTags(thread, [], [RESOLVED_TAG]);
   }
 
   async requestHuman(threadId: string, reason: string): Promise<void> {
@@ -124,7 +148,7 @@ export class DiscordRelay implements Relay {
       content: `${mention}🙋 **Needs a person:** ${reason}`.slice(0, LIMIT),
       allowedMentions: { parse: ["roles", "users", "everyone"] },
     });
-    await this.tag(thread, NEEDS_PERSON_TAG);
+    await this.setTags(thread, [NEEDS_PERSON_TAG], [RESOLVED_TAG]);
   }
 
   private async answerPost(thread: ThreadChannel) {
@@ -143,13 +167,30 @@ export class DiscordRelay implements Relay {
     }
   }
 
-  /** Adds a forum tag by name if the forum has one (e.g. "Needs a person"). */
-  private async tag(thread: ThreadChannel, name: string) {
+  /** Adds and removes forum tags by name (e.g. "Needs a person"); tags the forum doesn't have are skipped. */
+  private async setTags(thread: ThreadChannel, add: string[], remove: string[]) {
     const parent = thread.parent;
     if (parent?.type !== ChannelType.GuildForum) return;
+    const ids = (names: string[]) =>
+      (parent as ForumChannel).availableTags.filter((t) => names.includes(t.name.toLowerCase())).map((t) => t.id);
+    const drop = new Set(ids(remove));
+    const next = [...new Set([...thread.appliedTags.filter((t) => !drop.has(t)), ...ids(add)])].slice(-5);
+    if (next.length === thread.appliedTags.length && next.every((t) => thread.appliedTags.includes(t))) return;
+    await thread.setAppliedTags(next).catch(() => {});
+  }
+
+  private hasTag(thread: ThreadChannel, name: string) {
+    const parent = thread.parent;
+    if (parent?.type !== ChannelType.GuildForum) return false;
     const tag = (parent as ForumChannel).availableTags.find((t) => t.name.toLowerCase() === name);
-    if (!tag || thread.appliedTags.includes(tag.id)) return;
-    await thread.setAppliedTags([...thread.appliedTags, tag.id].slice(-5)).catch(() => {});
+    return Boolean(tag && thread.appliedTags.includes(tag.id));
+  }
+
+  /** Discord also archives posts after a stretch of inactivity; that isn't the team closing it. */
+  private autoArchived(thread: ThreadChannel) {
+    const last = thread.lastMessageId ? Number(SnowflakeUtil.timestampFrom(thread.lastMessageId)) : thread.createdTimestamp ?? 0;
+    const idleMs = Date.now() - last;
+    return idleMs >= (thread.autoArchiveDuration ?? 4320) * 60_000 - 5 * 60_000;
   }
 
   async stop(): Promise<void> {
@@ -172,14 +213,26 @@ export class DiscordRelay implements Relay {
   }
 }
 
-function contextLine(ctx: Record<string, unknown> | null): string | null {
-  if (!ctx) return null;
-  const parts = Object.entries(ctx)
-    .filter(([, v]) => v !== null && v !== undefined && typeof v !== "object")
-    .map(([k, v]) => `${k}: ${String(v).slice(0, 200)}`);
+/** A colored card for a user or assistant message. */
+function card(author: "user" | "agent", body: string, name?: string | null, avatar?: string) {
+  const text = body.length > EMBED_LIMIT ? `${body.slice(0, EMBED_LIMIT)}…` : body;
+  return new EmbedBuilder()
+    .setColor(COLOR[author])
+    .setAuthor(author === "agent" ? { name: "Assistant", iconURL: avatar } : { name: name ? `${name} (in the app)` : "User (in the app)" })
+    .setDescription(text || "(empty message)");
+}
+
+/** App context as short inline fields, e.g. Page and App version. */
+function contextFields(ctx: Record<string, unknown> | null) {
+  if (!ctx) return [];
+  const label = (k: string) => k.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").replace(/^./, (c) => c.toUpperCase());
+  const fields = Object.entries(ctx)
+    .filter(([, v]) => v !== null && v !== undefined && v !== "" && typeof v !== "object")
+    .slice(0, 8)
+    .map(([k, v]) => ({ name: label(k), value: String(v).slice(0, 200), inline: true }));
   const errors = Array.isArray(ctx.errors) ? ctx.errors.length : 0;
-  if (errors) parts.push(`recent errors: ${errors}`);
-  return parts.length ? `**Context:** ${parts.join(" · ")}` : null;
+  if (errors) fields.push({ name: "Recent errors", value: String(errors), inline: true });
+  return fields;
 }
 
 export function chunk(text: string, size = LIMIT): string[] {

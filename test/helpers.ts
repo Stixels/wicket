@@ -30,9 +30,22 @@ export class FakeRelay implements Relay {
   name = "fake";
   threads = new Map<string, { conversation: RelayConversation; posts: string[] }>();
   humanRequests: string[] = [];
+  events: string[] = [];
   private onReply?: (r: StaffReply) => Promise<void>;
-  async start(onStaffReply: (r: StaffReply) => Promise<void>) {
+  private onResolved?: (threadId: string) => Promise<boolean>;
+  async start(onStaffReply: (r: StaffReply) => Promise<void>, onResolved?: (threadId: string) => Promise<boolean>) {
     this.onReply = onStaffReply;
+    this.onResolved = onResolved;
+  }
+  async markResolved(threadId: string) {
+    this.events.push(`resolved ${threadId}`);
+  }
+  async reopen(threadId: string) {
+    this.events.push(`reopened ${threadId}`);
+  }
+  /** Simulates the team closing the post. */
+  close(threadId: string) {
+    return this.onResolved!(threadId);
   }
   async openThread(conversation: RelayConversation, firstMessage: string) {
     const id = `thread_${this.threads.size + 1}`;
