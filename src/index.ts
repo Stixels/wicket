@@ -9,6 +9,8 @@ import { reindex, searchDocs } from "./knowledge/index.js";
 import { MarkdownRepoSource } from "./adapters/knowledge/markdownRepo.js";
 import { DiscordRelay } from "./adapters/relay/discord.js";
 import { setupGuild } from "./discord/setup.js";
+import { LinearTracker } from "./adapters/tracker/linear.js";
+import { draftTicket } from "./agent/tickets.js";
 import { COMMUNITY_ROOM_PREFIX, SUPPORT_ROOM_PREFIX } from "./discord/voiceRooms.js";
 import type { KnowledgeSource, Relay } from "./adapters/types.js";
 
@@ -82,6 +84,14 @@ if (config.RELAY === "discord") {
         : []),
     ],
     answerCommunityPost: agent ? (q) => answerOnce(agent, q, (query) => searchDocs(db, query)) : undefined,
+    tickets:
+      anthropic && config.LINEAR_API_KEY
+        ? {
+            tracker: new LinearTracker({ apiKey: config.LINEAR_API_KEY, teamKey: config.LINEAR_TEAM_KEY!, sourceLabel: config.LINEAR_SOURCE_LABEL }),
+            draft: (transcript, ask) => draftTicket(anthropic, model, config.PRODUCT_NAME, transcript, ask),
+            teamRoleId: config.DISCORD_TEAM_ROLE_ID,
+          }
+        : undefined,
   });
 }
 
@@ -105,7 +115,7 @@ if (relay) {
     ({ threadId, authorName, body }) => service.handleStaffReply(threadId, authorName, body),
     (threadId) => service.resolve(threadId),
   );
-  console.log(`relay: ${relay.name} connected`);
+  console.log(`relay: ${relay.name} connected${config.LINEAR_API_KEY && anthropic ? ", tag the bot to file Linear tickets" : ""}`);
 }
 
 const app = createServer(service, {

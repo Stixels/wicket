@@ -12,6 +12,7 @@ import {
 } from "discord.js";
 import type { Relay, RelayConversation, StaffReply } from "../types.js";
 import { attachVoiceRooms, type VoiceHub } from "../../discord/voiceRooms.js";
+import { attachTicketCommand, mentionsBot, type TicketCommandOptions } from "../../discord/tickets.js";
 
 export interface DiscordRelayOptions {
   token: string;
@@ -24,6 +25,8 @@ export interface DiscordRelayOptions {
   answerCommunityPost?: (question: string) => Promise<{ reply: string; needsHuman: boolean } | null>;
   /** Join-to-create voice channels. */
   voiceHubs?: VoiceHub[];
+  /** Lets the team tag the bot to file a ticket from a conversation. */
+  tickets?: TicketCommandOptions;
 }
 
 const NEEDS_PERSON_TAG = "needs a person";
@@ -54,12 +57,14 @@ export class DiscordRelay implements Relay {
 
   constructor(private opts: DiscordRelayOptions) {
     if (opts.voiceHubs?.length) attachVoiceRooms(this.client, opts.voiceHubs);
+    if (opts.tickets) attachTicketCommand(this.client, opts.tickets);
   }
 
   async start(onStaffReply: (reply: StaffReply) => Promise<void>, onResolved?: (threadId: string) => Promise<boolean>): Promise<void> {
     this.client.on(Events.MessageCreate, async (message: Message) => {
       if (message.author.bot || message.system || !message.channel.isThread()) return;
       if (message.channel.parentId !== this.opts.channelId) return;
+      if (this.opts.tickets && mentionsBot(message)) return; // a note to the bot, not a reply to the user
       const body = [message.content, ...message.attachments.map((a) => a.url)].filter(Boolean).join("\n");
       if (!body.trim()) return;
       try {

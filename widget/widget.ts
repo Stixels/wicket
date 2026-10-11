@@ -209,6 +209,16 @@ button { font: inherit; color: inherit; }
   background: var(--wk-accent); color: var(--wk-on-accent); }
 .avatar img { width: 100%; height: 100%; object-fit: cover; }
 .avatar svg { width: 20px; height: 20px; }
+/* The assistant's mark is alive: an occasional twinkle and sheen, and it spins while thinking. */
+.avatar, .row .mini, .typing .mini { position: relative; }
+.avatar::after, .typing .mini::after { content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(115deg, transparent 35%, rgba(255,255,255,.5) 50%, transparent 65%) no-repeat;
+  background-size: 300% 100%; background-position: 150% 0; animation: wk-sheen 7s 1.2s infinite ease-in-out; }
+.avatar svg { animation: wk-twinkle 7s 1.2s infinite ease-in-out; }
+.wk.thinking .avatar svg, .typing .mini svg { animation: wk-think 1.4s infinite cubic-bezier(.45,0,.25,1); }
+.wk.thinking .avatar { animation: wk-ring 1.4s infinite ease-out; }
+.typing .mini::after { animation-duration: 1.4s; animation-delay: 0s; }
+.row.agent .mini:not(.hidden) svg { animation: wk-pop .5s ease-out both; }
 .titles { flex: 1; min-width: 0; }
 .title { font-size: 16px; font-weight: 650; letter-spacing: -0.015em; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .subtitle { font-size: 12.5px; color: var(--wk-muted); margin-top: 3px; display: flex; align-items: center; gap: 6px; min-width: 0; }
@@ -228,10 +238,10 @@ button { font: inherit; color: inherit; }
 .row { display: flex; gap: 8px; align-items: flex-end; animation: wk-in .25s cubic-bezier(.2,.8,.2,1); }
 .row.user { justify-content: flex-end; }
 .row + .row.gap { margin-top: 8px; }
-.row .mini { width: 26px; height: 26px; border-radius: 9px; flex: none; display: grid; place-items: center; overflow: hidden;
+.row .mini, .typing .mini { width: 26px; height: 26px; border-radius: 9px; flex: none; display: grid; place-items: center; overflow: hidden;
   background: var(--wk-accent); color: var(--wk-on-accent); font-size: 11px; font-weight: 700; }
-.row .mini img { width: 100%; height: 100%; object-fit: cover; }
-.row .mini svg { width: 15px; height: 15px; }
+.row .mini img, .typing .mini img { width: 100%; height: 100%; object-fit: cover; }
+.row .mini svg, .typing .mini svg { width: 15px; height: 15px; }
 .row .mini.staff { background: color-mix(in srgb, var(--wk-text) 85%, transparent); color: var(--wk-bg); }
 .row .mini.hidden { visibility: hidden; }
 .col { display: flex; flex-direction: column; max-width: 80%; }
@@ -306,6 +316,11 @@ textarea::placeholder { color: var(--wk-muted); }
 .brand a { color: inherit; text-decoration: none; font-weight: 600; }
 
 @keyframes wk-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes wk-twinkle { 0%, 84%, 100% { transform: none; } 90% { transform: rotate(90deg) scale(1.18); } 95% { transform: rotate(90deg) scale(.96); } }
+@keyframes wk-sheen { 0%, 80% { background-position: 150% 0; } 100% { background-position: -50% 0; } }
+@keyframes wk-think { 0% { transform: rotate(0) scale(1); } 50% { transform: rotate(180deg) scale(.72); } 100% { transform: rotate(360deg) scale(1); } }
+@keyframes wk-ring { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--wk-accent) 55%, transparent); } 100% { box-shadow: 0 0 0 9px transparent; } }
+@keyframes wk-pop { 0% { transform: scale(.4) rotate(-90deg); opacity: 0; } 70% { transform: scale(1.15) rotate(10deg); opacity: 1; } 100% { transform: none; } }
 @keyframes wk-bounce { 0%, 60%, 100% { transform: translateY(0); opacity: .5; } 30% { transform: translateY(-4px); opacity: 1; } }
 
 @media (max-width: 480px) {
@@ -314,7 +329,7 @@ textarea::placeholder { color: var(--wk-muted); }
 }
 @media (prefers-reduced-motion: reduce) {
   .launcher, .panel, .row, .system, .chip, .send, .launcher svg, .glow, .hero { transition: none !important; animation: none !important; }
-  .typing i { animation: none; }
+  .typing i, .avatar, .avatar svg, .avatar::after, .mini svg, .mini::after { animation: none !important; }
 }
 `;
 
@@ -650,8 +665,7 @@ class Widget {
     this.input.disabled = true;
     this.sendBtn.disabled = true;
     this.showError("");
-    this.chips.remove();
-    this.wrap.classList.remove("home");
+    this.leaveHome();
     try {
       if (!this.conv) {
         const res = await this.api("/api/conversations", { reporter: this.opts.user ?? {}, context: this.collectContext() });
@@ -692,9 +706,13 @@ class Widget {
     });
     es.addEventListener("typing", () => {
       this.typing.classList.add("on");
+      this.wrap.classList.add("thinking");
       this.scrollDown();
     });
-    es.addEventListener("idle", () => this.typing.classList.remove("on"));
+    es.addEventListener("idle", () => {
+      this.typing.classList.remove("on");
+      this.wrap.classList.remove("thinking");
+    });
     es.addEventListener("error", () => {
       // A 404 means the conversation is gone (e.g. database reset): start fresh.
       if (es.readyState === EventSource.CLOSED) {
@@ -706,18 +724,24 @@ class Widget {
     });
   }
 
+  /** From the start screen to a conversation: drop the quick starts and the Recent list. */
+  private leaveHome() {
+    this.wrap.classList.remove("home");
+    this.chips.remove();
+    this.log.querySelector(".recent")?.remove();
+  }
+
   private appendBubble(m: Message) {
-    if (m.id > 0 && this.wrap.classList.contains("home")) {
-      this.wrap.classList.remove("home");
-      this.chips.remove();
-      this.log.querySelector(".recent")?.remove();
-    }
+    if (m.id > 0) this.leaveHome();
     if (m.id && this.seen.has(m.id)) return;
     if (m.id) {
       this.seen.add(m.id);
       this.lastId = Math.max(this.lastId, m.id);
     }
-    if (m.author !== "user") this.typing.classList.remove("on");
+    if (m.author !== "user") {
+      this.typing.classList.remove("on");
+      this.wrap.classList.remove("thinking");
+    }
 
     if (m.author === "system") {
       const el = document.createElement("div");

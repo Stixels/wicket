@@ -49,3 +49,17 @@ export interface Relay {
   reopen?(threadId: string): Promise<void>;
   stop(): Promise<void>;
 }
+
+export type TicketKind = "bug" | "feature" | "improvement" | "docs" | "question";
+
+export interface TicketDraft {
+  title: string;
+  description: string; // markdown
+  kind: TicketKind;
+}
+
+/** Where tickets go (Linear, GitHub Issues, Jira, ...). */
+export interface Tracker {
+  name: string;
+  create(ticket: TicketDraft): Promise<{ key: string; url: string }>;
+}

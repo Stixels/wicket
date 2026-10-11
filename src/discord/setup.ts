@@ -194,7 +194,7 @@ export async function setupGuild(token: string, guildId: string, opts: SetupOpti
             : spec.kind === "announcement" && hasCommunity
               ? ChannelType.GuildAnnouncement
               : ChannelType.GuildText;
-        let channel = find(guild, spec.name, type) ?? find(guild, spec.name, ChannelType.GuildText);
+        let channel: GuildBasedChannel | undefined = find(guild, spec.name, type) ?? find(guild, spec.name, ChannelType.GuildText);
         if (!channel) {
           channel = await guild.channels.create({
             name: displayName(spec),
@@ -214,6 +214,11 @@ export async function setupGuild(token: string, guildId: string, opts: SetupOpti
             created.push(`moved #${spec.name} to ${group.category}`);
           }
           created.push(...(await freshen(channel, spec)));
+          if (spec.kind === "announcement" && hasCommunity && channel.type === ChannelType.GuildText) {
+            // Community servers get real announcement channels, which people can follow from their own servers.
+            channel = await (channel as TextChannel).setType(ChannelType.GuildAnnouncement);
+            created.push(`made #${spec.name} an announcement channel`);
+          }
         }
         ids[spec.name] = channel.id;
       }
@@ -231,13 +236,43 @@ export async function setupGuild(token: string, guildId: string, opts: SetupOpti
       created.push(`moved ${LAYOUT[0].category} to the top`);
     }
     const welcome = guild.channels.cache.get(ids["welcome"]) as TextChannel;
-    if (welcome.parentId === start.id && welcome.position !== 0) await welcome.setPosition(0).catch(() => {});
 
-    const post = await postWelcome(welcome, botId, { ...opts, ids, hasCommunity }).catch(() => {
+    // Community servers have a rules channel and a channel for Discord's notices to admins.
+    const rules = guild.rulesChannelId ? (guild.channels.cache.get(guild.rulesChannelId) as TextChannel | undefined) : undefined;
+    if (rules && rules.id !== welcome.id) {
+      ids["rules"] = rules.id;
+      created.push(...(await freshen(rules, RULES_SPEC)));
+      if (rules.parentId !== start.id && (!rules.parent || managed.has(rules.parent.name.toLowerCase()))) {
+        await rules.setParent(start.id, { lockPermissions: false });
+        created.push(`moved #${rules.name} to ${LAYOUT[0].category}`);
+      }
+      if (!rules.permissionOverwrites.cache.size) await rules.permissionOverwrites.set(overwrites(guild, team, botId, "read-only")).catch(() => {});
+      const post = await keepPost(rules, botId, rulesEmbed(opts, ids, team.id), RULES_FOOTER).catch(() => null);
+      if (post) created.push(`${post} in #${rules.name}`);
+    }
+    const notices = guild.publicUpdatesChannelId ? guild.channels.cache.get(guild.publicUpdatesChannelId) : undefined;
+    const teamCategory = find(guild, "Team", ChannelType.GuildCategory);
+    if (notices && !notices.parentId && teamCategory && "setParent" in notices) {
+      await notices.setParent(teamCategory.id, { lockPermissions: false });
+      created.push(`moved #${notices.name} to Team`);
+    }
+
+    // Order inside Start here: welcome, rules, announcements, then anything else.
+    const first = [ids["welcome"], ids["rules"], ids["announcements"]].filter(Boolean);
+    const siblings = guild.channels.cache
+      .filter((c) => c.parentId === start.id && c.type !== ChannelType.GuildVoice && "position" in c)
+      .sort((a, b) => (a as TextChannel).position - (b as TextChannel).position)
+      .map((c) => c.id);
+    const wanted = [...first.filter((id) => siblings.includes(id)), ...siblings.filter((id) => !first.includes(id))];
+    if (wanted.join() !== siblings.join()) {
+      await guild.channels.setPositions(wanted.map((channel, position) => ({ channel, position }))).catch(() => {});
+    }
+
+    const post = await keepPost(welcome, botId, welcomeEmbed({ ...opts, ids }), WELCOME_FOOTER).catch(() => {
       manual.push("Give the bot Send Messages and Embed Links in #welcome so it can post the welcome message");
       return null;
     });
-    if (post) created.push(post);
+    if (post) created.push(`${post} in #welcome`);
     // Channels outside any category sit above every category, so new members would land there instead.
     const loose = guild.channels.cache.filter((c) => !c.parentId && c.type !== ChannelType.GuildCategory && c.type !== ChannelType.GuildVoice);
     if (loose.size) manual.push(`Move ${loose.map((c) => `#${c.name}`).join(", ")} into a category so #welcome is the first channel people see`);
@@ -331,21 +366,32 @@ async function freshen(channel: GuildBasedChannel, spec: ChannelSpec): Promise<s
 }
 
 const WELCOME_FOOTER = "Pinned by the support bot";
+const RULES_FOOTER = "Server rules · kept up to date by the support bot";
 
-/** Keeps one pinned welcome post in #welcome: posts it once, then edits it when the text changes. */
-async function postWelcome(
-  channel: TextChannel,
-  botId: string,
-  o: SetupOptions & { ids: Record<string, string>; hasCommunity: boolean },
-): Promise<string | null> {
+const RULES_SPEC: ChannelSpec = {
+  name: "rules",
+  emoji: "📜",
+  kind: "text",
+  access: "read-only",
+  topic: "The house rules. By chatting here you agree to them.",
+};
+
+const HOUSE_RULES = [
+  "**Be kind.** Treat everyone with respect. No harassment, hate speech or personal attacks.",
+  "**Use the right channel.** Questions go in the help forum, feature requests in ideas, everything else in general.",
+  "**Search first.** If someone already asked, add to that post instead of opening a new one.",
+  "**Protect privacy.** Never post passwords, payment details or your players' personal info. The team will never ask for your password.",
+  "**No spam.** No scams, unsolicited DMs or self-promotion.",
+  "**Keep it safe for work.**",
+];
+
+function welcomeEmbed(o: SetupOptions & { ids: Record<string, string> }) {
   const ch = (name: string) => (o.ids[name] ? `<#${o.ids[name]}>` : `#${name}`);
   const product = o.productName ?? "our product";
-  const embed = new EmbedBuilder()
+  return new EmbedBuilder()
     .setColor(o.color ?? 0xe8590c)
     .setTitle(`Welcome to the ${product} community 👋`)
-    .setDescription(
-      `This is where ${product} users get help, swap ideas and meet other operators. Here's how to find your way around.`,
-    )
+    .setDescription(`This is where ${product} users get help, swap ideas and meet other operators. Here's how to find your way around.`)
     .addFields(
       {
         name: "❓ Get help",
@@ -355,28 +401,45 @@ async function postWelcome(
       { name: "💡 Shape the product", value: `Suggest features in ${ch("ideas")} and 👍 the ones you want most.` },
       { name: "💬 Hang out", value: `Chat in ${ch("general")}, show your builds in ${ch("show-and-tell")}, or join ${ch(VOICE_HUB_NAME)} to open a voice room.` },
       { name: "📣 Stay in the loop", value: `Releases and updates go in ${ch("announcements")}.` },
-      {
-        name: "📜 House rules",
-        value: [
-          "1. Be kind and assume good intent.",
-          "2. Keep questions in the help forum so answers stay searchable.",
-          "3. Don't share passwords, payment details or your customers' personal info.",
-          "4. No spam or unsolicited self-promotion.",
-        ].join("\n"),
-      },
+      o.ids["rules"]
+        ? { name: "📜 House rules", value: `Please read ${ch("rules")} before you post.` }
+        : { name: "📜 House rules", value: HOUSE_RULES.map((r, i) => `${i + 1}. ${r}`).join("\n") },
     )
     .setFooter({ text: WELCOME_FOOTER });
+}
 
+function rulesEmbed(o: SetupOptions, ids: Record<string, string>, teamRoleId: string) {
+  const ch = (name: string) => (ids[name] ? `<#${ids[name]}>` : `#${name}`);
+  return new EmbedBuilder()
+    .setColor(o.color ?? 0xe8590c)
+    .setTitle("📜 House rules")
+    .setDescription(
+      [
+        `We want this to be the friendliest place to talk about ${o.productName ?? "the product"}. A few rules keep it that way:`,
+        "",
+        ...HOUSE_RULES.map((r, i) => `**${i + 1}.** ${r}`),
+        `**${HOUSE_RULES.length + 1}.** **Follow Discord's rules.** The [Terms of Service](https://discord.com/terms) and [Community Guidelines](https://discord.com/guidelines) apply here too.`,
+        "",
+        `If something's wrong, mention <@&${teamRoleId}> or message a team member. We may remove posts or people that break these rules.`,
+        "",
+        `Need help with ${o.productName ?? "the product"}? Head to ${ch("help")}.`,
+      ].join("\n"),
+    )
+    .setFooter({ text: RULES_FOOTER });
+}
+
+/** Keeps one bot post with this footer in a channel: posts and pins it once, then edits it when the text changes. */
+async function keepPost(channel: TextChannel, botId: string, embed: EmbedBuilder, footer: string): Promise<string | null> {
   const recent = await channel.messages.fetch({ limit: 50 });
-  const mine = recent.find((m) => m.author.id === botId && m.embeds[0]?.footer?.text === WELCOME_FOOTER);
+  const mine = recent.find((m) => m.author.id === botId && m.embeds[0]?.footer?.text === footer);
+  const text = (e: { title?: string | null; description?: string | null; fields?: { name: string; value: string }[] }) =>
+    [e.title, e.description, ...(e.fields ?? []).map((f) => `${f.name}\n${f.value}`)].join("\n");
   if (mine) {
-    const text = (e: { title?: string | null; description?: string | null; fields?: { name: string; value: string }[] }) =>
-      [e.title, e.description, ...(e.fields ?? []).map((f) => `${f.name}\n${f.value}`)].join("\n");
     if (text(mine.embeds[0]) === text(embed.data)) return null;
     await mine.edit({ embeds: [embed] });
-    return "updated the #welcome post";
+    return "updated the post";
   }
   const msg = await channel.send({ embeds: [embed] });
   const pinned = await msg.pin().then(() => true, () => false);
-  return pinned ? "posted and pinned the #welcome post" : "posted the #welcome post (pinning needs Manage Messages)";
+  return pinned ? "posted and pinned" : "posted (pinning needs Manage Messages)";
 }

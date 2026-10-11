@@ -46,6 +46,11 @@ const schema = z.object({
   DISCORD_SUPPORT_VOICE_HUB_CHANNEL_ID: z.string().optional(), // same, private to the caller and the team
   DISCORD_TEAM_ROLE_ID: z.string().optional(), // who sees and is pinged in support calls
 
+  // Tickets: tag the bot in Discord ("@Wicket file this as a bug") to file one in Linear
+  LINEAR_API_KEY: z.string().optional(), // personal API key: Linear > Settings > Security & access
+  LINEAR_TEAM_KEY: z.string().optional(), // e.g. "ED"
+  LINEAR_SOURCE_LABEL: z.string().default("Source: Discord"), // added when the label exists
+
   // Abuse limits
   MAX_MESSAGES_PER_CONVERSATION_PER_HOUR: z.coerce.number().default(30),
   MAX_CONVERSATIONS_PER_IP_PER_HOUR: z.coerce.number().default(10),
@@ -58,5 +63,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (config.RELAY === "discord" && (!config.DISCORD_BOT_TOKEN || !(config.DISCORD_GUILD_ID || config.DISCORD_CHANNEL_ID))) {
     throw new Error("RELAY=discord needs DISCORD_BOT_TOKEN and either DISCORD_GUILD_ID or DISCORD_CHANNEL_ID");
   }
+  if (config.LINEAR_API_KEY && !config.LINEAR_TEAM_KEY) throw new Error("LINEAR_API_KEY needs LINEAR_TEAM_KEY (e.g. ED)");
   return config;
 }
