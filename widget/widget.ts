@@ -1,3 +1,4 @@
+import { Halftone } from "./halftone.js";
 /**
  * Help and feedback widget. Add to any web app:
  *
@@ -42,6 +43,10 @@ interface InitOptions {
   title?: string;
   subtitle?: string;
   greeting?: string;
+  /** Large heading on the start screen. Defaults to "Hi {first name} 👋". */
+  welcomeTitle?: string;
+  /** Second line of the start screen heading. */
+  welcomeSubtitle?: string;
   placeholder?: string;
   /** Square image shown in the header and next to assistant messages. */
   logoUrl?: string;
@@ -162,31 +167,36 @@ button { font: inherit; color: inherit; }
 .left .panel { right: auto; left: var(--wk-x); transform-origin: bottom left; }
 .wk.open .panel { opacity: 1; transform: none; pointer-events: auto; visibility: visible; transition-delay: 0s; }
 
-/* A soft glow in the brand color behind the header that drifts slowly and fades into the panel. */
-.glow { position: absolute; inset: 0 0 auto 0; height: 280px; pointer-events: none; overflow: hidden; z-index: 0;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--wk-accent) 22%, var(--wk-surface)), var(--wk-surface) 90%);
-  -webkit-mask-image: linear-gradient(180deg, #000 30%, transparent);
-  mask-image: linear-gradient(180deg, #000 30%, transparent); }
-.glow::before, .glow::after { content: ""; position: absolute; width: 75%; aspect-ratio: 1; border-radius: 50%; filter: blur(42px); }
-.glow::before { top: -45%; left: -18%; background: var(--wk-accent); opacity: .5;
-  animation: wk-drift-a 16s ease-in-out infinite alternate; }
-.glow::after { top: -52%; right: -24%; background: color-mix(in srgb, var(--wk-accent) 55%, #fff); opacity: .55;
-  animation: wk-drift-b 21s ease-in-out infinite alternate; }
-.wk.dark .glow::before { opacity: .38; }
-.wk.dark .glow::after { background: color-mix(in srgb, var(--wk-accent) 70%, #fff); opacity: .22; }
-.wk.open .glow { animation: wk-glow-in .7s cubic-bezier(.2,.8,.2,1) both; }
-@keyframes wk-drift-a { to { transform: translate(22%, 14%) scale(1.15); } }
-@keyframes wk-drift-b { to { transform: translate(-18%, 18%) scale(.9); } }
-@keyframes wk-glow-in { from { opacity: 0; transform: translateY(-16px); } }
+/* An animated halftone pattern in the brand color behind the header, fading into the conversation. */
+.glow { position: absolute; inset: 0 0 auto 0; width: 100%; height: 300px; pointer-events: none; z-index: 0;
+  -webkit-mask-image: linear-gradient(180deg, #000 35%, transparent 95%);
+  mask-image: linear-gradient(180deg, #000 35%, transparent 95%);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--wk-accent) 14%, var(--wk-surface)), var(--wk-surface)); }
+.wk:not(.home) .glow { height: 160px; opacity: .5; }
+.wk.open .glow { animation: wk-glow-in .8s cubic-bezier(.2,.8,.2,1) both; }
+@keyframes wk-glow-in { from { opacity: 0; } }
 
 .head {
   position: relative; z-index: 1;
-  padding: 18px 16px 16px 18px; display: flex; align-items: center; gap: 12px;
+  padding: 18px 16px 16px 18px; display: flex; flex-direction: column; gap: 0;
   border-bottom: 1px solid transparent; transition: border-color .2s, background-color .2s;
 }
 .head.scrolled { border-bottom-color: var(--wk-border); background: color-mix(in srgb, var(--wk-bg) 72%, transparent);
   -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); }
 .log, .composer { position: relative; z-index: 1; }
+.bar { display: flex; align-items: center; gap: 12px; }
+.hero { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows .35s cubic-bezier(.2,.8,.2,1), opacity .25s; }
+.hero > div { overflow: hidden; }
+.hello { font-size: 27px; font-weight: 650; letter-spacing: -0.03em; line-height: 1.15; padding-top: 30px; }
+.ask { font-size: 27px; font-weight: 650; letter-spacing: -0.03em; line-height: 1.15; color: color-mix(in srgb, var(--wk-text) 55%, transparent); padding-bottom: 6px; }
+.wk.home .chips { margin-left: 0; }
+.greet { margin: 12px 0 0; font-size: 14px; line-height: 1.5; color: var(--wk-muted); }
+.wk.home .hero { grid-template-rows: 1fr; opacity: 1; }
+.wk.home .titles { visibility: hidden; }
+.wk.home .new { display: none; }
+.wk.home .x { background: color-mix(in srgb, var(--wk-bg) 55%, transparent); color: var(--wk-text);
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+.wk.home .head.scrolled { background: transparent; border-bottom-color: transparent; -webkit-backdrop-filter: none; backdrop-filter: none; }
 .avatar { width: 36px; height: 36px; border-radius: 12px; flex: none; display: grid; place-items: center; overflow: hidden;
   background: var(--wk-accent); color: var(--wk-on-accent); }
 .avatar img { width: 100%; height: 100%; object-fit: cover; }
@@ -273,7 +283,7 @@ textarea::placeholder { color: var(--wk-muted); }
   .wk.open .launcher { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .launcher, .panel, .row, .system, .chip, .send, .launcher svg, .glow, .glow::before, .glow::after { transition: none !important; animation: none !important; }
+  .launcher, .panel, .row, .system, .chip, .send, .launcher svg, .glow, .hero { transition: none !important; animation: none !important; }
   .typing i { animation: none; }
 }
 `;
@@ -288,6 +298,7 @@ const ICONS = {
 };
 
 class Widget {
+  private halftone!: Halftone;
   private opts: InitOptions & { apiUrl: string };
   private theme: Theme;
   private root: ShadowRoot;
@@ -313,7 +324,8 @@ class Widget {
     this.opts = {
       title: "Help & feedback",
       subtitle: "Ask, report a problem or share an idea",
-      greeting: "Hi! 👋 How can we help? Ask a question, report something that's not working, or share an idea.",
+      greeting: "Ask a question, report something that's not working, or share an idea.",
+      welcomeSubtitle: "How can we help you today?",
       placeholder: "Write a message…",
       launcherLabel: "",
       suggestions: ["I have a question", "Something's not working", "I have an idea"],
@@ -337,12 +349,14 @@ class Widget {
 
   open() {
     this.wrap.classList.add("open");
+    this.halftone.play();
     this.setUnread(0);
     setTimeout(() => this.input.focus(), 50);
   }
 
   close() {
     this.wrap.classList.remove("open");
+    this.halftone.pause();
   }
 
   toggle() {
@@ -351,6 +365,7 @@ class Widget {
 
   setUser(user: User) {
     this.opts.user = user;
+    this.renderWelcome();
   }
 
   setContext(context: Record<string, unknown>) {
@@ -377,6 +392,12 @@ class Widget {
     const dark = t.mode === "dark" || (t.mode !== "light" && Boolean(this.media?.matches));
     this.wrap.classList.toggle("dark", dark);
     this.wrap.classList.toggle("left", t.position === "left");
+    this.halftone?.setColor(accent, !dark);
+  }
+
+  private renderWelcome() {
+    const first = this.opts.user?.name?.trim().split(/\s+/)[0];
+    this.wrap.querySelector(".hello")!.textContent = this.opts.welcomeTitle ?? `Hi${first ? ` ${first}` : ""} 👋`;
   }
 
   private avatarHtml(cls = "avatar") {
@@ -391,8 +412,9 @@ class Widget {
     this.wrap.className = "wk";
     this.wrap.innerHTML = `
       <section class="panel" role="dialog" aria-label="${escapeAttr(o.title!)}">
-        <div class="glow" aria-hidden="true"></div>
+        <canvas class="glow" aria-hidden="true"></canvas>
         <header class="head">
+          <div class="bar">
           ${this.avatarHtml()}
           <div class="titles">
             <div class="title">${escapeHtml(o.title!)}</div>
@@ -400,6 +422,8 @@ class Widget {
           </div>
           <button class="icon-btn new" title="New conversation" aria-label="New conversation">${ICONS.plus}</button>
           <button class="icon-btn x" title="Close" aria-label="Close">${ICONS.x}</button>
+          </div>
+          <div class="hero"><div><div class="hello"></div><div class="ask">${escapeHtml(o.welcomeSubtitle ?? "")}</div>${o.greeting ? `<p class="greet">${escapeHtml(o.greeting)}</p>` : ""}</div></div>
         </header>
         <div class="log" aria-live="polite"></div>
         <div class="composer">
@@ -421,6 +445,8 @@ class Widget {
     if (o.hideLauncher) launcher.style.display = "none";
     this.badge = this.wrap.querySelector(".badge")!;
     this.log = this.wrap.querySelector(".log")!;
+    this.halftone = new Halftone(this.wrap.querySelector("canvas")!);
+    this.renderWelcome();
     const head = this.wrap.querySelector(".head")!;
     this.log.addEventListener("scroll", () => head.classList.toggle("scrolled", this.log.scrollTop > 4), { passive: true });
     this.errorEl = this.wrap.querySelector(".error")!;
@@ -460,10 +486,10 @@ class Widget {
   }
 
   private showGreeting() {
+    this.wrap.classList.add("home");
     this.log.innerHTML = "";
     this.lastAuthor = null;
     this.log.appendChild(this.typing);
-    this.appendBubble({ id: 0, author: "agent", authorName: null, body: this.opts.greeting!, createdAt: Date.now() });
     this.chips.innerHTML = "";
     for (const s of this.opts.suggestions ?? []) {
       const chip = document.createElement("button");
@@ -501,6 +527,7 @@ class Widget {
     this.sendBtn.disabled = true;
     this.showError("");
     this.chips.remove();
+    this.wrap.classList.remove("home");
     try {
       if (!this.conv) {
         const res = await this.api("/api/conversations", { reporter: this.opts.user ?? {}, context: this.collectContext() });
@@ -555,6 +582,7 @@ class Widget {
   }
 
   private appendBubble(m: Message) {
+    if (m.id > 0) this.wrap.classList.remove("home");
     if (m.id && this.seen.has(m.id)) return;
     if (m.id) {
       this.seen.add(m.id);

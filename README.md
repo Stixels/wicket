@@ -42,7 +42,8 @@ You can also call `Wicket.open()`, `Wicket.close()`, `Wicket.setContext({ roomId
 | Option | Default | What it does |
 |---|---|---|
 | `title`, `subtitle` | "Help & feedback" | Header text. |
-| `greeting` | friendly default | First message in a new conversation. |
+| `welcomeTitle`, `welcomeSubtitle` | "Hi {first name} 👋", "How can we help you today?" | Large heading on the start screen. |
+| `greeting` | short default | Line under the start screen heading. |
 | `suggestions` | 3 quick starts | Buttons shown before the first message. Pass `[]` to hide them. |
 | `placeholder` | "Write a message…" | Text in the empty input. |
 | `logoUrl` | sparkle icon | Square image for the header and the assistant's avatar. |
