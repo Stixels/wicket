@@ -42,7 +42,8 @@ const agent = anthropic
       maxSteps: config.AGENT_MAX_STEPS,
       productName: config.PRODUCT_NAME,
       productDescription: config.PRODUCT_DESCRIPTION,
-      serverFallback: !gateway,
+      // Haiku has no server-side fallback, and the gateway does not offer it.
+      serverFallback: !gateway && !model.includes("haiku"),
     })
   : null;
 

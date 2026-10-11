@@ -96,7 +96,7 @@ See [`.env.example`](.env.example). The main settings:
 | Variable | What it does |
 |---|---|
 | `AI_GATEWAY_API_KEY` or `ANTHROPIC_API_KEY` | Turns on the assistant, through the Vercel AI Gateway or Anthropic directly. Leave both empty to send every chat to the team. |
-| `AGENT_MODEL`, `AGENT_EFFORT` | Model and effort for the assistant (defaults: `claude-sonnet-5-5`, `low`). |
+| `AGENT_MODEL`, `AGENT_EFFORT` | Model and effort for the assistant (defaults: `claude-haiku-5-5`, `low`). |
 | `DOCS_GITHUB_REPO`, `DOCS_BASE_URL` | Markdown docs repo to index, and the public site its links should point to. Reindexed every `DOCS_REINDEX_HOURS`. |
 | `RELAY`, `DISCORD_*` | Where conversations show up for the team. |
 | `ALLOWED_ORIGINS` | Sites allowed to embed the widget. |
