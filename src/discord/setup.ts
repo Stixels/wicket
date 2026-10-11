@@ -174,11 +174,12 @@ export async function setupGuild(token: string, guildId: string, opts: SetupOpti
     const notices0 = noticesId ? guild.channels.cache.get(noticesId) : undefined;
     if (hasCommunity && teamChat && notices0 && notices0.id !== teamChat.id && notices0.parent?.name.toLowerCase() !== "team") {
       await guild.setPublicUpdatesChannel(teamChat.id).then(
-        () => {
-          noticesId = teamChat.id;
-          created.push(`Discord's admin notices now go to #team-chat`);
+        (g) => {
+          noticesId = g.publicUpdatesChannelId;
+          if (noticesId === teamChat.id) created.push(`Discord's admin notices now go to #team-chat`);
+          else console.warn(`discord: Discord kept admin notices in ${noticesId}`);
         },
-        () => {},
+        (err) => console.warn(`discord: couldn't move admin notices: ${err.message}`),
       );
     }
 
@@ -234,7 +235,7 @@ export async function setupGuild(token: string, guildId: string, opts: SetupOpti
           if (spec.kind === "announcement" && hasCommunity && channel.type === ChannelType.GuildText && !reserved) {
             channel = await (channel as TextChannel).setType(ChannelType.GuildAnnouncement).then(
               (c) => (created.push(`made #${spec.name} an announcement channel`), c),
-              () => channel!,
+              (err) => (console.warn(`discord: couldn't make #${spec.name} an announcement channel: ${err.message}`), channel!),
             );
           }
           if (channel.id === noticesId && spec.access !== "team") {
