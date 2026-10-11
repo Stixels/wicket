@@ -154,7 +154,7 @@ button { font: inherit; color: inherit; }
 .panel {
   position: fixed; right: var(--wk-x); bottom: calc(var(--wk-y) + 72px); z-index: var(--wk-z);
   width: 384px; height: min(640px, calc(100vh - var(--wk-y) - 104px));
-  background: var(--wk-bg); border: 1px solid var(--wk-border); border-radius: var(--wk-radius);
+  background: var(--wk-surface); border: 1px solid var(--wk-border); border-radius: var(--wk-radius);
   box-shadow: var(--wk-shadow); display: flex; flex-direction: column; overflow: hidden;
   opacity: 0; transform: translateY(12px) scale(.98); transform-origin: bottom right; pointer-events: none; visibility: hidden;
   transition: opacity .2s ease, transform .25s cubic-bezier(.2,.8,.2,1), visibility 0s linear .25s;
@@ -162,11 +162,31 @@ button { font: inherit; color: inherit; }
 .left .panel { right: auto; left: var(--wk-x); transform-origin: bottom left; }
 .wk.open .panel { opacity: 1; transform: none; pointer-events: auto; visibility: visible; transition-delay: 0s; }
 
+/* A soft glow in the brand color behind the header that drifts slowly and fades into the panel. */
+.glow { position: absolute; inset: 0 0 auto 0; height: 280px; pointer-events: none; overflow: hidden; z-index: 0;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--wk-accent) 22%, var(--wk-surface)), var(--wk-surface) 90%);
+  -webkit-mask-image: linear-gradient(180deg, #000 30%, transparent);
+  mask-image: linear-gradient(180deg, #000 30%, transparent); }
+.glow::before, .glow::after { content: ""; position: absolute; width: 75%; aspect-ratio: 1; border-radius: 50%; filter: blur(42px); }
+.glow::before { top: -45%; left: -18%; background: var(--wk-accent); opacity: .5;
+  animation: wk-drift-a 16s ease-in-out infinite alternate; }
+.glow::after { top: -52%; right: -24%; background: color-mix(in srgb, var(--wk-accent) 55%, #fff); opacity: .55;
+  animation: wk-drift-b 21s ease-in-out infinite alternate; }
+.wk.dark .glow::before { opacity: .38; }
+.wk.dark .glow::after { background: color-mix(in srgb, var(--wk-accent) 70%, #fff); opacity: .22; }
+.wk.open .glow { animation: wk-glow-in .7s cubic-bezier(.2,.8,.2,1) both; }
+@keyframes wk-drift-a { to { transform: translate(22%, 14%) scale(1.15); } }
+@keyframes wk-drift-b { to { transform: translate(-18%, 18%) scale(.9); } }
+@keyframes wk-glow-in { from { opacity: 0; transform: translateY(-16px); } }
+
 .head {
+  position: relative; z-index: 1;
   padding: 18px 16px 16px 18px; display: flex; align-items: center; gap: 12px;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--wk-accent) 10%, var(--wk-bg)), var(--wk-bg));
-  border-bottom: 1px solid var(--wk-border);
+  border-bottom: 1px solid transparent; transition: border-color .2s, background-color .2s;
 }
+.head.scrolled { border-bottom-color: var(--wk-border); background: color-mix(in srgb, var(--wk-bg) 72%, transparent);
+  -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); }
+.log, .composer { position: relative; z-index: 1; }
 .avatar { width: 36px; height: 36px; border-radius: 12px; flex: none; display: grid; place-items: center; overflow: hidden;
   background: var(--wk-accent); color: var(--wk-on-accent); }
 .avatar img { width: 100%; height: 100%; object-fit: cover; }
@@ -183,7 +203,7 @@ button { font: inherit; color: inherit; }
 .icon-btn svg { width: 18px; height: 18px; }
 
 .log { flex: 1; overflow-y: auto; padding: 18px 16px 8px; display: flex; flex-direction: column; gap: 6px;
-  background: var(--wk-surface); scroll-behavior: smooth; }
+  background: transparent; scroll-behavior: smooth; }
 .log::-webkit-scrollbar { width: 8px; }
 .log::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--wk-text) 15%, transparent); border-radius: 8px; }
 
@@ -253,7 +273,7 @@ textarea::placeholder { color: var(--wk-muted); }
   .wk.open .launcher { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .launcher, .panel, .row, .system, .chip, .send, .launcher svg { transition: none !important; animation: none !important; }
+  .launcher, .panel, .row, .system, .chip, .send, .launcher svg, .glow, .glow::before, .glow::after { transition: none !important; animation: none !important; }
   .typing i { animation: none; }
 }
 `;
@@ -371,6 +391,7 @@ class Widget {
     this.wrap.className = "wk";
     this.wrap.innerHTML = `
       <section class="panel" role="dialog" aria-label="${escapeAttr(o.title!)}">
+        <div class="glow" aria-hidden="true"></div>
         <header class="head">
           ${this.avatarHtml()}
           <div class="titles">
@@ -400,6 +421,8 @@ class Widget {
     if (o.hideLauncher) launcher.style.display = "none";
     this.badge = this.wrap.querySelector(".badge")!;
     this.log = this.wrap.querySelector(".log")!;
+    const head = this.wrap.querySelector(".head")!;
+    this.log.addEventListener("scroll", () => head.classList.toggle("scrolled", this.log.scrollTop > 4), { passive: true });
     this.errorEl = this.wrap.querySelector(".error")!;
     this.input = this.wrap.querySelector("textarea")!;
     this.sendBtn = this.wrap.querySelector(".send")!;

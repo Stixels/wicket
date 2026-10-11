@@ -18,6 +18,7 @@ import {
 } from "discord.js";
 
 export const VOICE_HUB_NAME = "➕ Start a call";
+export const SUPPORT_VOICE_HUB_NAME = "🎧 Talk to support";
 
 type Kind = "text" | "forum" | "announcement" | "voice";
 interface ChannelSpec {
@@ -57,6 +58,8 @@ const LAYOUT: { category: string; channels: ChannelSpec[] }[] = [
       { name: "show-and-tell", kind: "text", access: "public", topic: "Share your rooms, props and builds." },
       // Join-to-create: joining this makes a private-feeling room for you and moves you in.
       { name: VOICE_HUB_NAME, kind: "voice", access: "public", topic: "" },
+      // Same, but the room is private to the caller and the team, and the team is pinged.
+      { name: SUPPORT_VOICE_HUB_NAME, kind: "voice", access: "public", topic: "" },
     ],
   },
   {
@@ -78,6 +81,7 @@ export interface SetupResult {
   supportInboxId: string;
   helpId: string;
   voiceHubId: string;
+  supportVoiceHubId: string;
   teamRoleId: string;
   /** Names of what this run created; empty when everything already existed. */
   created: string[];
@@ -142,7 +146,7 @@ export async function setupGuild(token: string, guildId: string, teamRoleName = 
       }
     }
 
-    return { supportInboxId: ids["support-inbox"], helpId: ids["help"], voiceHubId: ids[VOICE_HUB_NAME], teamRoleId: team.id, created, hasCommunity };
+    return { supportInboxId: ids["support-inbox"], helpId: ids["help"], voiceHubId: ids[VOICE_HUB_NAME], supportVoiceHubId: ids[SUPPORT_VOICE_HUB_NAME], teamRoleId: team.id, created, hasCommunity };
   } finally {
     await client.destroy();
   }

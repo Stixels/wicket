@@ -43,6 +43,8 @@ const schema = z.object({
   DISCORD_HANDOFF_MENTION: z.string().default(""), // e.g. "<@&roleId>" or "@here"
   DISCORD_COMMUNITY_HELP_CHANNEL_ID: z.string().optional(), // public forum the assistant answers in
   DISCORD_VOICE_HUB_CHANNEL_ID: z.string().optional(), // "join to create" voice channel
+  DISCORD_SUPPORT_VOICE_HUB_CHANNEL_ID: z.string().optional(), // same, private to the caller and the team
+  DISCORD_TEAM_ROLE_ID: z.string().optional(), // who sees and is pinged in support calls
 
   // Abuse limits
   MAX_MESSAGES_PER_CONVERSATION_PER_HOUR: z.coerce.number().default(30),

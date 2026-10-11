@@ -9,6 +9,7 @@ import { reindex, searchDocs } from "./knowledge/index.js";
 import { MarkdownRepoSource } from "./adapters/knowledge/markdownRepo.js";
 import { DiscordRelay } from "./adapters/relay/discord.js";
 import { setupGuild } from "./discord/setup.js";
+import { COMMUNITY_ROOM_PREFIX, SUPPORT_ROOM_PREFIX } from "./discord/voiceRooms.js";
 import type { KnowledgeSource, Relay } from "./adapters/types.js";
 
 const config = loadConfig();
@@ -56,6 +57,8 @@ if (config.RELAY === "discord" && config.DISCORD_GUILD_ID) {
   config.DISCORD_COMMUNITY_HELP_CHANNEL_ID ||= setup.helpId;
   config.DISCORD_HANDOFF_MENTION ||= `<@&${setup.teamRoleId}>`;
   config.DISCORD_VOICE_HUB_CHANNEL_ID ||= setup.voiceHubId;
+  config.DISCORD_SUPPORT_VOICE_HUB_CHANNEL_ID ||= setup.supportVoiceHubId;
+  config.DISCORD_TEAM_ROLE_ID ||= setup.teamRoleId;
 }
 
 let relay: Relay | null = null;
@@ -65,7 +68,14 @@ if (config.RELAY === "discord") {
     channelId: config.DISCORD_CHANNEL_ID!,
     handoffMention: config.DISCORD_HANDOFF_MENTION,
     communityHelpChannelId: config.DISCORD_COMMUNITY_HELP_CHANNEL_ID,
-    voiceHubChannelId: config.DISCORD_VOICE_HUB_CHANNEL_ID,
+    voiceHubs: [
+      ...(config.DISCORD_VOICE_HUB_CHANNEL_ID
+        ? [{ channelId: config.DISCORD_VOICE_HUB_CHANNEL_ID, prefix: COMMUNITY_ROOM_PREFIX }]
+        : []),
+      ...(config.DISCORD_SUPPORT_VOICE_HUB_CHANNEL_ID && config.DISCORD_TEAM_ROLE_ID
+        ? [{ channelId: config.DISCORD_SUPPORT_VOICE_HUB_CHANNEL_ID, prefix: SUPPORT_ROOM_PREFIX, teamRoleId: config.DISCORD_TEAM_ROLE_ID }]
+        : []),
+    ],
     answerCommunityPost: agent ? (q) => answerOnce(agent, q, (query) => searchDocs(db, query)) : undefined,
   });
 }

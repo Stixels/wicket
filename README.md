@@ -70,7 +70,7 @@ The widget renders in a shadow DOM, so your app's CSS can't break it and its CSS
    | Category | Channels | Who sees it |
    |---|---|---|
    | Start here | `#welcome`, `#announcements` | Everyone; only the team posts |
-   | Community | `#general`, `#help` (forum), `#ideas` (forum), `#show-and-tell`, `➕ Start a call` (voice) | Everyone |
+   | Community | `#general`, `#help` (forum), `#ideas` (forum), `#show-and-tell`, `➕ Start a call` and `🎧 Talk to support` (voice) | Everyone |
    | Team | `#support-inbox` (forum), `#team-chat` | Team role only |
 
    Channels that already exist with the same name are reused as they are, and nothing is ever deleted. To use an existing staff role, set `DISCORD_TEAM_ROLE` to its name. You can also run it by hand with `npm run discord:setup`.
@@ -78,7 +78,7 @@ The widget renders in a shadow DOM, so your app's CSS can't break it and its CSS
 
 How it behaves:
 - **In-app conversations** become posts in `#support-inbox`. Reply in a post to answer the user in the app. The assistant stops replying once someone from the team does. When the assistant asks for a person, it pings the Team role and tags the post **Needs a person**.
-- **Voice:** joining `➕ Start a call` creates a voice room named after you and moves you in. It's deleted when the last person leaves. The bot needs the **Move Members** permission for this.
+- **Voice:** joining `➕ Start a call` creates a voice room named after you and moves you in. It's deleted when the last person leaves. `🎧 Talk to support` works the same way, but the room is visible only to the caller and the Team role, and it pings the team. The bot needs the **Move Members** permission for both.
 - **Community questions:** when someone opens a post in `#help`, the assistant answers once from the docs. If it can't, it pings the team. Everyone else can keep the thread going.
 
 ## Deploy on Railway

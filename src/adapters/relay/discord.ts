@@ -9,7 +9,7 @@ import {
   type ThreadChannel,
 } from "discord.js";
 import type { Relay, RelayConversation, StaffReply } from "../types.js";
-import { attachVoiceRooms } from "../../discord/voiceRooms.js";
+import { attachVoiceRooms, type VoiceHub } from "../../discord/voiceRooms.js";
 
 export interface DiscordRelayOptions {
   token: string;
@@ -20,8 +20,8 @@ export interface DiscordRelayOptions {
   /** Public help forum where the assistant answers each new post once from the docs. */
   communityHelpChannelId?: string;
   answerCommunityPost?: (question: string) => Promise<{ reply: string; needsHuman: boolean } | null>;
-  /** Join-to-create voice hub channel. */
-  voiceHubChannelId?: string;
+  /** Join-to-create voice channels. */
+  voiceHubs?: VoiceHub[];
 }
 
 const NEEDS_PERSON_TAG = "needs a person";
@@ -47,7 +47,7 @@ export class DiscordRelay implements Relay {
   });
 
   constructor(private opts: DiscordRelayOptions) {
-    if (opts.voiceHubChannelId) attachVoiceRooms(this.client, opts.voiceHubChannelId);
+    if (opts.voiceHubs?.length) attachVoiceRooms(this.client, opts.voiceHubs);
   }
 
   async start(onStaffReply: (reply: StaffReply) => Promise<void>): Promise<void> {
