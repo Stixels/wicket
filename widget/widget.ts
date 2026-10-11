@@ -166,7 +166,7 @@ button { font: inherit; color: inherit; }
 /* Panel */
 .panel {
   position: fixed; right: var(--wk-x); bottom: calc(var(--wk-y) + 72px); z-index: var(--wk-z);
-  width: 384px; height: min(640px, calc(100vh - var(--wk-y) - 104px));
+  width: min(440px, calc(100vw - var(--wk-x) * 2)); height: min(760px, calc(100vh - var(--wk-y) - 100px));
   background: var(--wk-surface); border: 1px solid var(--wk-border); border-radius: var(--wk-radius);
   box-shadow: var(--wk-shadow); display: flex; flex-direction: column; overflow: hidden;
   opacity: 0; transform: translateY(12px) scale(.98); transform-origin: bottom right; pointer-events: none; visibility: hidden;
@@ -180,7 +180,10 @@ button { font: inherit; color: inherit; }
   -webkit-mask-image: linear-gradient(180deg, #000 35%, transparent 95%);
   mask-image: linear-gradient(180deg, #000 35%, transparent 95%);
   background: linear-gradient(180deg, color-mix(in srgb, var(--wk-accent) 14%, var(--wk-surface)), var(--wk-surface)); }
-.wk:not(.home) .glow { height: 160px; opacity: .5; }
+.glow { transition: height .45s cubic-bezier(.2,.8,.2,1); }
+/* In a conversation the pattern shrinks to a strip behind the header instead of fading away. */
+.wk:not(.home) .glow { height: 112px; -webkit-mask-image: linear-gradient(180deg, #000 55%, transparent 100%);
+  mask-image: linear-gradient(180deg, #000 55%, transparent 100%); }
 .wk.open .glow { animation: wk-glow-in .8s cubic-bezier(.2,.8,.2,1) both; }
 @keyframes wk-glow-in { from { opacity: 0; } }
 
@@ -209,16 +212,32 @@ button { font: inherit; color: inherit; }
   background: var(--wk-accent); color: var(--wk-on-accent); }
 .avatar img { width: 100%; height: 100%; object-fit: cover; }
 .avatar svg { width: 20px; height: 20px; }
-/* The assistant's mark is alive: an occasional twinkle and sheen, and it spins while thinking. */
+/* The assistant is a little orb with a face: it looks around and blinks, and its eyes turn into
+   bouncing dots while it thinks. A custom logo gets a sheen instead. */
 .avatar, .row .mini, .typing .mini { position: relative; }
-.avatar::after, .typing .mini::after { content: ""; position: absolute; inset: 0; pointer-events: none;
+.bot { border-radius: 50% !important; isolation: isolate; font-size: 36px; }
+.row .mini.bot, .typing .mini.bot { font-size: 26px; }
+.bot .orb { position: absolute; inset: -35%; z-index: -1; filter: blur(2px);
+  background: conic-gradient(from 0deg, var(--wk-accent), color-mix(in srgb, var(--wk-accent) 50%, white),
+    var(--wk-accent), color-mix(in srgb, var(--wk-accent) 60%, black), var(--wk-accent));
+  animation: wk-spin 7s linear infinite; }
+.bot::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: 50%;
+  background: radial-gradient(circle at 32% 26%, rgba(255,255,255,.55), transparent 48%); }
+.bot .eyes { display: flex; align-items: center; justify-content: center; gap: .12em; width: 100%; height: 100%;
+  animation: wk-look 9s infinite ease-in-out; }
+.bot .eyes i { width: .12em; height: .2em; border-radius: 999px; background: var(--wk-on-accent);
+  animation: wk-blink 4.6s infinite; }
+.bot .eyes i:nth-child(3) { display: none; }
+.wk.thinking .avatar.bot .orb, .typing .bot .orb { animation-duration: 1.6s; }
+.wk.thinking .avatar.bot .eyes, .typing .bot .eyes { animation: none; gap: .07em; }
+.wk.thinking .avatar.bot .eyes i, .typing .bot .eyes i { display: block; width: .11em; height: .11em; animation: wk-hop .9s infinite ease-in-out; }
+.wk.thinking .avatar.bot .eyes i:nth-child(2), .typing .bot .eyes i:nth-child(2) { animation-delay: .12s; }
+.wk.thinking .avatar.bot .eyes i:nth-child(3), .typing .bot .eyes i:nth-child(3) { animation-delay: .24s; }
+.wk.thinking .avatar { animation: wk-ring 1.4s infinite ease-out; }
+.row.agent .mini.bot:not(.hidden) { animation: wk-pop .5s ease-out both; }
+.avatar:not(.bot)::after { content: ""; position: absolute; inset: 0; pointer-events: none;
   background: linear-gradient(115deg, transparent 35%, rgba(255,255,255,.5) 50%, transparent 65%) no-repeat;
   background-size: 300% 100%; background-position: 150% 0; animation: wk-sheen 7s 1.2s infinite ease-in-out; }
-.avatar svg { animation: wk-twinkle 7s 1.2s infinite ease-in-out; }
-.wk.thinking .avatar svg, .typing .mini svg { animation: wk-think 1.4s infinite cubic-bezier(.45,0,.25,1); }
-.wk.thinking .avatar { animation: wk-ring 1.4s infinite ease-out; }
-.typing .mini::after { animation-duration: 1.4s; animation-delay: 0s; }
-.row.agent .mini:not(.hidden) svg { animation: wk-pop .5s ease-out both; }
 .titles { flex: 1; min-width: 0; }
 .title { font-size: 16px; font-weight: 650; letter-spacing: -0.015em; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .subtitle { font-size: 12.5px; color: var(--wk-muted); margin-top: 3px; display: flex; align-items: center; gap: 6px; min-width: 0; }
@@ -316,11 +335,13 @@ textarea::placeholder { color: var(--wk-muted); }
 .brand a { color: inherit; text-decoration: none; font-weight: 600; }
 
 @keyframes wk-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-@keyframes wk-twinkle { 0%, 84%, 100% { transform: none; } 90% { transform: rotate(90deg) scale(1.18); } 95% { transform: rotate(90deg) scale(.96); } }
 @keyframes wk-sheen { 0%, 80% { background-position: 150% 0; } 100% { background-position: -50% 0; } }
-@keyframes wk-think { 0% { transform: rotate(0) scale(1); } 50% { transform: rotate(180deg) scale(.72); } 100% { transform: rotate(360deg) scale(1); } }
+@keyframes wk-spin { to { transform: rotate(360deg); } }
+@keyframes wk-blink { 0%, 90%, 96%, 100% { transform: scaleY(1); } 93% { transform: scaleY(.1); } }
+@keyframes wk-look { 0%, 28%, 100% { transform: none; } 34%, 52% { transform: translateX(-.05em); } 58%, 76% { transform: translate(.05em, -.03em); } }
+@keyframes wk-hop { 0%, 60%, 100% { transform: translateY(0); } 30% { transform: translateY(-.1em); } }
 @keyframes wk-ring { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--wk-accent) 55%, transparent); } 100% { box-shadow: 0 0 0 9px transparent; } }
-@keyframes wk-pop { 0% { transform: scale(.4) rotate(-90deg); opacity: 0; } 70% { transform: scale(1.15) rotate(10deg); opacity: 1; } 100% { transform: none; } }
+@keyframes wk-pop { 0% { transform: scale(.4); opacity: 0; } 70% { transform: scale(1.12); opacity: 1; } 100% { transform: none; } }
 @keyframes wk-bounce { 0%, 60%, 100% { transform: translateY(0); opacity: .5; } 30% { transform: translateY(-4px); opacity: 1; } }
 
 @media (max-width: 480px) {
@@ -329,7 +350,7 @@ textarea::placeholder { color: var(--wk-muted); }
 }
 @media (prefers-reduced-motion: reduce) {
   .launcher, .panel, .row, .system, .chip, .send, .launcher svg, .glow, .hero { transition: none !important; animation: none !important; }
-  .typing i, .avatar, .avatar svg, .avatar::after, .mini svg, .mini::after { animation: none !important; }
+  .typing i, .avatar, .avatar::after, .mini, .bot .orb, .bot .eyes, .bot .eyes i { animation: none !important; }
 }
 `;
 
@@ -447,7 +468,8 @@ class Widget {
   }
 
   private avatarHtml(cls = "avatar") {
-    return `<div class="${cls}">${this.opts.logoUrl ? `<img alt="" src="${escapeAttr(this.opts.logoUrl)}">` : ICONS.spark}</div>`;
+    if (this.opts.logoUrl) return `<div class="${cls}"><img alt="" src="${escapeAttr(this.opts.logoUrl)}"></div>`;
+    return `<div class="${cls} bot" aria-hidden="true"><span class="orb"></span><span class="eyes"><i></i><i></i><i></i></span></div>`;
   }
 
   private render() {

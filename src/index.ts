@@ -68,6 +68,16 @@ if (config.RELAY === "discord" && config.DISCORD_GUILD_ID) {
   config.DISCORD_TEAM_ROLE_ID ||= setup.teamRoleId;
 }
 
+const linear = config.LINEAR_API_KEY
+  ? new LinearTracker({ apiKey: config.LINEAR_API_KEY, teamKey: config.LINEAR_TEAM_KEY!, sourceLabel: config.LINEAR_SOURCE_LABEL })
+  : null;
+if (linear) {
+  await linear.check().then(
+    (where) => console.log(`linear: ready (${where})`),
+    (err) => console.error(`linear: ${err.message}`),
+  );
+}
+
 let relay: Relay | null = null;
 if (config.RELAY === "discord") {
   relay = new DiscordRelay({
@@ -85,9 +95,9 @@ if (config.RELAY === "discord") {
     ],
     answerCommunityPost: agent ? (q) => answerOnce(agent, q, (query) => searchDocs(db, query)) : undefined,
     tickets:
-      anthropic && config.LINEAR_API_KEY
+      anthropic && linear
         ? {
-            tracker: new LinearTracker({ apiKey: config.LINEAR_API_KEY, teamKey: config.LINEAR_TEAM_KEY!, sourceLabel: config.LINEAR_SOURCE_LABEL }),
+            tracker: linear!,
             draft: (transcript, ask) => draftTicket(anthropic, model, config.PRODUCT_NAME, transcript, ask),
             teamRoleId: config.DISCORD_TEAM_ROLE_ID,
           }

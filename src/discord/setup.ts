@@ -168,6 +168,16 @@ export async function setupGuild(token: string, guildId: string, opts: SetupOpti
     const hasCommunity = guild.features.includes("COMMUNITY");
     const ids: Record<string, string> = {};
 
+    // Discord's notices to admins belong in the private team channel, not a public one (needs Manage Server).
+    const teamChat = find(guild, "team-chat", ChannelType.GuildText);
+    const notices0 = guild.publicUpdatesChannelId ? guild.channels.cache.get(guild.publicUpdatesChannelId) : undefined;
+    if (hasCommunity && teamChat && notices0 && notices0.id !== teamChat.id && notices0.parent?.name.toLowerCase() !== "team") {
+      await guild.setPublicUpdatesChannel(teamChat.id).then(
+        () => created.push(`Discord's admin notices now go to #team-chat`),
+        () => {},
+      );
+    }
+
     const managed = new Set(LAYOUT.map((g) => g.category.toLowerCase()));
     let previous: CategoryChannel | undefined;
     for (const group of LAYOUT) {

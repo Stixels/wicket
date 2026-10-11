@@ -46,7 +46,7 @@ You can also call `Wicket.open()`, `Wicket.close()`, `Wicket.setContext({ roomId
 | `greeting` | short default | Line under the start screen heading. |
 | `suggestions` | 3 quick starts | Buttons shown before the first message. Pass `[]` to hide them. |
 | `placeholder` | "Write a message…" | Text in the empty input. |
-| `logoUrl` | sparkle icon | Square image for the header and the assistant's avatar. |
+| `logoUrl` | animated bot | Square image for the header and the assistant's avatar. Without one, the assistant is a small animated orb in your brand color that blinks, looks around and shows bouncing dots while it thinks. |
 | `launcherLabel` | none | Text next to the launcher icon, e.g. "Help". |
 | `hideLauncher` | `false` | Hide the floating button and open the panel from your own button. |
 | `showBranding` | `true` | The small "Powered by" line. |

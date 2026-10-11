@@ -14,7 +14,7 @@ const DEFAULT_LABELS: Record<TicketKind, string> = { bug: "Bug", feature: "Featu
 /** Files tickets in Linear: in Triage when the team has it turned on, otherwise in Backlog. */
 export class LinearTracker implements Tracker {
   name = "linear";
-  private team?: Promise<{ id: string; stateId?: string; labels: Map<string, string> }>;
+  private team?: Promise<{ id: string; stateId?: string; stateName: string; labels: Map<string, string> }>;
 
   constructor(private opts: LinearOptions) {}
 
@@ -30,13 +30,19 @@ export class LinearTracker implements Tracker {
     return { key: data.issueCreate.issue.identifier, url: data.issueCreate.issue.url };
   }
 
+  /** Checks the key and team, and says where tickets will land. */
+  async check(): Promise<string> {
+    const team = await (this.team ??= this.loadTeam());
+    return `team ${this.opts.teamKey}, new tickets go to ${team.stateName}`;
+  }
+
   private async loadTeam() {
     const data = await this.gql<{
-      teams: { nodes: { id: string; states: { nodes: { id: string; type: string; position: number }[] }; labels: { nodes: { id: string; name: string }[] } }[] };
+      teams: { nodes: { id: string; states: { nodes: { id: string; name: string; type: string; position: number }[] }; labels: { nodes: { id: string; name: string }[] } }[] };
       issueLabels: { nodes: { id: string; name: string; team: { id: string } | null }[] };
     }>(
       `query($key: String!) {
-        teams(filter: { key: { eq: $key } }) { nodes { id states { nodes { id type position } } labels(first: 250) { nodes { id name } } } }
+        teams(filter: { key: { eq: $key } }) { nodes { id states { nodes { id name type position } } labels(first: 250) { nodes { id name } } } }
         issueLabels(first: 250, filter: { team: { null: true } }) { nodes { id name team { id } } }
       }`,
       { key: this.opts.teamKey },
@@ -49,7 +55,8 @@ export class LinearTracker implements Tracker {
     const byType = (t: string) => team.states.nodes.filter((s) => s.type === t).sort((a, b) => a.position - b.position)[0];
     const labels = new Map<string, string>();
     for (const l of [...data.issueLabels.nodes, ...team.labels.nodes]) labels.set(l.name.toLowerCase(), l.id); // team labels win
-    return { id: team.id, stateId: (byType("triage") ?? byType("backlog"))?.id, labels };
+    const state = byType("triage") ?? byType("backlog");
+    return { id: team.id, stateId: state?.id, stateName: state?.name ?? "the default status", labels };
   }
 
   private async gql<T>(query: string, variables: Record<string, unknown>): Promise<T> {
