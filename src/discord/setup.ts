@@ -253,7 +253,14 @@ export async function setupGuild(token: string, guildId: string, opts: SetupOpti
         await rules.setParent(start.id, { lockPermissions: false }).then(() => created.push(`moved #${rules.name} to ${LAYOUT[0].category}`), () => {});
       }
       if (!rules.permissionOverwrites.cache.size) await rules.permissionOverwrites.set(overwrites(guild, team, botId, "read-only")).catch(() => {});
-      const post = await keepPost(rules, botId, rulesEmbed(opts, ids, team.id), RULES_FOOTER).catch(() => null);
+      // Discord's own rules channel may not let the bot post yet.
+      await rules.permissionOverwrites
+        .edit(botId, { ViewChannel: true, SendMessages: true, EmbedLinks: true, ReadMessageHistory: true })
+        .catch(() => {});
+      const post = await keepPost(rules, botId, rulesEmbed(opts, ids, team.id), RULES_FOOTER).catch((err) => {
+        manual.push(`Let the bot post in #${rules.name} (Send Messages and Embed Links) so it can add the rules (${err?.message ?? err})`);
+        return null;
+      });
       if (post) created.push(`${post} in #${rules.name}`);
     }
     const notices = guild.publicUpdatesChannelId ? guild.channels.cache.get(guild.publicUpdatesChannelId) : undefined;
