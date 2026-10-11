@@ -18,7 +18,7 @@ const schema = z.object({
   AI_GATEWAY_API_KEY: z.string().optional(),
   AI_GATEWAY_URL: z.string().default("https://ai-gateway.vercel.sh"),
   ANTHROPIC_API_KEY: z.string().optional(),
-  AGENT_MODEL: z.string().default("claude-opus-5-5"), // gateway ids get an "anthropic/" prefix if missing
+  AGENT_MODEL: z.string().default("claude-sonnet-5-5"), // gateway ids get an "anthropic/" prefix if missing
   AGENT_EFFORT: z.enum(["low", "medium", "high", "xhigh", "max"]).default("low"),
   AGENT_MAX_STEPS: z.coerce.number().default(6),
 

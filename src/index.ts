@@ -29,7 +29,7 @@ if (config.DOCS_GITHUB_REPO) {
 // No key means no assistant: every conversation goes straight to the team.
 // The Vercel AI Gateway speaks the Anthropic Messages API, so only the URL, key and model id change.
 const gateway = Boolean(config.AI_GATEWAY_API_KEY);
-const model = gateway && !config.AGENT_MODEL.includes("/") ? `anthropic/${config.AGENT_MODEL}` : config.AGENT_MODEL;
+const model = gateway ? gatewayModelId(config.AGENT_MODEL) : config.AGENT_MODEL;
 const anthropic = gateway
   ? new Anthropic({ apiKey: config.AI_GATEWAY_API_KEY, baseURL: config.AI_GATEWAY_URL })
   : config.ANTHROPIC_API_KEY
@@ -104,4 +104,9 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
     db.$client.close();
     process.exit(0);
   });
+}
+
+/** "claude-sonnet-5-5" -> "anthropic/claude-sonnet-5.5", the gateway's naming. Full gateway ids pass through. */
+function gatewayModelId(id: string): string {
+  return id.includes("/") ? id : `anthropic/${id.replace(/-(\d+)-(\d+)$/, "-$1.$2")}`;
 }
