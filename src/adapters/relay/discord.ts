@@ -9,6 +9,7 @@ import {
   type ThreadChannel,
 } from "discord.js";
 import type { Relay, RelayConversation, StaffReply } from "../types.js";
+import { attachVoiceRooms } from "../../discord/voiceRooms.js";
 
 export interface DiscordRelayOptions {
   token: string;
@@ -19,6 +20,8 @@ export interface DiscordRelayOptions {
   /** Public help forum where the assistant answers each new post once from the docs. */
   communityHelpChannelId?: string;
   answerCommunityPost?: (question: string) => Promise<{ reply: string; needsHuman: boolean } | null>;
+  /** Join-to-create voice hub channel. */
+  voiceHubChannelId?: string;
 }
 
 const NEEDS_PERSON_TAG = "needs a person";
@@ -35,10 +38,17 @@ const LABEL = { user: "💬 **User**", agent: "🤖 **Assistant**", system: "ℹ
 export class DiscordRelay implements Relay {
   name = "discord";
   private client = new Client({
-    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
+    intents: [
+      GatewayIntentBits.Guilds,
+      GatewayIntentBits.GuildMessages,
+      GatewayIntentBits.MessageContent,
+      GatewayIntentBits.GuildVoiceStates,
+    ],
   });
 
-  constructor(private opts: DiscordRelayOptions) {}
+  constructor(private opts: DiscordRelayOptions) {
+    if (opts.voiceHubChannelId) attachVoiceRooms(this.client, opts.voiceHubChannelId);
+  }
 
   async start(onStaffReply: (reply: StaffReply) => Promise<void>): Promise<void> {
     this.client.on(Events.MessageCreate, async (message: Message) => {

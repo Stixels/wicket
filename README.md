@@ -63,14 +63,14 @@ The widget renders in a shadow DOM, so your app's CSS can't break it and its CSS
 ## Set up Discord (community + support inbox)
 
 1. Go to https://discord.com/developers/applications and create a **New Application**. Under **Bot**, copy the token and turn on **Message Content Intent**.
-2. Under **OAuth2 → URL Generator**, pick the `bot` scope with these permissions: Manage Roles, Manage Channels, View Channels, Send Messages, Send Messages in Threads, Create Public Threads, Manage Threads, Read Message History and Add Reactions. Open the URL and add the bot to your server.
+2. Under **OAuth2 → URL Generator**, pick the `bot` scope with these permissions: Manage Roles, Manage Channels, Move Members, View Channels, Send Messages, Send Messages in Threads, Create Public Threads, Manage Threads, Read Message History and Add Reactions. Open the URL and add the bot to your server.
 3. Turn on Developer Mode (User Settings → Advanced). Right-click your server and choose **Copy Server ID**.
 4. Set `DISCORD_BOT_TOKEN` and `DISCORD_GUILD_ID` in the service variables. On every boot the service makes sure the server has a **Team** role and these channels, creating only what's missing:
 
    | Category | Channels | Who sees it |
    |---|---|---|
    | Start here | `#welcome`, `#announcements` | Everyone; only the team posts |
-   | Community | `#general`, `#help` (forum), `#ideas` (forum), `#show-and-tell` | Everyone |
+   | Community | `#general`, `#help` (forum), `#ideas` (forum), `#show-and-tell`, `➕ Start a call` (voice) | Everyone |
    | Team | `#support-inbox` (forum), `#team-chat` | Team role only |
 
    Channels that already exist with the same name are reused as they are, and nothing is ever deleted. To use an existing staff role, set `DISCORD_TEAM_ROLE` to its name. You can also run it by hand with `npm run discord:setup`.
@@ -78,6 +78,7 @@ The widget renders in a shadow DOM, so your app's CSS can't break it and its CSS
 
 How it behaves:
 - **In-app conversations** become posts in `#support-inbox`. Reply in a post to answer the user in the app. The assistant stops replying once someone from the team does. When the assistant asks for a person, it pings the Team role and tags the post **Needs a person**.
+- **Voice:** joining `➕ Start a call` creates a voice room named after you and moves you in. It's deleted when the last person leaves. The bot needs the **Move Members** permission for this.
 - **Community questions:** when someone opens a post in `#help`, the assistant answers once from the docs. If it can't, it pings the team. Everyone else can keep the thread going.
 
 ## Deploy on Railway

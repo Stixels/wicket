@@ -55,6 +55,7 @@ if (config.RELAY === "discord" && config.DISCORD_GUILD_ID) {
   config.DISCORD_CHANNEL_ID ||= setup.supportInboxId;
   config.DISCORD_COMMUNITY_HELP_CHANNEL_ID ||= setup.helpId;
   config.DISCORD_HANDOFF_MENTION ||= `<@&${setup.teamRoleId}>`;
+  config.DISCORD_VOICE_HUB_CHANNEL_ID ||= setup.voiceHubId;
 }
 
 let relay: Relay | null = null;
@@ -64,6 +65,7 @@ if (config.RELAY === "discord") {
     channelId: config.DISCORD_CHANNEL_ID!,
     handoffMention: config.DISCORD_HANDOFF_MENTION,
     communityHelpChannelId: config.DISCORD_COMMUNITY_HELP_CHANNEL_ID,
+    voiceHubChannelId: config.DISCORD_VOICE_HUB_CHANNEL_ID,
     answerCommunityPost: agent ? (q) => answerOnce(agent, q, (query) => searchDocs(db, query)) : undefined,
   });
 }

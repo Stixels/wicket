@@ -17,7 +17,9 @@ import {
   type Role,
 } from "discord.js";
 
-type Kind = "text" | "forum" | "announcement";
+export const VOICE_HUB_NAME = "➕ Start a call";
+
+type Kind = "text" | "forum" | "announcement" | "voice";
 interface ChannelSpec {
   name: string;
   kind: Kind;
@@ -53,6 +55,8 @@ const LAYOUT: { category: string; channels: ChannelSpec[] }[] = [
         tags: ["Idea", "Planned", "Shipped"],
       },
       { name: "show-and-tell", kind: "text", access: "public", topic: "Share your rooms, props and builds." },
+      // Join-to-create: joining this makes a private-feeling room for you and moves you in.
+      { name: VOICE_HUB_NAME, kind: "voice", access: "public", topic: "" },
     ],
   },
   {
@@ -73,6 +77,7 @@ const LAYOUT: { category: string; channels: ChannelSpec[] }[] = [
 export interface SetupResult {
   supportInboxId: string;
   helpId: string;
+  voiceHubId: string;
   teamRoleId: string;
   /** Names of what this run created; empty when everything already existed. */
   created: string[];
@@ -114,7 +119,9 @@ export async function setupGuild(token: string, guildId: string, teamRoleName = 
 
       for (const spec of group.channels) {
         const type =
-          spec.kind === "forum"
+          spec.kind === "voice"
+            ? ChannelType.GuildVoice
+            : spec.kind === "forum"
             ? ChannelType.GuildForum
             : spec.kind === "announcement" && hasCommunity
               ? ChannelType.GuildAnnouncement
@@ -125,7 +132,7 @@ export async function setupGuild(token: string, guildId: string, teamRoleName = 
             name: spec.name,
             type: type as ChannelType.GuildText,
             parent: category.id,
-            topic: spec.topic,
+            ...(spec.topic ? { topic: spec.topic } : {}),
             permissionOverwrites: overwrites(guild, team, botId, spec.access),
             ...(spec.tags ? { availableTags: spec.tags.map((name) => ({ name })) } : {}),
           } as any);
@@ -135,7 +142,7 @@ export async function setupGuild(token: string, guildId: string, teamRoleName = 
       }
     }
 
-    return { supportInboxId: ids["support-inbox"], helpId: ids["help"], teamRoleId: team.id, created, hasCommunity };
+    return { supportInboxId: ids["support-inbox"], helpId: ids["help"], voiceHubId: ids[VOICE_HUB_NAME], teamRoleId: team.id, created, hasCommunity };
   } finally {
     await client.destroy();
   }
