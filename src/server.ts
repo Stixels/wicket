@@ -11,6 +11,8 @@ export interface ServerOptions {
   maxMessagesPerConversationPerHour: number;
   maxConversationsPerIpPerHour: number;
   widgetPath?: string;
+  /** Serve a test page with the widget at /, for trying it locally. Off in production. */
+  playground?: { title: string };
 }
 
 const createBody = z.object({
@@ -44,6 +46,23 @@ export function createServer(service: ConversationService, opts: ServerOptions) 
     c.header("Cache-Control", "public, max-age=300");
     return c.body(fs.readFileSync(widgetPath, "utf8"));
   });
+
+  if (opts.playground) {
+    const title = JSON.stringify(opts.playground.title);
+    app.get("/", (c) =>
+      c.html(`<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Wicket playground</title>
+<style>body{font:16px/1.5 system-ui,sans-serif;max-width:640px;margin:64px auto;padding:0 16px;color:#222}code{background:#f2f2f2;padding:2px 5px;border-radius:4px}</style>
+</head><body>
+<h1>Wicket playground</h1>
+<p>This page stands in for your app. Open the chat button in the corner and send a message. With Discord set up, it shows up as a post in <code>#support-inbox</code>, and replying there sends the reply back here.</p>
+<p>Only served when <code>NODE_ENV</code> isn't <code>production</code>.</p>
+<script src="/widget.js"></script>
+<script>Wicket.init({ title: ${title}, user: { id: "local-test", name: "Local test" }, context: { page: "playground" } });</script>
+</body></html>`),
+    );
+  }
 
   app.post("/api/conversations", async (c) => {
     if (!limiter.allow(`ip:${clientIp(c)}`, opts.maxConversationsPerIpPerHour)) {

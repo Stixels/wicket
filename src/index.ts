@@ -91,9 +91,10 @@ const app = createServer(service, {
   allowedOrigins: config.ALLOWED_ORIGINS,
   maxMessagesPerConversationPerHour: config.MAX_MESSAGES_PER_CONVERSATION_PER_HOUR,
   maxConversationsPerIpPerHour: config.MAX_CONVERSATIONS_PER_IP_PER_HOUR,
+  playground: process.env.NODE_ENV === "production" ? undefined : { title: `${config.PRODUCT_NAME} Support` },
 });
 const server = serve({ fetch: app.fetch, port: config.PORT }, (info) => {
-  console.log(`wicket listening on :${info.port} (agent: ${agent ? `${model}${gateway ? " via AI Gateway" : ""}` : "off"})`);
+  console.log(`wicket listening on http://localhost:${info.port} (agent: ${agent ? `${model}${gateway ? " via AI Gateway" : ""}` : "off"})`);
 });
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
