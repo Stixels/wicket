@@ -6,7 +6,7 @@ A drop-in help and feedback chat for any web app, plus a Discord community and s
 - **Answers from your docs.** It indexes any GitHub repo of Markdown (GitBook Git Sync, Docusaurus, Mintlify, ...) and links the exact section.
 - **Discord as the inbox and community.** Each in-app conversation becomes a private forum post that your team answers from Discord. The same assistant also answers new questions in your public `#help` forum.
 - **Hands off to a person** when the user asks, is frustrated, or the docs don't cover it, and pings a role you choose.
-- **Cheap to run.** One Node process with SQLite. The assistant is optional: without an API key, every chat goes straight to the team.
+- **Cheap to run.** One Node process with SQLite. The assistant runs through the Vercel AI Gateway or Anthropic directly, and it's optional: without a key, every chat goes straight to the team.
 
 Coming next: filing bugs, ideas and docs gaps as Linear issues in Triage, and telling users when their issue ships.
 
@@ -95,7 +95,7 @@ See [`.env.example`](.env.example). The main settings:
 
 | Variable | What it does |
 |---|---|
-| `ANTHROPIC_API_KEY` | Turns on the assistant. Leave empty to send every chat to the team. |
+| `AI_GATEWAY_API_KEY` or `ANTHROPIC_API_KEY` | Turns on the assistant, through the Vercel AI Gateway or Anthropic directly. Leave both empty to send every chat to the team. |
 | `AGENT_MODEL`, `AGENT_EFFORT` | Model and effort for the assistant (defaults: `claude-opus-5-5`, `low`). |
 | `DOCS_GITHUB_REPO`, `DOCS_BASE_URL` | Markdown docs repo to index, and the public site its links should point to. Reindexed every `DOCS_REINDEX_HOURS`. |
 | `RELAY`, `DISCORD_*` | Where conversations show up for the team. |

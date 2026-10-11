@@ -26,14 +26,23 @@ if (config.DOCS_GITHUB_REPO) {
   );
 }
 
-// No API key means no assistant: every conversation goes straight to the team.
-const agent = process.env.ANTHROPIC_API_KEY
-  ? new Agent(new Anthropic() as any, {
-      model: config.AGENT_MODEL,
+// No key means no assistant: every conversation goes straight to the team.
+// The Vercel AI Gateway speaks the Anthropic Messages API, so only the URL, key and model id change.
+const gateway = Boolean(config.AI_GATEWAY_API_KEY);
+const model = gateway && !config.AGENT_MODEL.includes("/") ? `anthropic/${config.AGENT_MODEL}` : config.AGENT_MODEL;
+const anthropic = gateway
+  ? new Anthropic({ apiKey: config.AI_GATEWAY_API_KEY, baseURL: config.AI_GATEWAY_URL })
+  : config.ANTHROPIC_API_KEY
+    ? new Anthropic({ apiKey: config.ANTHROPIC_API_KEY })
+    : null;
+const agent = anthropic
+  ? new Agent(anthropic as any, {
+      model,
       effort: config.AGENT_EFFORT,
       maxSteps: config.AGENT_MAX_STEPS,
       productName: config.PRODUCT_NAME,
       productDescription: config.PRODUCT_DESCRIPTION,
+      serverFallback: !gateway,
     })
   : null;
 
@@ -84,7 +93,7 @@ const app = createServer(service, {
   maxConversationsPerIpPerHour: config.MAX_CONVERSATIONS_PER_IP_PER_HOUR,
 });
 const server = serve({ fetch: app.fetch, port: config.PORT }, (info) => {
-  console.log(`wicket listening on :${info.port} (agent: ${agent ? config.AGENT_MODEL : "off"})`);
+  console.log(`wicket listening on :${info.port} (agent: ${agent ? `${model}${gateway ? " via AI Gateway" : ""}` : "off"})`);
 });
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {

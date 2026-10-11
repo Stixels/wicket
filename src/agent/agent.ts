@@ -17,6 +17,8 @@ export interface AgentOptions {
   maxSteps: number;
   productName: string;
   productDescription: string;
+  /** Anthropic's server-side refusal fallback. Only available when calling Anthropic directly. */
+  serverFallback?: boolean;
 }
 
 export interface AgentResult {
@@ -100,8 +102,7 @@ export class Agent {
         messages,
         output_config: { effort: this.opts.effort },
         // On a safety decline, retry on a fallback model chosen by refusal category.
-        betas: ["server-side-fallback-2026-07-01"],
-        fallbacks: "default",
+        ...(this.opts.serverFallback ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" } : {}),
       });
 
       const assistant: MessageParam = { role: "assistant", content: response.content as any };
