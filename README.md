@@ -65,13 +65,7 @@ The widget renders in a shadow DOM, so your app's CSS can't break it and its CSS
 1. Go to https://discord.com/developers/applications and create a **New Application**. Under **Bot**, copy the token and turn on **Message Content Intent**.
 2. Under **OAuth2 → URL Generator**, pick the `bot` scope with these permissions: Manage Roles, Manage Channels, View Channels, Send Messages, Send Messages in Threads, Create Public Threads, Manage Threads, Read Message History and Add Reactions. Open the URL and add the bot to your server.
 3. Turn on Developer Mode (User Settings → Advanced). Right-click your server and choose **Copy Server ID**.
-4. Run the setup once:
-
-   ```bash
-   DISCORD_BOT_TOKEN=... DISCORD_GUILD_ID=... npm run discord:setup
-   ```
-
-   It creates a **Team** role and these channels, then prints the variables to copy:
+4. Set `DISCORD_BOT_TOKEN` and `DISCORD_GUILD_ID` in the service variables. On every boot the service makes sure the server has a **Team** role and these channels, creating only what's missing:
 
    | Category | Channels | Who sees it |
    |---|---|---|
@@ -79,7 +73,7 @@ The widget renders in a shadow DOM, so your app's CSS can't break it and its CSS
    | Community | `#general`, `#help` (forum), `#ideas` (forum), `#show-and-tell` | Everyone |
    | Team | `#support-inbox` (forum), `#team-chat` | Team role only |
 
-   It's safe to re-run, and it only creates what's missing.
+   Channels that already exist with the same name are reused as they are, and nothing is ever deleted. To use an existing staff role, set `DISCORD_TEAM_ROLE` to its name. You can also run it by hand with `npm run discord:setup`.
 5. Give your teammates the **Team** role.
 
 How it behaves:

@@ -29,6 +29,8 @@ const schema = z.object({
   // Relay: where conversations show up for the team
   RELAY: z.enum(["none", "discord"]).default("none"),
   DISCORD_BOT_TOKEN: z.string().optional(),
+  DISCORD_GUILD_ID: z.string().optional(), // set this and the channels below are created and found on boot
+  DISCORD_TEAM_ROLE: z.string().default("Team"),
   DISCORD_CHANNEL_ID: z.string().optional(), // forum channel (preferred) or text channel
   DISCORD_HANDOFF_MENTION: z.string().default(""), // e.g. "<@&roleId>" or "@here"
   DISCORD_COMMUNITY_HELP_CHANNEL_ID: z.string().optional(), // public forum the assistant answers in
@@ -42,8 +44,8 @@ export type Config = z.infer<typeof schema>;
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const config = schema.parse(env);
-  if (config.RELAY === "discord" && (!config.DISCORD_BOT_TOKEN || !config.DISCORD_CHANNEL_ID)) {
-    throw new Error("RELAY=discord needs DISCORD_BOT_TOKEN and DISCORD_CHANNEL_ID");
+  if (config.RELAY === "discord" && (!config.DISCORD_BOT_TOKEN || !(config.DISCORD_GUILD_ID || config.DISCORD_CHANNEL_ID))) {
+    throw new Error("RELAY=discord needs DISCORD_BOT_TOKEN and either DISCORD_GUILD_ID or DISCORD_CHANNEL_ID");
   }
   return config;
 }

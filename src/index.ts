@@ -8,6 +8,7 @@ import { createServer } from "./server.js";
 import { reindex, searchDocs } from "./knowledge/index.js";
 import { MarkdownRepoSource } from "./adapters/knowledge/markdownRepo.js";
 import { DiscordRelay } from "./adapters/relay/discord.js";
+import { setupGuild } from "./discord/setup.js";
 import type { KnowledgeSource, Relay } from "./adapters/types.js";
 
 const config = loadConfig();
@@ -35,6 +36,16 @@ const agent = process.env.ANTHROPIC_API_KEY
       productDescription: config.PRODUCT_DESCRIPTION,
     })
   : null;
+
+// With a server id, make sure the community and inbox channels exist and use their ids,
+// unless ids were set explicitly.
+if (config.RELAY === "discord" && config.DISCORD_GUILD_ID) {
+  const setup = await setupGuild(config.DISCORD_BOT_TOKEN!, config.DISCORD_GUILD_ID, config.DISCORD_TEAM_ROLE);
+  console.log(`discord: server ready${setup.created.length ? `, created ${setup.created.join(", ")}` : ""}`);
+  config.DISCORD_CHANNEL_ID ||= setup.supportInboxId;
+  config.DISCORD_COMMUNITY_HELP_CHANNEL_ID ||= setup.helpId;
+  config.DISCORD_HANDOFF_MENTION ||= `<@&${setup.teamRoleId}>`;
+}
 
 let relay: Relay | null = null;
 if (config.RELAY === "discord") {
