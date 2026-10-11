@@ -212,29 +212,42 @@ button { font: inherit; color: inherit; }
   background: var(--wk-accent); color: var(--wk-on-accent); }
 .avatar img { width: 100%; height: 100%; object-fit: cover; }
 .avatar svg { width: 20px; height: 20px; }
-/* The assistant is a little orb with a face: it looks around and blinks, and its eyes turn into
-   bouncing dots while it thinks. A custom logo gets a sheen instead. */
+/* The assistant is a little orb with a face that looks around and blinks. While it thinks, the
+   header orb swirls faster and glows (both fade in and out), and the avatar in the conversation
+   shows bouncing dots. Only the header and the newest avatar move; older ones rest. */
 .avatar, .row .mini, .typing .mini { position: relative; }
-.bot { border-radius: 50% !important; isolation: isolate; font-size: 36px; }
+.bot { border-radius: 50% !important; isolation: isolate; font-size: 36px; overflow: visible !important; }
 .row .mini.bot, .typing .mini.bot { font-size: 26px; }
-.bot .orb { position: absolute; inset: -35%; z-index: -1; filter: blur(2px);
+.bot .orb, .bot .orb2 { position: absolute; inset: 0; z-index: -2; border-radius: 50%; overflow: hidden; }
+.bot .orb::before, .bot .orb2::before { content: ""; position: absolute; inset: -35%; filter: blur(2px);
   background: conic-gradient(from 0deg, var(--wk-accent), color-mix(in srgb, var(--wk-accent) 50%, white),
     var(--wk-accent), color-mix(in srgb, var(--wk-accent) 60%, black), var(--wk-accent));
-  animation: wk-spin 7s linear infinite; }
+  animation: wk-spin 8s linear infinite; }
+.bot .orb2 { opacity: 0; transition: opacity .6s ease; }
+.bot .orb2::before { animation-duration: 1.6s; }
 .bot::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: 50%;
   background: radial-gradient(circle at 32% 26%, rgba(255,255,255,.55), transparent 48%); }
+.bot::after { content: ""; position: absolute; inset: 0; z-index: -3; border-radius: 50%; opacity: 0;
+  transition: opacity .6s ease; animation: wk-ring 1.4s infinite ease-out; }
 .bot .eyes { display: flex; align-items: center; justify-content: center; gap: .12em; width: 100%; height: 100%;
   animation: wk-look 9s infinite ease-in-out; }
 .bot .eyes i { width: .12em; height: .2em; border-radius: 999px; background: var(--wk-on-accent);
   animation: wk-blink 4.6s infinite; }
 .bot .eyes i:nth-child(3) { display: none; }
-.wk.thinking .avatar.bot .orb, .typing .bot .orb { animation-duration: 1.6s; }
-.wk.thinking .avatar.bot .eyes, .typing .bot .eyes { animation: none; gap: .07em; }
-.wk.thinking .avatar.bot .eyes i, .typing .bot .eyes i { display: block; width: .11em; height: .11em; animation: wk-hop .9s infinite ease-in-out; }
-.wk.thinking .avatar.bot .eyes i:nth-child(2), .typing .bot .eyes i:nth-child(2) { animation-delay: .12s; }
-.wk.thinking .avatar.bot .eyes i:nth-child(3), .typing .bot .eyes i:nth-child(3) { animation-delay: .24s; }
-.wk.thinking .avatar { animation: wk-ring 1.4s infinite ease-out; }
-.row.agent .mini.bot:not(.hidden) { animation: wk-pop .5s ease-out both; }
+/* Two moving faces would compete, so the header blinks on its own beat. */
+.head .bot .eyes, .head .bot .eyes i { animation-delay: -2.3s; }
+.wk.thinking .avatar.bot .orb2 { opacity: 1; }
+.wk.thinking .avatar.bot::after { opacity: 1; }
+.typing .bot .orb2 { opacity: 1; }
+.typing .bot .eyes { gap: .07em; animation: none; }
+.typing .bot .eyes i { display: block; width: .11em; height: .11em; animation: wk-hop .9s infinite ease-in-out; }
+.typing .bot .eyes i:nth-child(2) { animation-delay: .12s; }
+.typing .bot .eyes i:nth-child(3) { animation-delay: .24s; }
+.typing .think { font-size: 13px; color: var(--wk-muted); padding-bottom: 4px;
+  background: linear-gradient(90deg, var(--wk-muted) 40%, var(--wk-text) 50%, var(--wk-muted) 60%) 0 0 / 300% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent; animation: wk-shimmer 2s linear infinite; }
+.row .mini.bot:not(.live) .orb::before, .row .mini.bot:not(.live) .eyes, .row .mini.bot:not(.live) .eyes i { animation: none; }
+.row.agent .mini.bot.live { animation: wk-pop .45s cubic-bezier(.2,.8,.2,1) both; }
 .avatar:not(.bot)::after { content: ""; position: absolute; inset: 0; pointer-events: none;
   background: linear-gradient(115deg, transparent 35%, rgba(255,255,255,.5) 50%, transparent 65%) no-repeat;
   background-size: 300% 100%; background-position: 150% 0; animation: wk-sheen 7s 1.2s infinite ease-in-out; }
@@ -337,6 +350,7 @@ textarea::placeholder { color: var(--wk-muted); }
 @keyframes wk-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 @keyframes wk-sheen { 0%, 80% { background-position: 150% 0; } 100% { background-position: -50% 0; } }
 @keyframes wk-spin { to { transform: rotate(360deg); } }
+@keyframes wk-shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
 @keyframes wk-blink { 0%, 90%, 96%, 100% { transform: scaleY(1); } 93% { transform: scaleY(.1); } }
 @keyframes wk-look { 0%, 28%, 100% { transform: none; } 34%, 52% { transform: translateX(-.05em); } 58%, 76% { transform: translate(.05em, -.03em); } }
 @keyframes wk-hop { 0%, 60%, 100% { transform: translateY(0); } 30% { transform: translateY(-.1em); } }
@@ -350,7 +364,7 @@ textarea::placeholder { color: var(--wk-muted); }
 }
 @media (prefers-reduced-motion: reduce) {
   .launcher, .panel, .row, .system, .chip, .send, .launcher svg, .glow, .hero { transition: none !important; animation: none !important; }
-  .typing i, .avatar, .avatar::after, .mini, .bot .orb, .bot .eyes, .bot .eyes i { animation: none !important; }
+  .typing i, .avatar, .avatar::after, .mini, .bot .orb::before, .bot .orb2::before, .bot .eyes, .bot .eyes i, .typing .think { animation: none !important; }
 }
 `;
 
@@ -469,7 +483,7 @@ class Widget {
 
   private avatarHtml(cls = "avatar") {
     if (this.opts.logoUrl) return `<div class="${cls}"><img alt="" src="${escapeAttr(this.opts.logoUrl)}"></div>`;
-    return `<div class="${cls} bot" aria-hidden="true"><span class="orb"></span><span class="eyes"><i></i><i></i><i></i></span></div>`;
+    return `<div class="${cls} bot" aria-hidden="true"><span class="orb"></span><span class="orb2"></span><span class="eyes"><i></i><i></i><i></i></span></div>`;
   }
 
   private render() {
@@ -524,7 +538,10 @@ class Widget {
 
     this.typing = document.createElement("div");
     this.typing.className = "typing";
-    this.typing.innerHTML = `${this.avatarHtml("mini")}<div class="msg" aria-label="Typing"><i></i><i></i><i></i></div>`;
+    // The animated bot shows its own thinking dots, so it only needs a label; a custom logo gets the usual bubble.
+    this.typing.innerHTML = this.opts.logoUrl
+      ? `${this.avatarHtml("mini")}<div class="msg" aria-label="Typing"><i></i><i></i><i></i></div>`
+      : `${this.avatarHtml("mini")}<span class="think" role="status">Thinking…</span>`;
     this.chips = document.createElement("div");
     this.chips.className = "chips";
 
@@ -746,6 +763,12 @@ class Widget {
     });
   }
 
+  /** Only the newest assistant avatar in the conversation stays animated. */
+  private markLiveAvatar() {
+    const minis = this.log.querySelectorAll(".row .mini.bot:not(.hidden)");
+    minis.forEach((el, i) => el.classList.toggle("live", i === minis.length - 1));
+  }
+
   /** From the start screen to a conversation: drop the quick starts and the Recent list. */
   private leaveHome() {
     this.wrap.classList.remove("home");
@@ -792,6 +815,7 @@ class Widget {
         : "";
     row.innerHTML = `${avatar}<div class="col">${who}<div class="msg">${renderMarkdown(m.body)}</div></div>`;
     this.log.insertBefore(row, this.typing);
+    if (m.author === "agent") this.markLiveAvatar();
     this.scrollDown();
   }
 
