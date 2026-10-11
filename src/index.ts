@@ -52,7 +52,7 @@ const agent = anthropic
 // unless ids were set explicitly.
 if (config.RELAY === "discord" && config.DISCORD_GUILD_ID) {
   const setup = await setupGuild(config.DISCORD_BOT_TOKEN!, config.DISCORD_GUILD_ID, config.DISCORD_TEAM_ROLE);
-  console.log(`discord: server ready${setup.created.length ? `, created ${setup.created.join(", ")}` : ""}`);
+  console.log(`discord: server ready${setup.created.length ? `: ${setup.created.join(", ")}` : ""}`);
   config.DISCORD_CHANNEL_ID ||= setup.supportInboxId;
   config.DISCORD_COMMUNITY_HELP_CHANNEL_ID ||= setup.helpId;
   config.DISCORD_HANDOFF_MENTION ||= `<@&${setup.teamRoleId}>`;

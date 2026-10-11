@@ -38,9 +38,8 @@ const LAYOUT: { category: string; channels: ChannelSpec[] }[] = [
     ],
   },
   {
-    category: "Community",
+    category: "Support",
     channels: [
-      { name: "general", kind: "text", access: "public", topic: "Chat with other operators." },
       {
         name: "help",
         kind: "forum",
@@ -48,6 +47,14 @@ const LAYOUT: { category: string; channels: ChannelSpec[] }[] = [
         topic: "Ask a question. The assistant answers from the docs first, and the team and community jump in.",
         tags: ["Question", "Bug", "Solved"],
       },
+      // Join-to-create, but the room is private to the caller and the team, and the team is pinged.
+      { name: SUPPORT_VOICE_HUB_NAME, kind: "voice", access: "public", topic: "" },
+    ],
+  },
+  {
+    category: "Community",
+    channels: [
+      { name: "general", kind: "text", access: "public", topic: "Chat with other operators." },
       {
         name: "ideas",
         kind: "forum",
@@ -56,10 +63,8 @@ const LAYOUT: { category: string; channels: ChannelSpec[] }[] = [
         tags: ["Idea", "Planned", "Shipped"],
       },
       { name: "show-and-tell", kind: "text", access: "public", topic: "Share your rooms, props and builds." },
-      // Join-to-create: joining this makes a private-feeling room for you and moves you in.
+      // Join-to-create: joining this makes a room for you and moves you in.
       { name: VOICE_HUB_NAME, kind: "voice", access: "public", topic: "" },
-      // Same, but the room is private to the caller and the team, and the team is pinged.
-      { name: SUPPORT_VOICE_HUB_NAME, kind: "voice", access: "public", topic: "" },
     ],
   },
   {
@@ -109,6 +114,8 @@ export async function setupGuild(token: string, guildId: string, teamRoleName = 
     const hasCommunity = guild.features.includes("COMMUNITY");
     const ids: Record<string, string> = {};
 
+    const managed = new Set(LAYOUT.map((g) => g.category.toLowerCase()));
+    let previous: CategoryChannel | undefined;
     for (const group of LAYOUT) {
       const teamOnly = group.channels.every((c) => c.access === "team");
       let category = find(guild, group.category, ChannelType.GuildCategory) as CategoryChannel | undefined;
@@ -119,7 +126,10 @@ export async function setupGuild(token: string, guildId: string, teamRoleName = 
           permissionOverwrites: teamOnly ? overwrites(guild, team, botId, "team") : undefined,
         });
         created.push(group.category);
+        // Place a new category right after the one before it in the layout.
+        if (previous) await category.setPosition(previous.position + 1).catch(() => {});
       }
+      previous = category;
 
       for (const spec of group.channels) {
         const type =
@@ -141,6 +151,11 @@ export async function setupGuild(token: string, guildId: string, teamRoleName = 
             ...(spec.tags ? { availableTags: spec.tags.map((name) => ({ name })) } : {}),
           } as any);
           created.push(`#${spec.name}`);
+        } else if ("parentId" in channel && channel.parentId !== category.id && channel.parent && managed.has(channel.parent.name.toLowerCase())) {
+          // Moved between our own categories in a later version of the layout. Channels the server
+          // owner placed elsewhere are left alone.
+          await (channel as any).setParent(category.id, { lockPermissions: false });
+          created.push(`moved #${spec.name} to ${group.category}`);
         }
         ids[spec.name] = channel.id;
       }

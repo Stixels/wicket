@@ -71,7 +71,8 @@ The widget renders in a shadow DOM, so your app's CSS can't break it and its CSS
    | Category | Channels | Who sees it |
    |---|---|---|
    | Start here | `#welcome`, `#announcements` | Everyone; only the team posts |
-   | Community | `#general`, `#help` (forum), `#ideas` (forum), `#show-and-tell`, `➕ Start a call` and `🎧 Talk to support` (voice) | Everyone |
+   | Support | `#help` (forum), `🎧 Talk to support` (voice) | Everyone |
+| Community | `#general`, `#ideas` (forum), `#show-and-tell`, `➕ Start a call` (voice) | Everyone |
    | Team | `#support-inbox` (forum), `#team-chat` | Team role only |
 
    Channels that already exist with the same name are reused as they are, and nothing is ever deleted. To use an existing staff role, set `DISCORD_TEAM_ROLE` to its name. You can also run it by hand with `npm run discord:setup`.
