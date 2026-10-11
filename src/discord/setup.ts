@@ -213,11 +213,18 @@ export async function setupGuild(token: string, guildId: string, opts: SetupOpti
             await (channel as any).setParent(category.id, { lockPermissions: false });
             created.push(`moved #${spec.name} to ${group.category}`);
           }
-          created.push(...(await freshen(channel, spec)));
-          if (spec.kind === "announcement" && hasCommunity && channel.type === ChannelType.GuildText) {
-            // Community servers get real announcement channels, which people can follow from their own servers.
-            channel = await (channel as TextChannel).setType(ChannelType.GuildAnnouncement);
-            created.push(`made #${spec.name} an announcement channel`);
+          created.push(...(await freshen(channel, spec).catch(() => [])));
+          // Community servers get real announcement channels, which people can follow from their own servers.
+          // Discord requires the rules and admin-notices channels to stay plain text channels.
+          const reserved = [guild.rulesChannelId, guild.publicUpdatesChannelId].includes(channel.id);
+          if (spec.kind === "announcement" && hasCommunity && channel.type === ChannelType.GuildText && !reserved) {
+            channel = await (channel as TextChannel).setType(ChannelType.GuildAnnouncement).then(
+              (c) => (created.push(`made #${spec.name} an announcement channel`), c),
+              () => channel!,
+            );
+          }
+          if (channel.id === guild.publicUpdatesChannelId && spec.access !== "team") {
+            manual.push(`Discord's admin notices go to the public #${channel.name}. Server Settings > Community > Overview: set Community Updates Channel to #team-chat`);
           }
         }
         ids[spec.name] = channel.id;
@@ -232,7 +239,7 @@ export async function setupGuild(token: string, guildId: string, opts: SetupOpti
       .sort((a, b) => (a as CategoryChannel).position - (b as CategoryChannel).position)
       .first();
     if (topCategory && topCategory.id !== start.id) {
-      await start.setPosition(0);
+      await start.setPosition(0).catch(() => {});
       created.push(`moved ${LAYOUT[0].category} to the top`);
     }
     const welcome = guild.channels.cache.get(ids["welcome"]) as TextChannel;
@@ -241,10 +248,9 @@ export async function setupGuild(token: string, guildId: string, opts: SetupOpti
     const rules = guild.rulesChannelId ? (guild.channels.cache.get(guild.rulesChannelId) as TextChannel | undefined) : undefined;
     if (rules && rules.id !== welcome.id) {
       ids["rules"] = rules.id;
-      created.push(...(await freshen(rules, RULES_SPEC)));
+      created.push(...(await freshen(rules, RULES_SPEC).catch(() => [])));
       if (rules.parentId !== start.id && (!rules.parent || managed.has(rules.parent.name.toLowerCase()))) {
-        await rules.setParent(start.id, { lockPermissions: false });
-        created.push(`moved #${rules.name} to ${LAYOUT[0].category}`);
+        await rules.setParent(start.id, { lockPermissions: false }).then(() => created.push(`moved #${rules.name} to ${LAYOUT[0].category}`), () => {});
       }
       if (!rules.permissionOverwrites.cache.size) await rules.permissionOverwrites.set(overwrites(guild, team, botId, "read-only")).catch(() => {});
       const post = await keepPost(rules, botId, rulesEmbed(opts, ids, team.id), RULES_FOOTER).catch(() => null);
@@ -253,8 +259,7 @@ export async function setupGuild(token: string, guildId: string, opts: SetupOpti
     const notices = guild.publicUpdatesChannelId ? guild.channels.cache.get(guild.publicUpdatesChannelId) : undefined;
     const teamCategory = find(guild, "Team", ChannelType.GuildCategory);
     if (notices && !notices.parentId && teamCategory && "setParent" in notices) {
-      await notices.setParent(teamCategory.id, { lockPermissions: false });
-      created.push(`moved #${notices.name} to Team`);
+      await notices.setParent(teamCategory.id, { lockPermissions: false }).then(() => created.push(`moved #${notices.name} to Team`), () => {});
     }
 
     // Order inside Start here: welcome, rules, announcements, then anything else.
