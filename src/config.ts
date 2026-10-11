@@ -6,7 +6,7 @@ const csv = z
   .transform((v) => (v ? v.split(",").map((s) => s.trim()).filter(Boolean) : []));
 
 const schema = z.object({
-  PORT: z.coerce.number().default(3000),
+  PORT: z.coerce.number().default(4318),
   DATABASE_PATH: z.string().default("./data/wicket.db"),
   /** Origins allowed to embed the widget, comma separated. Empty allows any origin. */
   ALLOWED_ORIGINS: csv,

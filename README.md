@@ -118,5 +118,5 @@ Each external tool sits behind an adapter interface in `src/adapters/types.ts` (
 npm test            # unit + API tests (scripted model, fake relay)
 npm run typecheck
 cp .env.example .env   # fill in your keys
-npm run dev            # open http://localhost:3000 for a test page with the widget
+npm run dev            # open http://localhost:4318 for a test page with the widget
 ```
