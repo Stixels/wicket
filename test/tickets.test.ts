@@ -12,18 +12,17 @@ describe("LinearTracker", () => {
       calls.push(body);
       const data = body.query.includes("issueCreate")
         ? { issueCreate: { success: true, issue: { identifier: "ED-42", url: "https://linear.app/x/issue/ED-42" } } }
-        : {
-            teams: { nodes: [{ id: "team1", states: { nodes: [{ id: "todo", type: "unstarted", position: 1 }, { id: "backlog", type: "backlog", position: 0 }] }, labels: { nodes: [{ id: "lbug", name: "Bug" }] } }] },
-            issueLabels: { nodes: [{ id: "lsrc", name: "Source: Discord", team: null }] },
-          };
+        : body.query.includes("teams(")
+          ? { teams: { nodes: [{ id: "team1", states: { nodes: [{ id: "todo", name: "Todo", type: "unstarted", position: 1 }, { id: "backlog", name: "Backlog", type: "backlog", position: 0 }] } }] } }
+          : { team: { labels: { nodes: [{ id: "lbug", name: "Bug" }] } }, issueLabels: { nodes: [{ id: "lsrc", name: "Source: Discord" }] } };
       return new Response(JSON.stringify({ data }), { status: 200 });
     });
     const t = new LinearTracker({ apiKey: "k", teamKey: "ED", sourceLabel: "Source: Discord" });
     expect(await t.create({ title: "Timer stops", description: "d", kind: "bug" })).toEqual({ key: "ED-42", url: "https://linear.app/x/issue/ED-42" });
-    expect(calls[1].variables.input).toEqual({ teamId: "team1", title: "Timer stops", description: "d", labelIds: ["lbug", "lsrc"], stateId: "backlog" });
+    expect(calls[2].variables.input).toEqual({ teamId: "team1", title: "Timer stops", description: "d", labelIds: ["lbug", "lsrc"], stateId: "backlog" });
     await t.create({ title: "Dark mode", description: "d", kind: "feature" }); // team is cached, "Feature" label missing is skipped
-    expect(calls).toHaveLength(3);
-    expect(calls[2].variables.input.labelIds).toEqual(["lsrc"]);
+    expect(calls).toHaveLength(4);
+    expect(calls[3].variables.input.labelIds).toEqual(["lsrc"]);
   });
 });
 

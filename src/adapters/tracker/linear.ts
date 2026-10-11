@@ -37,24 +37,27 @@ export class LinearTracker implements Tracker {
   }
 
   private async loadTeam() {
+    // Separate small queries: Linear rejects one big nested query as too complex.
     const data = await this.gql<{
-      teams: { nodes: { id: string; states: { nodes: { id: string; name: string; type: string; position: number }[] }; labels: { nodes: { id: string; name: string }[] } }[] };
-      issueLabels: { nodes: { id: string; name: string; team: { id: string } | null }[] };
-    }>(
-      `query($key: String!) {
-        teams(filter: { key: { eq: $key } }) { nodes { id states { nodes { id name type position } } labels(first: 250) { nodes { id name } } } }
-        issueLabels(first: 250, filter: { team: { null: true } }) { nodes { id name team { id } } }
-      }`,
-      { key: this.opts.teamKey },
-    );
-    const team = data.teams.nodes[0];
+      teams: { nodes: { id: string; states: { nodes: { id: string; name: string; type: string; position: number }[] } }[] };
+    }>(`query($key: String!) { teams(first: 1, filter: { key: { eq: $key } }) { nodes { id states(first: 50) { nodes { id name type position } } } } }`, {
+      key: this.opts.teamKey,
+    });
+    const found = data.teams.nodes[0];
+    const labelData = found
+      ? await this.gql<{ team: { labels: { nodes: { id: string; name: string }[] } }; issueLabels: { nodes: { id: string; name: string }[] } }>(
+          `query($id: String!) { team(id: $id) { labels(first: 100) { nodes { id name } } } issueLabels(first: 100, filter: { team: { null: true } }) { nodes { id name } } }`,
+          { id: found.id },
+        )
+      : null;
+    const team = found;
     if (!team) {
       this.team = undefined; // retry next time, e.g. after the key is fixed
       throw new Error(`Linear team ${this.opts.teamKey} not found`);
     }
     const byType = (t: string) => team.states.nodes.filter((s) => s.type === t).sort((a, b) => a.position - b.position)[0];
     const labels = new Map<string, string>();
-    for (const l of [...data.issueLabels.nodes, ...team.labels.nodes]) labels.set(l.name.toLowerCase(), l.id); // team labels win
+    for (const l of [...labelData!.issueLabels.nodes, ...labelData!.team.labels.nodes]) labels.set(l.name.toLowerCase(), l.id); // team labels win
     const state = byType("triage") ?? byType("backlog");
     return { id: team.id, stateId: state?.id, stateName: state?.name ?? "the default status", labels };
   }

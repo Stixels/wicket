@@ -170,10 +170,14 @@ export async function setupGuild(token: string, guildId: string, opts: SetupOpti
 
     // Discord's notices to admins belong in the private team channel, not a public one (needs Manage Server).
     const teamChat = find(guild, "team-chat", ChannelType.GuildText);
-    const notices0 = guild.publicUpdatesChannelId ? guild.channels.cache.get(guild.publicUpdatesChannelId) : undefined;
+    let noticesId = guild.publicUpdatesChannelId;
+    const notices0 = noticesId ? guild.channels.cache.get(noticesId) : undefined;
     if (hasCommunity && teamChat && notices0 && notices0.id !== teamChat.id && notices0.parent?.name.toLowerCase() !== "team") {
       await guild.setPublicUpdatesChannel(teamChat.id).then(
-        () => created.push(`Discord's admin notices now go to #team-chat`),
+        () => {
+          noticesId = teamChat.id;
+          created.push(`Discord's admin notices now go to #team-chat`);
+        },
         () => {},
       );
     }
@@ -226,14 +230,14 @@ export async function setupGuild(token: string, guildId: string, opts: SetupOpti
           created.push(...(await freshen(channel, spec).catch(() => [])));
           // Community servers get real announcement channels, which people can follow from their own servers.
           // Discord requires the rules and admin-notices channels to stay plain text channels.
-          const reserved = [guild.rulesChannelId, guild.publicUpdatesChannelId].includes(channel.id);
+          const reserved = [guild.rulesChannelId, noticesId].includes(channel.id);
           if (spec.kind === "announcement" && hasCommunity && channel.type === ChannelType.GuildText && !reserved) {
             channel = await (channel as TextChannel).setType(ChannelType.GuildAnnouncement).then(
               (c) => (created.push(`made #${spec.name} an announcement channel`), c),
               () => channel!,
             );
           }
-          if (channel.id === guild.publicUpdatesChannelId && spec.access !== "team") {
+          if (channel.id === noticesId && spec.access !== "team") {
             manual.push(`Discord's admin notices go to the public #${channel.name}. Server Settings > Community > Overview: set Community Updates Channel to #team-chat`);
           }
         }
@@ -273,7 +277,7 @@ export async function setupGuild(token: string, guildId: string, opts: SetupOpti
       });
       if (post) created.push(`${post} in #${rules.name}`);
     }
-    const notices = guild.publicUpdatesChannelId ? guild.channels.cache.get(guild.publicUpdatesChannelId) : undefined;
+    const notices = noticesId ? guild.channels.cache.get(noticesId) : undefined;
     const teamCategory = find(guild, "Team", ChannelType.GuildCategory);
     if (notices && !notices.parentId && teamCategory && "setParent" in notices) {
       await notices.setParent(teamCategory.id, { lockPermissions: false }).then(() => created.push(`moved #${notices.name} to Team`), () => {});
