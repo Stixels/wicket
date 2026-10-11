@@ -178,3 +178,16 @@ describe("RateLimiter", () => {
     expect(rl.allow("k", 1, 3_600_000)).toBe(true);
   });
 });
+
+describe("answerOnce (community forum posts)", () => {
+  it("answers from the docs and flags posts the assistant hands off", async () => {
+    const { answerOnce } = await import("../src/agent/agent.js");
+    const docs = () => [{ title: "Live View", heading: "Timers", url: "https://docs/x", snippet: "Add a timer" }];
+
+    const ok = new Agent(new FakeClient([toolCall("search_docs", { query: "timer" }), text("Add a timer in Live View: https://docs/x")]), agentOpts);
+    expect(await answerOnce(ok, "How do timers work?", docs)).toEqual({ reply: "Add a timer in Live View: https://docs/x", needsHuman: false });
+
+    const human = new Agent(new FakeClient([toolCall("handoff_to_human", { reason: "billing" }), text("The team will help with billing.")]), agentOpts);
+    expect((await answerOnce(human, "I was double charged", docs)).needsHuman).toBe(true);
+  });
+});

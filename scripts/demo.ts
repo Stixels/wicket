@@ -33,8 +33,16 @@ const service = new ConversationService(db, new Agent(client as any, { model: "x
 await relay.start((r) => service.handleStaffReply(r.threadId, r.authorName, r.body));
 (globalThis as any).relay = relay;
 const app = createServer(service, { allowedOrigins: [], maxConversationsPerIpPerHour: 50, maxMessagesPerConversationPerHour: 50 });
-app.get("/", (c) => c.html(`<!doctype html><html><head><title>Escape Director (demo)</title></head><body style="font-family:system-ui;margin:40px">
-<h1>Escape Director</h1><p>Demo host page for the feedback widget.</p>
-<script src="/widget.js"></script><script>FeedbackLoop.init({ user: { id: "u1", name: "Sam (Treehouse Escape)" }, context: { appVersion: "2.3.0" } }); FeedbackLoop.open();</script></body></html>`));
-app.post("/__staff", async (c) => { const { body } = await c.req.json(); await relay.staffReply("thread_1", body); return c.json({ ok: true, posts: relay.threads.get("thread_1")?.posts }); });
+app.get("/", (c) => {
+  const q = c.req.query();
+  const theme = { accentColor: q.accent ? `#${q.accent}` : "#e8590c", mode: q.mode ?? "auto", position: q.position ?? "right" };
+  return c.html(`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Escape Director (demo)</title>
+<style>body{margin:0;font-family:system-ui;background:${q.mode === "dark" ? "#0d0d10;color:#eee" : "#f4f1ec;color:#222"}} main{max-width:880px;margin:0 auto;padding:56px 24px}
+.card{background:${q.mode === "dark" ? "#17171b" : "#fff"};border-radius:14px;padding:24px;margin-top:20px;box-shadow:0 1px 3px rgba(0,0,0,.08)}</style></head>
+<body><main><h1>Escape Director</h1><p>Demo host page for the help widget.</p><div class="card">Room: The Treehouse · Live session idle</div></main>
+<script src="/widget.js"></script><script>Wicket.init({ user: { id: "u1", name: "Sam (Treehouse Escape)" }, context: { appVersion: "2.3.0" },
+  title: "Escape Director Support", subtitle: "We usually reply in minutes", launcherLabel: ${JSON.stringify(q.label ?? "")},
+  theme: ${JSON.stringify(theme)} }); ${q.closed ? "" : "Wicket.open();"}</script></body></html>`);
+});
+app.post("/__staff", async (c) => { const { body } = await c.req.json(); const thread = [...relay.threads.keys()].at(-1)!; await relay.staffReply(thread, body); return c.json({ ok: true, posts: relay.threads.get(thread)?.posts }); });
 serve({ fetch: app.fetch, port: 4317 }, () => console.log("ready on 4317"));

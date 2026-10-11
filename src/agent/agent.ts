@@ -159,6 +159,24 @@ export class Agent {
   }
 }
 
+/** Answers a single public question (e.g. a community forum post) with no stored history. */
+export async function answerOnce(agent: Agent, question: string, searchDocs: AgentTools["searchDocs"]) {
+  let needsHuman = false;
+  const result = await agent.respond(
+    [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "<app_context>\n{\"channel\": \"public community help forum\"}\n</app_context>" },
+          { type: "text", text: question },
+        ],
+      },
+    ],
+    { searchDocs, handoff: async () => void (needsHuman = true) },
+  );
+  return { reply: result.reply, needsHuman: needsHuman || result.handedOff };
+}
+
 function textOf(content: ContentBlock[]): string {
   return content
     .filter((b): b is Anthropic.Beta.Messages.BetaTextBlock => b.type === "text")

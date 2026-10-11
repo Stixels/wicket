@@ -1,11 +1,12 @@
 /**
- * Feedback Loop widget. Add to any web app:
+ * Help and feedback widget. Add to any web app:
  *
  *   <script src="https://YOUR-SERVER/widget.js" defer></script>
  *   <script>
- *     window.addEventListener("load", () => FeedbackLoop.init({
+ *     window.addEventListener("load", () => Wicket.init({
  *       user: { id: "u_123", name: "Sam", email: "sam@example.com" },
  *       context: { appVersion: "1.4.2", plan: "pro" },
+ *       theme: { accentColor: "#e8590c" },
  *     }));
  *   </script>
  *
@@ -18,15 +19,42 @@ interface User {
   email?: string;
 }
 
+export interface Theme {
+  /** Brand color for the launcher, header accents, your messages and buttons. */
+  accentColor?: string;
+  /** "auto" follows the visitor's system setting. */
+  mode?: "auto" | "light" | "dark";
+  /** Corner radius of the panel in px; bubbles and inputs scale from it. */
+  radius?: number;
+  fontFamily?: string;
+  position?: "right" | "left";
+  /** Distance from the screen edges in px. */
+  offset?: { x?: number; y?: number };
+  zIndex?: number;
+  /** Raw CSS variable overrides for anything else, e.g. { "--wk-bg": "#fffaf5" }. */
+  cssVars?: Record<string, string>;
+}
+
 interface InitOptions {
   apiUrl?: string;
   user?: User;
   context?: Record<string, unknown>;
   title?: string;
+  subtitle?: string;
   greeting?: string;
-  accentColor?: string;
-  /** Hide the floating button and open the panel yourself with FeedbackLoop.open(). */
+  placeholder?: string;
+  /** Square image shown in the header and next to assistant messages. */
+  logoUrl?: string;
+  /** Text next to the launcher icon. Empty shows the icon only. */
+  launcherLabel?: string;
+  /** Quick starts shown before the first message. Empty array hides them. */
+  suggestions?: string[];
+  /** Hide the floating button and open the panel yourself with Wicket.open(). */
   hideLauncher?: boolean;
+  showBranding?: boolean;
+  theme?: Theme;
+  /** @deprecated use theme.accentColor */
+  accentColor?: string;
 }
 
 interface Message {
@@ -37,8 +65,8 @@ interface Message {
   createdAt: number;
 }
 
-const scriptSrc = (document.currentScript as HTMLScriptElement | null)?.src;
 const scriptEl = document.currentScript as HTMLScriptElement | null;
+const scriptSrc = scriptEl?.src;
 
 // Keep the last errors the user ran into; they're attached to new conversations.
 const recentErrors: string[] = [];
@@ -66,86 +94,239 @@ function safeJson(v: unknown): string {
 
 const CSS = `
 :host { all: initial; }
-* { box-sizing: border-box; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-.launcher { position: fixed; right: 20px; bottom: 20px; width: 56px; height: 56px; border-radius: 50%;
-  border: none; background: var(--accent); color: #fff; cursor: pointer; box-shadow: 0 6px 20px rgba(0,0,0,.25);
-  display: flex; align-items: center; justify-content: center; z-index: 2147483000; }
-.launcher svg { width: 26px; height: 26px; }
-.panel { position: fixed; right: 20px; bottom: 88px; width: 370px; max-width: calc(100vw - 32px);
-  height: 540px; max-height: calc(100vh - 120px); background: #fff; color: #1a1a1a; border-radius: 14px;
-  box-shadow: 0 12px 40px rgba(0,0,0,.25); display: none; flex-direction: column; overflow: hidden; z-index: 2147483000; }
-.panel.open { display: flex; }
-.head { background: var(--accent); color: #fff; padding: 14px 16px; display: flex; align-items: center; gap: 8px; }
-.head .title { font-weight: 600; font-size: 15px; flex: 1; }
-.head button { background: transparent; border: none; color: #fff; cursor: pointer; font-size: 13px; opacity: .85; }
-.head button:hover { opacity: 1; }
-.log { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; background: #f7f7f8; }
-.msg { max-width: 85%; padding: 9px 12px; border-radius: 12px; font-size: 14px; line-height: 1.45; white-space: pre-wrap; word-wrap: break-word; }
-.msg a { color: inherit; text-decoration: underline; }
-.msg.user { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
-.msg.agent, .msg.staff { align-self: flex-start; background: #fff; border: 1px solid #e6e6e9; border-bottom-left-radius: 4px; }
-.msg.system { align-self: center; background: transparent; color: #6b6b73; font-size: 12px; text-align: center; }
-.who { font-size: 11px; color: #6b6b73; margin-bottom: 2px; }
-.typing { align-self: flex-start; color: #6b6b73; font-size: 13px; padding: 4px 2px; display: none; }
-.typing.on { display: block; }
-form { display: flex; gap: 8px; padding: 10px; border-top: 1px solid #e6e6e9; background: #fff; }
-textarea { flex: 1; resize: none; border: 1px solid #d8d8dd; border-radius: 10px; padding: 9px 10px; font-size: 14px;
-  min-height: 40px; max-height: 120px; outline: none; color: #1a1a1a; background: #fff; }
-textarea:focus { border-color: var(--accent); }
-.send { border: none; background: var(--accent); color: #fff; border-radius: 10px; padding: 0 14px; font-size: 14px; cursor: pointer; }
-.send:disabled { opacity: .5; cursor: default; }
-.error { color: #b42318; font-size: 12px; padding: 0 12px 8px; display: none; background: #fff; }
+.wk {
+  --wk-accent: #4f46e5;
+  --wk-on-accent: #ffffff;
+  --wk-radius: 20px;
+  --wk-font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --wk-bg: #ffffff;
+  --wk-surface: #f6f6f8;
+  --wk-bubble: #ffffff;
+  --wk-border: rgba(15, 15, 30, 0.08);
+  --wk-text: #16161d;
+  --wk-muted: #6e6e7a;
+  --wk-shadow: 0 1px 2px rgba(15,15,30,.06), 0 8px 24px rgba(15,15,30,.10), 0 24px 64px rgba(15,15,30,.14);
+  --wk-x: 20px;
+  --wk-y: 20px;
+  --wk-z: 2147483000;
+  font-family: var(--wk-font);
+  -webkit-font-smoothing: antialiased;
+  color: var(--wk-text);
+}
+.wk.dark {
+  --wk-bg: #18181d;
+  --wk-surface: #111115;
+  --wk-bubble: #222229;
+  --wk-border: rgba(255, 255, 255, 0.08);
+  --wk-text: #ededf2;
+  --wk-muted: #9a9aa6;
+  --wk-shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35), 0 24px 64px rgba(0,0,0,.45);
+}
+* { box-sizing: border-box; }
+button { font: inherit; color: inherit; }
+
+/* Launcher */
+.launcher {
+  position: fixed; bottom: var(--wk-y); right: var(--wk-x); z-index: var(--wk-z);
+  height: 56px; min-width: 56px; padding: 0 18px; border: 0; border-radius: 999px;
+  background: var(--wk-accent); color: var(--wk-on-accent);
+  display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+  font-size: 15px; font-weight: 600; letter-spacing: -0.01em; cursor: pointer;
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--wk-accent) 35%, transparent), 0 2px 4px rgba(0,0,0,.12);
+  transition: transform .2s cubic-bezier(.2,.8,.2,1), box-shadow .2s;
+}
+.launcher.icon-only { padding: 0; width: 56px; }
+.launcher:hover { transform: translateY(-2px); box-shadow: 0 10px 24px color-mix(in srgb, var(--wk-accent) 40%, transparent), 0 3px 6px rgba(0,0,0,.14); }
+.launcher:focus-visible, .icon-btn:focus-visible, .send:focus-visible, .chip:focus-visible { outline: 3px solid color-mix(in srgb, var(--wk-accent) 45%, transparent); outline-offset: 2px; }
+.launcher svg { width: 24px; height: 24px; flex: none; transition: transform .25s cubic-bezier(.2,.8,.2,1), opacity .2s; }
+.launcher .ic-close { position: absolute; opacity: 0; transform: rotate(-90deg) scale(.6); }
+.wk.open .launcher .ic-chat { opacity: 0; transform: rotate(90deg) scale(.6); }
+.wk.open .launcher .ic-close { opacity: 1; transform: none; }
+.wk.open .launcher .label { display: none; }
+.wk.open .launcher { padding: 0; width: 56px; }
+.badge { position: absolute; top: -2px; right: -2px; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px;
+  background: #ef4444; color: #fff; font-size: 11px; font-weight: 700; display: none; align-items: center; justify-content: center;
+  border: 2px solid var(--wk-bg); }
+.badge.on { display: inline-flex; }
+.left .launcher { right: auto; left: var(--wk-x); }
+
+/* Panel */
+.panel {
+  position: fixed; right: var(--wk-x); bottom: calc(var(--wk-y) + 72px); z-index: var(--wk-z);
+  width: 384px; height: min(640px, calc(100vh - var(--wk-y) - 104px));
+  background: var(--wk-bg); border: 1px solid var(--wk-border); border-radius: var(--wk-radius);
+  box-shadow: var(--wk-shadow); display: flex; flex-direction: column; overflow: hidden;
+  opacity: 0; transform: translateY(12px) scale(.98); transform-origin: bottom right; pointer-events: none; visibility: hidden;
+  transition: opacity .2s ease, transform .25s cubic-bezier(.2,.8,.2,1), visibility 0s linear .25s;
+}
+.left .panel { right: auto; left: var(--wk-x); transform-origin: bottom left; }
+.wk.open .panel { opacity: 1; transform: none; pointer-events: auto; visibility: visible; transition-delay: 0s; }
+
+.head {
+  padding: 18px 16px 16px 18px; display: flex; align-items: center; gap: 12px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--wk-accent) 10%, var(--wk-bg)), var(--wk-bg));
+  border-bottom: 1px solid var(--wk-border);
+}
+.avatar { width: 36px; height: 36px; border-radius: 12px; flex: none; display: grid; place-items: center; overflow: hidden;
+  background: var(--wk-accent); color: var(--wk-on-accent); }
+.avatar img { width: 100%; height: 100%; object-fit: cover; }
+.avatar svg { width: 20px; height: 20px; }
+.titles { flex: 1; min-width: 0; }
+.title { font-size: 16px; font-weight: 650; letter-spacing: -0.015em; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.subtitle { font-size: 12.5px; color: var(--wk-muted); margin-top: 3px; display: flex; align-items: center; gap: 6px; min-width: 0; }
+.subtitle span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dot { flex: none; }
+.dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 0 3px color-mix(in srgb, #22c55e 20%, transparent); }
+.icon-btn { width: 32px; height: 32px; border: 0; border-radius: 10px; background: transparent; color: var(--wk-muted);
+  display: grid; place-items: center; cursor: pointer; transition: background .15s, color .15s; }
+.icon-btn:hover { background: color-mix(in srgb, var(--wk-text) 7%, transparent); color: var(--wk-text); }
+.icon-btn svg { width: 18px; height: 18px; }
+
+.log { flex: 1; overflow-y: auto; padding: 18px 16px 8px; display: flex; flex-direction: column; gap: 6px;
+  background: var(--wk-surface); scroll-behavior: smooth; }
+.log::-webkit-scrollbar { width: 8px; }
+.log::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--wk-text) 15%, transparent); border-radius: 8px; }
+
+.row { display: flex; gap: 8px; align-items: flex-end; animation: wk-in .25s cubic-bezier(.2,.8,.2,1); }
+.row.user { justify-content: flex-end; }
+.row + .row.gap { margin-top: 8px; }
+.row .mini { width: 26px; height: 26px; border-radius: 9px; flex: none; display: grid; place-items: center; overflow: hidden;
+  background: var(--wk-accent); color: var(--wk-on-accent); font-size: 11px; font-weight: 700; }
+.row .mini img { width: 100%; height: 100%; object-fit: cover; }
+.row .mini svg { width: 15px; height: 15px; }
+.row .mini.staff { background: color-mix(in srgb, var(--wk-text) 85%, transparent); color: var(--wk-bg); }
+.row .mini.hidden { visibility: hidden; }
+.col { display: flex; flex-direction: column; max-width: 80%; }
+.row.user .col { align-items: flex-end; }
+.who { font-size: 11.5px; color: var(--wk-muted); margin: 0 0 4px 2px; display: flex; gap: 6px; align-items: center; }
+.tag { font-size: 10px; font-weight: 650; text-transform: uppercase; letter-spacing: .04em; padding: 1px 6px; border-radius: 6px;
+  background: color-mix(in srgb, var(--wk-accent) 14%, transparent); color: var(--wk-accent); }
+.msg { padding: 10px 14px; border-radius: calc(var(--wk-radius) * .8); font-size: 14.5px; line-height: 1.5;
+  white-space: pre-wrap; overflow-wrap: anywhere; }
+.msg a { color: inherit; text-decoration: underline; text-underline-offset: 2px; text-decoration-thickness: 1px; }
+.msg code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em; padding: 1px 5px; border-radius: 6px;
+  background: color-mix(in srgb, currentColor 10%, transparent); }
+.row.user .msg { background: var(--wk-accent); color: var(--wk-on-accent); border-bottom-right-radius: 6px; }
+.row.agent .msg, .row.staff .msg { background: var(--wk-bubble); border: 1px solid var(--wk-border); border-bottom-left-radius: 6px;
+  box-shadow: 0 1px 2px rgba(15,15,30,.04); }
+.row.agent a, .row.staff a { color: var(--wk-accent); }
+.wk.dark .row.agent a, .wk.dark .row.staff a { color: color-mix(in srgb, var(--wk-accent) 60%, white); }
+.system { align-self: center; margin: 10px 0; font-size: 12px; color: var(--wk-muted); padding: 5px 12px; border-radius: 999px;
+  background: color-mix(in srgb, var(--wk-text) 5%, transparent); animation: wk-in .25s ease; text-align: center; }
+
+.typing { display: none; gap: 8px; align-items: flex-end; margin-top: 6px; }
+.typing.on { display: flex; }
+.typing .msg { display: inline-flex; gap: 4px; padding: 14px 14px; background: var(--wk-bubble); border: 1px solid var(--wk-border); border-bottom-left-radius: 6px; }
+.typing i { width: 6px; height: 6px; border-radius: 50%; background: var(--wk-muted); animation: wk-bounce 1.2s infinite ease-in-out; }
+.typing i:nth-child(2) { animation-delay: .15s; }
+.typing i:nth-child(3) { animation-delay: .3s; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 4px 34px; }
+.chip { border: 1px solid color-mix(in srgb, var(--wk-accent) 35%, var(--wk-border)); background: var(--wk-bg); color: var(--wk-accent);
+  border-radius: 999px; padding: 7px 13px; font-size: 13px; font-weight: 550; cursor: pointer; transition: background .15s, transform .15s; }
+.wk.dark .chip { color: color-mix(in srgb, var(--wk-accent) 60%, white); }
+.chip:hover { background: color-mix(in srgb, var(--wk-accent) 8%, var(--wk-bg)); transform: translateY(-1px); }
+
+.composer { padding: 12px; background: var(--wk-bg); border-top: 1px solid var(--wk-border); }
+.field { display: flex; align-items: flex-end; gap: 8px; padding: 6px 6px 6px 14px; border-radius: calc(var(--wk-radius) * .8);
+  border: 1px solid var(--wk-border); background: var(--wk-surface); transition: border-color .15s, box-shadow .15s; }
+.field:focus-within { border-color: color-mix(in srgb, var(--wk-accent) 60%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--wk-accent) 12%, transparent); }
+textarea { flex: 1; resize: none; border: 0; outline: 0; background: transparent; color: var(--wk-text); font: inherit;
+  font-size: 14.5px; line-height: 1.45; padding: 7px 0; max-height: 140px; min-height: 22px; }
+textarea::placeholder { color: var(--wk-muted); }
+.send { width: 36px; height: 36px; flex: none; border: 0; border-radius: 12px; background: var(--wk-accent); color: var(--wk-on-accent);
+  display: grid; place-items: center; cursor: pointer; transition: transform .15s, opacity .15s; }
+.send:hover:not(:disabled) { transform: scale(1.05); }
+.send:disabled { opacity: .35; cursor: default; }
+.send svg { width: 18px; height: 18px; }
+.error { color: #dc2626; font-size: 12.5px; padding: 0 4px 8px; display: none; }
 .error.on { display: block; }
-@media (prefers-color-scheme: dark) {
-  .panel { background: #1c1c1f; color: #ececf1; }
-  .log { background: #141416; }
-  .msg.agent, .msg.staff { background: #232327; border-color: #333338; color: #ececf1; }
-  form, .error { background: #1c1c1f; border-color: #333338; }
-  textarea { background: #232327; color: #ececf1; border-color: #3a3a40; }
+.brand { text-align: center; font-size: 11px; color: var(--wk-muted); padding-top: 8px; }
+.brand a { color: inherit; text-decoration: none; font-weight: 600; }
+
+@keyframes wk-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes wk-bounce { 0%, 60%, 100% { transform: translateY(0); opacity: .5; } 30% { transform: translateY(-4px); opacity: 1; } }
+
+@media (max-width: 480px) {
+  .panel { inset: 0; width: 100%; height: 100%; border-radius: 0; border: 0; }
+  .wk.open .launcher { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .launcher, .panel, .row, .system, .chip, .send, .launcher svg { transition: none !important; animation: none !important; }
+  .typing i { animation: none; }
 }
 `;
 
-const ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`;
+const ICONS = {
+  chat: `<svg class="ic-chat" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>`,
+  close: `<svg class="ic-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg>`,
+  x: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>`,
+  plus: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.4 3.6a2 2 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>`,
+  send: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>`,
+  spark: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5c.4 3.9 1.9 6.3 4.3 7.6 1.2.7 2.6 1.1 4.2 1.4v1c-3.9.4-6.3 1.9-7.6 4.3-.7 1.2-1.1 2.6-1.4 4.2h-1c-.4-3.9-1.9-6.3-4.3-7.6-1.2-.7-2.6-1.1-4.2-1.4v-1c3.9-.4 6.3-1.9 7.6-4.3.7-1.2 1.1-2.6 1.4-4.2Z"/></svg>`,
+};
 
-class FeedbackWidget {
-  private opts: Required<Pick<InitOptions, "apiUrl" | "title" | "greeting" | "accentColor">> & InitOptions;
+class Widget {
+  private opts: InitOptions & { apiUrl: string };
+  private theme: Theme;
   private root: ShadowRoot;
-  private panel!: HTMLElement;
+  private wrap!: HTMLElement;
   private log!: HTMLElement;
   private typing!: HTMLElement;
+  private chips!: HTMLElement;
   private input!: HTMLTextAreaElement;
   private sendBtn!: HTMLButtonElement;
   private errorEl!: HTMLElement;
+  private badge!: HTMLElement;
   private conv: { id: string; token: string } | null = null;
   private source: EventSource | null = null;
   private seen = new Set<number>();
   private lastId = 0;
+  private lastAuthor: string | null = null;
+  private unread = 0;
+  private media = window.matchMedia?.("(prefers-color-scheme: dark)");
 
   constructor(options: InitOptions) {
+    options = defined(options);
     const apiUrl = (options.apiUrl ?? (scriptSrc ? new URL(scriptSrc).origin : location.origin)).replace(/\/$/, "");
     this.opts = {
       title: "Help & feedback",
-      greeting: "Hi! Ask a question, report a problem or share an idea. I'll point you to the right answer or get it to the team.",
-      accentColor: "#4f46e5",
+      subtitle: "Ask, report a problem or share an idea",
+      greeting: "Hi! 👋 How can we help? Ask a question, report something that's not working, or share an idea.",
+      placeholder: "Write a message…",
+      launcherLabel: "",
+      suggestions: ["I have a question", "Something's not working", "I have an idea"],
+      showBranding: true,
       ...options,
       apiUrl,
     };
+    this.theme = { mode: "auto", position: "right", ...defined(options.theme ?? {}) };
+    if (options.accentColor && !this.theme.accentColor) this.theme.accentColor = options.accentColor;
+
     const host = document.createElement("div");
-    host.setAttribute("data-feedback-loop", "");
+    host.setAttribute("data-wicket", "");
     document.body.appendChild(host);
     this.root = host.attachShadow({ mode: "open" });
     this.render();
+    this.applyTheme();
+    this.media?.addEventListener?.("change", () => this.applyTheme());
     this.conv = this.loadStored();
+    if (this.conv) this.connect();
   }
 
   open() {
-    this.panel.classList.add("open");
-    if (this.conv) this.connect();
-    setTimeout(() => this.input.focus(), 0);
+    this.wrap.classList.add("open");
+    this.setUnread(0);
+    setTimeout(() => this.input.focus(), 50);
   }
 
   close() {
-    this.panel.classList.remove("open");
+    this.wrap.classList.remove("open");
+  }
+
+  toggle() {
+    this.wrap.classList.contains("open") ? this.close() : this.open();
   }
 
   setUser(user: User) {
@@ -156,59 +337,125 @@ class FeedbackWidget {
     this.opts.context = { ...(this.opts.context ?? {}), ...context };
   }
 
+  setTheme(theme: Theme) {
+    this.theme = { ...this.theme, ...theme };
+    this.applyTheme();
+  }
+
+  private applyTheme() {
+    const t = this.theme;
+    const s = this.wrap.style;
+    const accent = t.accentColor ?? "#4f46e5";
+    s.setProperty("--wk-accent", accent);
+    s.setProperty("--wk-on-accent", readableOn(accent));
+    if (t.radius !== undefined) s.setProperty("--wk-radius", `${t.radius}px`);
+    if (t.fontFamily) s.setProperty("--wk-font", t.fontFamily);
+    if (t.offset?.x !== undefined) s.setProperty("--wk-x", `${t.offset.x}px`);
+    if (t.offset?.y !== undefined) s.setProperty("--wk-y", `${t.offset.y}px`);
+    if (t.zIndex !== undefined) s.setProperty("--wk-z", String(t.zIndex));
+    for (const [k, v] of Object.entries(t.cssVars ?? {})) if (k.startsWith("--")) s.setProperty(k, v);
+    const dark = t.mode === "dark" || (t.mode !== "light" && Boolean(this.media?.matches));
+    this.wrap.classList.toggle("dark", dark);
+    this.wrap.classList.toggle("left", t.position === "left");
+  }
+
+  private avatarHtml(cls = "avatar") {
+    return `<div class="${cls}">${this.opts.logoUrl ? `<img alt="" src="${escapeAttr(this.opts.logoUrl)}">` : ICONS.spark}</div>`;
+  }
+
   private render() {
     const style = document.createElement("style");
     style.textContent = CSS;
-    const wrap = document.createElement("div");
-    wrap.style.setProperty("--accent", this.opts.accentColor);
-    wrap.innerHTML = `
-      <button class="launcher" aria-label="Open help and feedback">${ICON}</button>
-      <section class="panel" role="dialog" aria-label="${escapeHtml(this.opts.title)}">
-        <div class="head"><span class="title">${escapeHtml(this.opts.title)}</span>
-          <button class="new" title="Start a new conversation">New</button>
-          <button class="x" aria-label="Close">✕</button></div>
+    const o = this.opts;
+    this.wrap = document.createElement("div");
+    this.wrap.className = "wk";
+    this.wrap.innerHTML = `
+      <section class="panel" role="dialog" aria-label="${escapeAttr(o.title!)}">
+        <header class="head">
+          ${this.avatarHtml()}
+          <div class="titles">
+            <div class="title">${escapeHtml(o.title!)}</div>
+            ${o.subtitle ? `<div class="subtitle"><span class="dot"></span><span>${escapeHtml(o.subtitle)}</span></div>` : ""}
+          </div>
+          <button class="icon-btn new" title="New conversation" aria-label="New conversation">${ICONS.plus}</button>
+          <button class="icon-btn x" title="Close" aria-label="Close">${ICONS.x}</button>
+        </header>
         <div class="log" aria-live="polite"></div>
-        <div class="error"></div>
-        <form><textarea rows="1" placeholder="Type your message…" aria-label="Message"></textarea>
-          <button class="send" type="submit">Send</button></form>
-      </section>`;
-    this.root.append(style, wrap);
+        <div class="composer">
+          <div class="error" role="alert"></div>
+          <form class="field">
+            <textarea rows="1" placeholder="${escapeAttr(o.placeholder!)}" aria-label="Message"></textarea>
+            <button class="send" type="submit" aria-label="Send" disabled>${ICONS.send}</button>
+          </form>
+          ${o.showBranding ? `<div class="brand">Powered by <a href="https://github.com/Stixels/wicket" target="_blank" rel="noopener">Wicket</a></div>` : ""}
+        </div>
+      </section>
+      <button class="launcher${o.launcherLabel ? "" : " icon-only"}" aria-label="${escapeAttr(o.title!)}">
+        ${ICONS.chat}${ICONS.close}${o.launcherLabel ? `<span class="label">${escapeHtml(o.launcherLabel)}</span>` : ""}
+        <span class="badge" aria-hidden="true"></span>
+      </button>`;
+    this.root.append(style, this.wrap);
 
-    const launcher = wrap.querySelector<HTMLButtonElement>(".launcher")!;
-    if (this.opts.hideLauncher) launcher.style.display = "none";
-    this.panel = wrap.querySelector(".panel")!;
-    this.log = wrap.querySelector(".log")!;
-    this.errorEl = wrap.querySelector(".error")!;
-    this.input = wrap.querySelector("textarea")!;
-    this.sendBtn = wrap.querySelector(".send")!;
+    const launcher = this.wrap.querySelector<HTMLButtonElement>(".launcher")!;
+    if (o.hideLauncher) launcher.style.display = "none";
+    this.badge = this.wrap.querySelector(".badge")!;
+    this.log = this.wrap.querySelector(".log")!;
+    this.errorEl = this.wrap.querySelector(".error")!;
+    this.input = this.wrap.querySelector("textarea")!;
+    this.sendBtn = this.wrap.querySelector(".send")!;
+
     this.typing = document.createElement("div");
     this.typing.className = "typing";
-    this.typing.textContent = "Thinking…";
+    this.typing.innerHTML = `${this.avatarHtml("mini")}<div class="msg" aria-label="Typing"><i></i><i></i><i></i></div>`;
+    this.chips = document.createElement("div");
+    this.chips.className = "chips";
 
-    launcher.addEventListener("click", () => (this.panel.classList.contains("open") ? this.close() : this.open()));
-    wrap.querySelector(".x")!.addEventListener("click", () => this.close());
-    wrap.querySelector(".new")!.addEventListener("click", () => this.reset());
-    wrap.querySelector("form")!.addEventListener("submit", (e) => {
+    launcher.addEventListener("click", () => this.toggle());
+    this.wrap.querySelector(".x")!.addEventListener("click", () => this.close());
+    this.wrap.querySelector(".new")!.addEventListener("click", () => this.reset());
+    this.wrap.querySelector("form")!.addEventListener("submit", (e) => {
       e.preventDefault();
       void this.send();
     });
     this.input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && !e.shiftKey) {
+      if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
         e.preventDefault();
         void this.send();
       }
     });
-    this.input.addEventListener("input", () => {
-      this.input.style.height = "auto";
-      this.input.style.height = `${Math.min(this.input.scrollHeight, 120)}px`;
+    this.input.addEventListener("input", () => this.autosize());
+    this.wrap.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") this.close();
     });
     this.showGreeting();
   }
 
+  private autosize() {
+    this.input.style.height = "auto";
+    this.input.style.height = `${Math.min(this.input.scrollHeight, 140)}px`;
+    this.sendBtn.disabled = !this.input.value.trim();
+  }
+
   private showGreeting() {
     this.log.innerHTML = "";
+    this.lastAuthor = null;
     this.log.appendChild(this.typing);
-    this.appendBubble({ id: 0, author: "agent", authorName: null, body: this.opts.greeting, createdAt: Date.now() });
+    this.appendBubble({ id: 0, author: "agent", authorName: null, body: this.opts.greeting!, createdAt: Date.now() });
+    this.chips.innerHTML = "";
+    for (const s of this.opts.suggestions ?? []) {
+      const chip = document.createElement("button");
+      chip.className = "chip";
+      chip.type = "button";
+      chip.textContent = s;
+      chip.addEventListener("click", () => {
+        this.input.value = s.endsWith("?") || s.endsWith(".") ? s : `${s}: `;
+        this.autosize();
+        this.input.focus();
+        if (s.endsWith("?")) void this.send();
+      });
+      this.chips.appendChild(chip);
+    }
+    if (this.chips.childElementCount) this.log.insertBefore(this.chips, this.typing);
   }
 
   private reset() {
@@ -226,21 +473,20 @@ class FeedbackWidget {
 
   private async send() {
     const body = this.input.value.trim();
-    if (!body || this.sendBtn.disabled) return;
+    if (!body || this.input.disabled) return;
+    this.input.disabled = true;
     this.sendBtn.disabled = true;
     this.showError("");
+    this.chips.remove();
     try {
       if (!this.conv) {
-        const res = await this.api("/api/conversations", {
-          reporter: this.opts.user ?? {},
-          context: this.collectContext(),
-        });
+        const res = await this.api("/api/conversations", { reporter: this.opts.user ?? {}, context: this.collectContext() });
         this.conv = { id: res.id, token: res.token };
         this.store();
         this.connect();
       }
       this.input.value = "";
-      this.input.style.height = "auto";
+      this.autosize();
       const { message } = await this.api(`/api/conversations/${this.conv.id}/messages`, {
         body,
         context: { page: location.href },
@@ -250,7 +496,9 @@ class FeedbackWidget {
       this.input.value = this.input.value || body;
       this.showError(err instanceof Error ? err.message : "Couldn't send. Please try again.");
     } finally {
-      this.sendBtn.disabled = false;
+      this.input.disabled = false;
+      this.autosize();
+      this.input.focus();
     }
   }
 
@@ -259,14 +507,24 @@ class FeedbackWidget {
     const url = `${this.opts.apiUrl}/api/conversations/${this.conv.id}/events?token=${encodeURIComponent(this.conv.token)}&after=${this.lastId}`;
     const es = new EventSource(url);
     this.source = es;
-    es.addEventListener("message", (e) => this.appendBubble(JSON.parse((e as MessageEvent).data).message));
-    es.addEventListener("typing", () => this.typing.classList.add("on"));
+    es.addEventListener("message", (e) => {
+      const m = JSON.parse((e as MessageEvent).data).message as Message;
+      const fresh = !this.seen.has(m.id);
+      this.appendBubble(m);
+      if (fresh && m.author !== "user" && !this.wrap.classList.contains("open") && Date.now() - m.createdAt < 60_000) {
+        this.setUnread(this.unread + 1);
+      }
+    });
+    es.addEventListener("typing", () => {
+      this.typing.classList.add("on");
+      this.scrollDown();
+    });
     es.addEventListener("idle", () => this.typing.classList.remove("on"));
     es.addEventListener("error", () => {
       // A 404 means the conversation is gone (e.g. database reset): start fresh.
       if (es.readyState === EventSource.CLOSED) {
         this.source = null;
-        fetch(url, { method: "GET" })
+        fetch(url)
           .then((r) => r.status === 404 && this.reset())
           .catch(() => {});
       }
@@ -280,19 +538,45 @@ class FeedbackWidget {
       this.lastId = Math.max(this.lastId, m.id);
     }
     if (m.author !== "user") this.typing.classList.remove("on");
-    const el = document.createElement("div");
-    el.className = `msg ${m.author}`;
-    if (m.author === "staff") {
-      const who = document.createElement("div");
-      who.className = "who";
-      who.textContent = m.authorName ? `${m.authorName} · Team` : "Team";
-      el.appendChild(who);
+
+    if (m.author === "system") {
+      const el = document.createElement("div");
+      el.className = "system";
+      el.textContent = m.body;
+      this.log.insertBefore(el, this.typing);
+      this.lastAuthor = "system";
+      this.scrollDown();
+      return;
     }
-    const body = document.createElement("div");
-    body.innerHTML = renderMarkdown(m.body);
-    el.appendChild(body);
-    this.log.insertBefore(el, this.typing);
-    this.log.scrollTop = this.log.scrollHeight;
+
+    const groupKey = `${m.author}:${m.authorName ?? ""}`;
+    const continued = this.lastAuthor === groupKey;
+    this.lastAuthor = groupKey;
+
+    const row = document.createElement("div");
+    row.className = `row ${m.author}${continued ? "" : " gap"}`;
+    let avatar = "";
+    if (m.author === "agent") avatar = this.avatarHtml(`mini${continued ? " hidden" : ""}`);
+    if (m.author === "staff") {
+      avatar = `<div class="mini staff${continued ? " hidden" : ""}">${escapeHtml(initials(m.authorName))}</div>`;
+    }
+    const who =
+      m.author === "staff" && !continued
+        ? `<div class="who">${escapeHtml(m.authorName ?? "Team")}<span class="tag">Team</span></div>`
+        : "";
+    row.innerHTML = `${avatar}<div class="col">${who}<div class="msg">${renderMarkdown(m.body)}</div></div>`;
+    this.log.insertBefore(row, this.typing);
+    this.scrollDown();
+  }
+
+  private scrollDown() {
+    requestAnimationFrame(() => (this.log.scrollTop = this.log.scrollHeight));
+  }
+
+  private setUnread(n: number) {
+    this.unread = n;
+    this.badge.textContent = n > 9 ? "9+" : String(n);
+    this.badge.classList.toggle("on", n > 0);
   }
 
   private collectContext(): Record<string, unknown> {
@@ -331,7 +615,7 @@ class FeedbackWidget {
   }
 
   private storageKey() {
-    return `feedback-loop:${this.opts.apiUrl}:${this.opts.user?.id ?? "anon"}`;
+    return `wicket:${this.opts.apiUrl}:${this.opts.user?.id ?? "anon"}`;
   }
 
   private loadStored(): { id: string; token: string } | null {
@@ -350,8 +634,30 @@ class FeedbackWidget {
   }
 }
 
+/** Drops undefined keys so they don't override defaults when spread. */
+function defined<T extends object>(o: T): T {
+  return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as T;
+}
+
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+}
+const escapeAttr = escapeHtml;
+
+function initials(name: string | null): string {
+  const parts = (name ?? "Team").trim().split(/\s+/);
+  return ((parts[0]?.[0] ?? "") + (parts[1]?.[0] ?? "")).toUpperCase() || "T";
+}
+
+/** White or near-black text, whichever reads better on the given color. */
+export function readableOn(color: string): string {
+  const m = /^#?([\da-f]{3}|[\da-f]{6})$/i.exec(color.trim());
+  if (!m) return "#ffffff";
+  const hex = m[1].length === 3 ? m[1].replace(/./g, "$&$&") : m[1];
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+  const lin = (c: number) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  const lum = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+  return lum > 0.4 ? "#16161d" : "#ffffff";
 }
 
 /** Minimal, safe markdown: escape everything, then allow links, bold and inline code. */
@@ -363,20 +669,29 @@ export function renderMarkdown(text: string): string {
     .replace(/`([^`]+)`/g, "<code>$1</code>");
 }
 
-let instance: FeedbackWidget | null = null;
+let instance: Widget | null = null;
 const api = {
   init(options: InitOptions = {}) {
-    if (!instance) instance = new FeedbackWidget(options);
+    if (!instance) instance = new Widget(options);
     return api;
   },
   open: () => instance?.open(),
   close: () => instance?.close(),
+  toggle: () => instance?.toggle(),
   setUser: (user: User) => instance?.setUser(user),
   setContext: (context: Record<string, unknown>) => instance?.setContext(context),
+  setTheme: (theme: Theme) => instance?.setTheme(theme),
 };
-(window as any).FeedbackLoop = api;
+(window as any).Wicket = api;
 
 if (scriptEl?.hasAttribute("data-auto-init")) {
-  const start = () => api.init({ apiUrl: scriptEl.dataset.apiUrl, accentColor: scriptEl.dataset.accentColor });
+  const d = scriptEl.dataset;
+  const start = () =>
+    api.init({
+      apiUrl: d.apiUrl,
+      title: d.title,
+      launcherLabel: d.launcherLabel,
+      theme: { accentColor: d.accentColor, mode: d.theme as Theme["mode"], position: d.position as Theme["position"] },
+    });
   document.readyState === "loading" ? document.addEventListener("DOMContentLoaded", start) : start();
 }

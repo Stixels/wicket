@@ -16,7 +16,12 @@ export interface DiscordRelayOptions {
   channelId: string;
   /** Prepended when the agent asks for a person, e.g. "<@&123>" for a role or "@here". */
   handoffMention?: string;
+  /** Public help forum where the assistant answers each new post once from the docs. */
+  communityHelpChannelId?: string;
+  answerCommunityPost?: (question: string) => Promise<{ reply: string; needsHuman: boolean } | null>;
 }
+
+const NEEDS_PERSON_TAG = "needs a person";
 
 const LIMIT = 1900; // Discord's hard limit is 2000 characters
 
@@ -53,6 +58,11 @@ export class DiscordRelay implements Relay {
         await message.react("⚠️").catch(() => {});
       }
     });
+    if (this.opts.communityHelpChannelId && this.opts.answerCommunityPost) {
+      this.client.on(Events.ThreadCreate, (thread, newlyCreated) => {
+        if (newlyCreated && thread.parentId === this.opts.communityHelpChannelId) void this.answerPost(thread);
+      });
+    }
     const ready = new Promise<void>((resolve) => this.client.once(Events.ClientReady, () => resolve()));
     await this.client.login(this.opts.token);
     await ready;
@@ -104,6 +114,32 @@ export class DiscordRelay implements Relay {
       content: `${mention}🙋 **Needs a person:** ${reason}`.slice(0, LIMIT),
       allowedMentions: { parse: ["roles", "users", "everyone"] },
     });
+    await this.tag(thread, NEEDS_PERSON_TAG);
+  }
+
+  private async answerPost(thread: ThreadChannel) {
+    try {
+      const starter = await thread.fetchStarterMessage().catch(() => null);
+      if (!starter || starter.author.bot) return;
+      const question = `${thread.name}\n\n${starter.content}`.trim();
+      const result = await this.opts.answerCommunityPost!(question);
+      if (!result?.reply) return;
+      const note = result.needsHuman && this.opts.handoffMention ? `\n\n${this.opts.handoffMention} can you take a look?` : "";
+      for (const part of chunk(`${result.reply}${note}`)) {
+        await thread.send({ content: part, allowedMentions: { parse: result.needsHuman ? ["roles", "everyone"] : [] } });
+      }
+    } catch (err) {
+      console.error("discord: failed to answer community post", err);
+    }
+  }
+
+  /** Adds a forum tag by name if the forum has one (e.g. "Needs a person"). */
+  private async tag(thread: ThreadChannel, name: string) {
+    const parent = thread.parent;
+    if (parent?.type !== ChannelType.GuildForum) return;
+    const tag = (parent as ForumChannel).availableTags.find((t) => t.name.toLowerCase() === name);
+    if (!tag || thread.appliedTags.includes(tag.id)) return;
+    await thread.setAppliedTags([...thread.appliedTags, tag.id].slice(-5)).catch(() => {});
   }
 
   async stop(): Promise<void> {

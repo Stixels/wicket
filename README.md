@@ -1,10 +1,10 @@
-# Feedback Loop
+# Wicket
 
-A drop-in help and feedback chat for any web app. Users write one message. An assistant answers from your docs, and every conversation shows up in your team's Discord, where a reply goes straight back to the user in the app.
+A drop-in help and feedback chat for any web app, plus a Discord community and support inbox behind it. Users write one message. An assistant answers from your docs, and every conversation shows up in your team's Discord, where a reply goes straight back to the user in the app.
 
 - **One script tag** adds a chat button to your app. It captures the page, app version and recent console errors, so reports arrive with context.
 - **Answers from your docs.** It indexes any GitHub repo of Markdown (GitBook Git Sync, Docusaurus, Mintlify, ...) and links the exact section.
-- **Discord as the inbox.** Each conversation becomes a forum post. Reply in the post to answer the user in the app, and the assistant steps aside.
+- **Discord as the inbox and community.** Each in-app conversation becomes a private forum post that your team answers from Discord. The same assistant also answers new questions in your public `#help` forum.
 - **Hands off to a person** when the user asks, is frustrated, or the docs don't cover it, and pings a role you choose.
 - **Cheap to run.** One Node process with SQLite. The assistant is optional: without an API key, every chat goes straight to the team.
 
@@ -22,30 +22,73 @@ The demo indexes the Escape Director docs, uses a scripted assistant and simulat
 ## Add it to your app
 
 ```html
-<script src="https://YOUR-FEEDBACK-LOOP-URL/widget.js" defer></script>
+<script src="https://YOUR-SERVER/widget.js" defer></script>
 <script>
   window.addEventListener("load", () =>
-    FeedbackLoop.init({
+    Wicket.init({
       user: { id: currentUser.id, name: currentUser.name, email: currentUser.email },
       context: { appVersion: APP_VERSION, venue: currentVenue.name },
-      // title, greeting, accentColor, hideLauncher are optional
+      title: "Escape Director Support",
+      theme: { accentColor: "#e8590c" },
     }),
   );
 </script>
 ```
 
-You can also call `FeedbackLoop.open()`, `FeedbackLoop.setContext({ roomId })` and `FeedbackLoop.setUser({...})` at any time.
+You can also call `Wicket.open()`, `Wicket.close()`, `Wicket.setContext({ roomId })`, `Wicket.setUser({...})` and `Wicket.setTheme({...})` at any time.
 
-## Set up Discord
+### Customizing
+
+| Option | Default | What it does |
+|---|---|---|
+| `title`, `subtitle` | "Help & feedback" | Header text. |
+| `greeting` | friendly default | First message in a new conversation. |
+| `suggestions` | 3 quick starts | Buttons shown before the first message. Pass `[]` to hide them. |
+| `placeholder` | "Write a message…" | Text in the empty input. |
+| `logoUrl` | sparkle icon | Square image for the header and the assistant's avatar. |
+| `launcherLabel` | none | Text next to the launcher icon, e.g. "Help". |
+| `hideLauncher` | `false` | Hide the floating button and open the panel from your own button. |
+| `showBranding` | `true` | The small "Powered by" line. |
+| `theme.accentColor` | `#4f46e5` | Brand color. Text on it switches between white and dark automatically. |
+| `theme.mode` | `"auto"` | `"light"`, `"dark"`, or follow the visitor's system. |
+| `theme.radius` | `20` | Corner radius in px. |
+| `theme.fontFamily` | system font | Any CSS font stack your page loads. |
+| `theme.position` | `"right"` | `"left"` or `"right"`. |
+| `theme.offset` | `{ x: 20, y: 20 }` | Distance from the screen edges. |
+| `theme.zIndex` | very high | Stacking order. |
+| `theme.cssVars` | none | Override any internal variable, e.g. `{ "--wk-bg": "#fffaf5" }`. |
+
+The widget renders in a shadow DOM, so your app's CSS can't break it and its CSS can't leak into your app. On phones it opens full screen.
+
+## Set up Discord (community + support inbox)
 
 1. Go to https://discord.com/developers/applications and create a **New Application**. Under **Bot**, copy the token and turn on **Message Content Intent**.
-2. Under **OAuth2 → URL Generator**, pick the `bot` scope with these permissions: View Channels, Send Messages, Send Messages in Threads, Create Public Threads, Read Message History, Add Reactions and Manage Threads. Open the URL and add the bot to your server.
-3. Create a **Forum** channel (for example `#support-inbox`). Right-click it, choose **Copy Channel ID** (with Developer Mode on), and set `DISCORD_CHANNEL_ID`.
-4. Optional: set `DISCORD_HANDOFF_MENTION=<@&ROLE_ID>` to ping a role when the assistant asks for a person.
+2. Under **OAuth2 → URL Generator**, pick the `bot` scope with these permissions: Manage Roles, Manage Channels, View Channels, Send Messages, Send Messages in Threads, Create Public Threads, Manage Threads, Read Message History and Add Reactions. Open the URL and add the bot to your server.
+3. Turn on Developer Mode (User Settings → Advanced). Right-click your server and choose **Copy Server ID**.
+4. Run the setup once:
+
+   ```bash
+   DISCORD_BOT_TOKEN=... DISCORD_GUILD_ID=... npm run discord:setup
+   ```
+
+   It creates a **Team** role and these channels, then prints the variables to copy:
+
+   | Category | Channels | Who sees it |
+   |---|---|---|
+   | Start here | `#welcome`, `#announcements` | Everyone; only the team posts |
+   | Community | `#general`, `#help` (forum), `#ideas` (forum), `#show-and-tell` | Everyone |
+   | Team | `#support-inbox` (forum), `#team-chat` | Team role only |
+
+   It's safe to re-run, and it only creates what's missing.
+5. Give your teammates the **Team** role.
+
+How it behaves:
+- **In-app conversations** become posts in `#support-inbox`. Reply in a post to answer the user in the app. The assistant stops replying once someone from the team does. When the assistant asks for a person, it pings the Team role and tags the post **Needs a person**.
+- **Community questions:** when someone opens a post in `#help`, the assistant answers once from the docs. If it can't, it pings the team. Everyone else can keep the thread going.
 
 ## Deploy on Railway
 
-1. Create a service from this repo. It builds from the `Dockerfile`.
+1. In Railway, choose **New → GitHub Repo** and pick this repo. It builds from the `Dockerfile` and redeploys on every push to `main`.
 2. Add a **Volume** mounted at `/data`. SQLite lives there.
 3. Copy `.env.example` into the service variables and fill them in.
 4. Generate a domain and use it in the script tag above.

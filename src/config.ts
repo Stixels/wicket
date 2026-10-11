@@ -7,7 +7,7 @@ const csv = z
 
 const schema = z.object({
   PORT: z.coerce.number().default(3000),
-  DATABASE_PATH: z.string().default("./data/feedback-loop.db"),
+  DATABASE_PATH: z.string().default("./data/wicket.db"),
   /** Origins allowed to embed the widget, comma separated. Empty allows any origin. */
   ALLOWED_ORIGINS: csv,
 
@@ -31,6 +31,7 @@ const schema = z.object({
   DISCORD_BOT_TOKEN: z.string().optional(),
   DISCORD_CHANNEL_ID: z.string().optional(), // forum channel (preferred) or text channel
   DISCORD_HANDOFF_MENTION: z.string().default(""), // e.g. "<@&roleId>" or "@here"
+  DISCORD_COMMUNITY_HELP_CHANNEL_ID: z.string().optional(), // public forum the assistant answers in
 
   // Abuse limits
   MAX_MESSAGES_PER_CONVERSATION_PER_HOUR: z.coerce.number().default(30),

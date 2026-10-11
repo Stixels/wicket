@@ -1,5 +1,5 @@
 {
-  "name": "feedback-loop",
+  "name": "wicket",
   "version": "1.0.0",
   "description": "Drop-in feedback agent: in-app chat that answers from your docs, relays to Discord, and routes to your tracker.",
   "main": "dist/src/index.js",
@@ -10,7 +10,8 @@
     "start": "node dist/src/index.js",
     "test": "vitest run",
     "typecheck": "tsc --noEmit && tsc -p widget",
-    "demo": "npm run build:widget && tsx scripts/demo.ts"
+    "demo": "npm run build:widget && tsx scripts/demo.ts",
+    "discord:setup": "tsx scripts/discord-setup.ts"
   },
   "keywords": [],
   "author": "",

@@ -32,7 +32,7 @@ export class MarkdownRepoSource implements KnowledgeSource {
     const res = await doFetch(`https://api.github.com/repos/${repo}/tarball/${ref}`, {
       headers: {
         Accept: "application/vnd.github+json",
-        "User-Agent": "feedback-loop",
+        "User-Agent": "wicket",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
     });
