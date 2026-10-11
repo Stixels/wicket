@@ -11,7 +11,7 @@ export interface ServerOptions {
   maxMessagesPerConversationPerHour: number;
   maxConversationsPerIpPerHour: number;
   widgetPath?: string;
-  /** Serve a test page with the widget at /, for trying it locally. Off in production. */
+  /** Serve a test page with the widget at /, for trying it out. */
   playground?: { title: string };
 }
 
@@ -57,7 +57,7 @@ export function createServer(service: ConversationService, opts: ServerOptions) 
 </head><body>
 <h1>Wicket playground</h1>
 <p>This page stands in for your app. Open the chat button in the corner and send a message. With Discord set up, it shows up as a post in <code>#support-inbox</code>, and replying there sends the reply back here.</p>
-<p>Only served when <code>NODE_ENV</code> isn't <code>production</code>.</p>
+<p>Turn this page off with <code>PLAYGROUND=false</code>.</p>
 <script src="/widget.js"></script>
 <script>Wicket.init({ title: ${title}, user: { id: "local-test", name: "Local test" }, context: { page: "playground" } });</script>
 </body></html>`),

@@ -11,6 +11,11 @@ const schema = z.object({
   /** Origins allowed to embed the widget, comma separated. Empty allows any origin. */
   ALLOWED_ORIGINS: csv,
 
+  /** Serve a test page with the widget at /. On by default outside production. */
+  PLAYGROUND: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => (v ? v === "true" : process.env.NODE_ENV !== "production")),
   PRODUCT_NAME: z.string().default("our product"),
   PRODUCT_DESCRIPTION: z.string().default(""),
 
