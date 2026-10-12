@@ -121,7 +121,7 @@ describe("profiles in conversations", () => {
     expect(relay.humanRequests).toHaveLength(1);
     expect(service.list(conv.id).map((m) => `${m.author}: ${m.body}`)).toEqual([
       "user: Is there a free trial?",
-      `system: ${MESSAGES.toTeam}`,
+      `system: ${MESSAGES.waiting()}`,
       "user: Hello?",
     ]);
 

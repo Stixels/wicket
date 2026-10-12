@@ -99,7 +99,7 @@ export function createServer(service: ConversationService, opts: ServerOptions) 
       name: identity?.name ?? null,
       askEmail: p.askEmail && !identity?.email,
       theme: service.settings.theme,
-      ui: { title: p.title, subtitle: p.subtitle, welcomeTitle: p.welcomeTitle, welcomeSubtitle: p.welcomeSubtitle, placeholder: p.placeholder, suggestions: p.suggestions },
+      ui: { title: p.title, assistantName: p.assistantName, subtitle: p.subtitle, welcomeTitle: p.welcomeTitle, welcomeSubtitle: p.welcomeSubtitle, placeholder: p.placeholder, suggestions: p.suggestions },
     });
   });
 

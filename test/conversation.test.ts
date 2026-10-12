@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { openDb } from "../src/db/index.js";
 import { Agent } from "../src/agent/agent.js";
-import { ConversationService, sanitizeContext } from "../src/conversations.js";
+import { ConversationService, MESSAGES, sanitizeContext } from "../src/conversations.js";
 import { replaceIndex } from "../src/knowledge/index.js";
 import { createServer, RateLimiter } from "../src/server.js";
 import { FakeClient, FakeRelay, text, toolCall } from "./helpers.js";
@@ -106,8 +106,14 @@ describe("conversation flow", () => {
     expect(service.list(conv.id).map((m) => `${m.author}:${m.authorName ?? ""}`)).toEqual([
       "user:",
       "agent:",
+      "system:", // waiting for the team
+      "system:", // Matt joined
       "staff:Matt",
       "user:",
+    ]);
+    expect(service.list(conv.id).filter((m) => m.author === "system").map((m) => m.body)).toEqual([
+      MESSAGES.waiting(),
+      MESSAGES.joined("Matt"),
     ]);
     expect(relay.threads.get("thread_1")!.posts.at(-1)).toBe("user: Thank you!");
   });
@@ -172,14 +178,15 @@ describe("conversation flow", () => {
     await service.idle(conv.id);
     expect(service.get(conv.id)?.status).toBe("needs_human");
     expect(relay.humanRequests).toHaveLength(1);
-    expect(service.list(conv.id).at(-1)?.author).toBe("agent");
+    expect(service.list(conv.id).at(-2)?.author).toBe("agent");
+    expect(service.list(conv.id).at(-1)?.body).toBe(MESSAGES.waiting());
 
     const broken = setup([]); // client throws
     const conv2 = await startConversation(broken.app);
     await send(broken.app, conv2, "hello");
     await broken.service.idle(conv2.id);
     expect(broken.service.get(conv2.id)?.status).toBe("needs_human");
-    expect(broken.service.list(conv2.id).at(-1)?.body).toMatch(/something went wrong/);
+    expect(broken.service.list(conv2.id).at(-2)?.body).toMatch(/something went wrong/);
   });
 
   it("stops after maxSteps and hands off", async () => {

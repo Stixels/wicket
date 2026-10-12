@@ -11,6 +11,9 @@ theme:
   # position: right
   # cssVars: { --wk-bg: "#fffaf5" }
 
+team:
+  # replyTime: a few hours   # "Passed to the team. They usually reply within a few hours."
+
 # A profile is a way of answering. Everything in it is optional.
 profiles:
   # Applies when no rule matches.
@@ -25,6 +28,7 @@ profiles:
     # askEmail: false            # offer an email field so the team can follow up
     # What the widget shows (options passed to Wicket.init() win over these):
     # title: Help & feedback
+    # assistantName: Assistant   # the name under the assistant's messages
     # subtitle: Ask, report a problem or share an idea
     # welcomeTitle: Hi there 👋
     # welcomeSubtitle: How can we help you today?

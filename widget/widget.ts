@@ -47,6 +47,8 @@ interface InitOptions {
   userToken?: string | (() => string | Promise<string>);
   context?: Record<string, unknown>;
   title?: string;
+  /** Name under the assistant's messages. Defaults to "Assistant". */
+  assistantName?: string;
   subtitle?: string;
   greeting?: string;
   /** Large heading on the start screen. Defaults to "Hi {first name} 👋". */
@@ -68,8 +70,8 @@ interface InitOptions {
   accentColor?: string;
 }
 
-type UiKey = "title" | "subtitle" | "welcomeTitle" | "welcomeSubtitle" | "placeholder" | "suggestions";
-const UI_KEYS: UiKey[] = ["title", "subtitle", "welcomeTitle", "welcomeSubtitle", "placeholder", "suggestions"];
+type UiKey = "title" | "assistantName" | "subtitle" | "welcomeTitle" | "welcomeSubtitle" | "placeholder" | "suggestions";
+const UI_KEYS: UiKey[] = ["title", "assistantName", "subtitle", "welcomeTitle", "welcomeSubtitle", "placeholder", "suggestions"];
 
 const DEFAULTS = {
   title: "Help & feedback",
@@ -309,7 +311,12 @@ button { font: inherit; color: inherit; }
 .row .mini svg, .typing .mini svg { width: 15px; height: 15px; }
 .row .mini.staff { background: color-mix(in srgb, var(--wk-text) 85%, transparent); color: var(--wk-bg); }
 .row .mini.hidden { visibility: hidden; }
-.col { display: flex; flex-direction: column; max-width: 80%; }
+.col { display: flex; flex-direction: column; max-width: 82%; }
+.meta { font-size: 11.5px; color: var(--wk-muted); margin: 5px 0 6px 4px; }
+.row.cont { margin-top: -2px; }
+.avatar.person { display: grid; place-items: center; font-size: 15px; font-weight: 650; letter-spacing: .02em;
+  background: color-mix(in srgb, var(--wk-text) 88%, transparent); color: var(--wk-bg); }
+.wk.waiting .dot { background: #f59e0b; box-shadow: 0 0 0 3px color-mix(in srgb, #f59e0b 22%, transparent); }
 .row.user .col { align-items: flex-end; }
 .who { font-size: 11.5px; color: var(--wk-muted); margin: 0 0 4px 2px; display: flex; gap: 6px; align-items: center; }
 .tag { font-size: 10px; font-weight: 650; text-transform: uppercase; letter-spacing: .04em; padding: 1px 6px; border-radius: 6px;
@@ -320,7 +327,7 @@ button { font: inherit; color: inherit; }
 .msg code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em; padding: 1px 5px; border-radius: 6px;
   background: color-mix(in srgb, currentColor 10%, transparent); }
 .row.user .msg { background: var(--wk-accent); color: var(--wk-on-accent); border-bottom-right-radius: 6px; }
-.row.agent .msg, .row.staff .msg { background: var(--wk-bubble); border: 1px solid var(--wk-border); border-bottom-left-radius: 6px;
+.row.agent .msg, .row.staff .msg { background: var(--wk-bubble); border: 1px solid var(--wk-border);
   box-shadow: 0 1px 2px rgba(15,15,30,.04); }
 .row.agent a, .row.staff a { color: var(--wk-accent); }
 .wk.dark .row.agent a, .wk.dark .row.staff a { color: color-mix(in srgb, var(--wk-accent) 60%, white); }
@@ -442,6 +449,9 @@ class Widget {
   private seen = new Set<number>();
   private lastId = 0;
   private lastAuthor: string | null = null;
+  private lastRow: HTMLElement | null = null;
+  private staffName: string | null = null;
+  private status = "agent";
   private unread = 0;
   private media = window.matchMedia?.("(prefers-color-scheme: dark)");
 
@@ -464,6 +474,9 @@ class Widget {
     this.conv = this.loadStored();
     if (this.conv) this.connect();
     void this.refreshSession();
+    setInterval(() => {
+      for (const t of this.log.querySelectorAll<HTMLElement>("time[data-t]")) t.textContent = timeAgo(Number(t.dataset.t), true);
+    }, 30_000);
   }
 
   open() {
@@ -534,9 +547,7 @@ class Widget {
       };
       this.applyTheme();
     }
-    this.wrap.querySelector(".title")!.textContent = this.opts.title ?? "";
-    const sub = this.wrap.querySelector(".subtitle span:last-child");
-    if (sub) sub.textContent = this.opts.subtitle ?? "";
+    this.updateHeader();
     this.wrap.querySelector(".ask")!.textContent = this.opts.welcomeSubtitle ?? "";
     this.input.placeholder = this.opts.placeholder ?? "";
     this.renderWelcome();
@@ -681,8 +692,8 @@ class Widget {
     this.typing.className = "typing";
     // The animated bot shows its own thinking dots, so it only needs a label; a custom logo gets the usual bubble.
     this.typing.innerHTML = this.opts.logoUrl
-      ? `${this.avatarHtml("mini")}<div class="msg" aria-label="Typing"><i></i><i></i><i></i></div>`
-      : `${this.avatarHtml("mini")}<span class="think" role="status">Thinking…</span>`;
+      ? `<div class="msg" aria-label="Typing"><i></i><i></i><i></i></div>`
+      : `<span class="think" role="status">Thinking…</span>`;
     this.chips = document.createElement("div");
     this.chips.className = "chips";
 
@@ -719,6 +730,10 @@ class Widget {
     this.wrap.classList.add("home");
     this.log.innerHTML = "";
     this.lastAuthor = null;
+    this.lastRow = null;
+    this.status = "agent";
+    this.setAgent(null);
+    this.updateHeader();
     this.log.appendChild(this.typing);
     this.renderChips();
     void this.showRecent();
@@ -803,6 +818,9 @@ class Widget {
     this.seen.clear();
     this.lastId = 0;
     this.lastAuthor = null;
+    this.lastRow = null;
+    this.status = "agent";
+    this.setAgent(null);
     this.chips.remove();
     this.log.innerHTML = "";
     this.log.appendChild(this.typing);
@@ -895,6 +913,11 @@ class Widget {
         this.setUnread(this.unread + 1);
       }
     });
+    es.addEventListener("status", (e) => {
+      this.status = JSON.parse((e as MessageEvent).data).status ?? "agent";
+      if (this.status === "resolved" || this.status === "agent") this.setAgent(null);
+      this.updateHeader();
+    });
     es.addEventListener("typing", () => {
       this.typing.classList.add("on");
       this.startThinking();
@@ -937,12 +960,6 @@ class Widget {
     this.thinkingStop = done;
   }
 
-  /** Only the newest assistant avatar in the conversation stays animated. */
-  private markLiveAvatar() {
-    const minis = this.log.querySelectorAll(".row .mini.bot:not(.hidden)");
-    minis.forEach((el, i) => el.classList.toggle("live", i === minis.length - 1));
-  }
-
   /** From the start screen to a conversation: drop the quick starts and the Recent list. */
   private leaveHome() {
     this.wrap.classList.remove("home");
@@ -972,25 +989,42 @@ class Widget {
       return;
     }
 
+    // Consecutive messages from the same person form a group; the name and time sit under its last one.
     const groupKey = `${m.author}:${m.authorName ?? ""}`;
     const continued = this.lastAuthor === groupKey;
     this.lastAuthor = groupKey;
+    if (continued) this.lastRow?.querySelector(".meta")?.remove();
 
     const row = document.createElement("div");
-    row.className = `row ${m.author}${continued ? "" : " gap"}`;
-    let avatar = "";
-    if (m.author === "agent") avatar = this.avatarHtml(`mini${continued ? " hidden" : ""}`);
-    if (m.author === "staff") {
-      avatar = `<div class="mini staff${continued ? " hidden" : ""}">${escapeHtml(initials(m.authorName))}</div>`;
-    }
-    const who =
-      m.author === "staff" && !continued
-        ? `<div class="who">${escapeHtml(m.authorName ?? "Team")}<span class="tag">Team</span></div>`
-        : "";
-    row.innerHTML = `${avatar}<div class="col">${who}<div class="msg">${renderMarkdown(m.body)}</div></div>`;
+    row.className = `row ${m.author}${continued ? " cont" : " gap"}`;
+    const name = m.author === "agent" ? this.opts.assistantName || "Assistant" : m.author === "staff" ? m.authorName || "Team" : "";
+    const meta = m.author === "user" ? "" : `<div class="meta">${escapeHtml(name)} · <time data-t="${m.createdAt}">${timeAgo(m.createdAt, true)}</time></div>`;
+    row.innerHTML = `<div class="col"><div class="msg">${renderMarkdown(m.body)}</div>${meta}</div>`;
     this.log.insertBefore(row, this.typing);
-    if (m.author === "agent") this.markLiveAvatar();
+    this.lastRow = row;
+    if (m.author === "staff") this.setAgent(m.authorName || "Team");
     this.scrollDown();
+  }
+
+  /** Who the header shows: the assistant, or the person from the team who picked the conversation up. */
+  private setAgent(staffName: string | null) {
+    if (this.staffName === staffName) return;
+    this.staffName = staffName;
+    const old = this.wrap.querySelector(".head .bar > .avatar")!;
+    const tmp = document.createElement("div");
+    tmp.innerHTML = staffName
+      ? `<div class="avatar person" aria-hidden="true">${escapeHtml(initials(staffName))}</div>`
+      : this.avatarHtml();
+    old.replaceWith(tmp.firstElementChild!);
+    this.updateHeader();
+  }
+
+  private updateHeader() {
+    const title = this.wrap.querySelector(".title")!;
+    const sub = this.wrap.querySelector(".subtitle span:last-child");
+    this.wrap.classList.toggle("waiting", !this.staffName && this.status === "needs_human");
+    title.textContent = this.staffName ?? this.opts.title ?? "";
+    if (sub) sub.textContent = this.staffName ? "Team" : this.status === "needs_human" ? "Waiting for the team…" : this.opts.subtitle ?? "";
   }
 
   private scrollDown() {
@@ -1092,9 +1126,9 @@ function defined<T extends object>(o: T): T {
   return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as T;
 }
 
-function timeAgo(ms: number): string {
+function timeAgo(ms: number, capital = false): string {
   const s = Math.max(0, (Date.now() - ms) / 1000);
-  if (s < 60) return "now";
+  if (s < 60) return capital ? "Now" : "now";
   if (s < 3600) return `${Math.floor(s / 60)}m`;
   if (s < 86400) return `${Math.floor(s / 3600)}h`;
   if (s < 604800) return `${Math.floor(s / 86400)}d`;

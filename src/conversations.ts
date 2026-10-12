@@ -35,7 +35,9 @@ export interface ServiceOptions {
 }
 
 export const MESSAGES = {
-  toTeam: "Thanks! Someone from the team will reply here.",
+  waiting: (replyTime?: string) =>
+    replyTime ? `Passed to the team. They usually reply within ${replyTime}.` : "Passed to the team. Someone will reply here.",
+  joined: (name: string) => `${name} joined the conversation`,
   overBudget: "You've reached this month's limit for the assistant, so I've passed your message to the team. Someone will reply here.",
   overTotal: "The assistant is unavailable right now, so I've passed your message to the team. Someone will reply here.",
   nearBudget: "Heads up: you've used most of this month's assistant allowance. After that, your messages go straight to the team.",
@@ -173,6 +175,8 @@ export class ConversationService {
       .get();
     if (!c) return;
     if (c.status !== "human") this.setStatus(c.id, "human");
+    const joined = this.list(c.id).some((m) => m.author === "staff" && m.authorName === authorName);
+    if (!joined) this.addMessage(c.id, "system", MESSAGES.joined(authorName), null);
     this.addMessage(c.id, "staff", body.slice(0, MAX_BODY), authorName);
   }
 
@@ -222,7 +226,7 @@ export class ConversationService {
     const profile = this.profileFor(this.get(id) ?? c);
     if (!this.agent || !profile.ai) {
       await this.handoff(id, this.agent ? `New message (${profile.name}: assistant off).` : "New message (no assistant configured).");
-      this.addMessage(id, "system", MESSAGES.toTeam, null);
+      this.addMessage(id, "system", this.waitingText(), null);
       return;
     }
 
@@ -263,6 +267,7 @@ export class ConversationService {
         this.addMessage(id, "agent", result.reply, null);
         await this.mirror(id, "agent", result.reply);
       }
+      if (this.get(id)?.status === "needs_human") this.addMessage(id, "system", this.waitingText(), null);
       if (limit !== null && limit > 0) {
         const warnAt = limit * this.settings.budgets.warnAt;
         if (spent < warnAt && spent + cost >= warnAt && spent + cost < limit) this.addMessage(id, "system", MESSAGES.nearBudget, null);
@@ -273,10 +278,15 @@ export class ConversationService {
       const msg = "Sorry, something went wrong on my end. I've asked someone from the team to reply here.";
       this.addMessage(id, "agent", msg, null);
       await this.mirror(id, "agent", msg);
+      if (this.get(id)?.status === "needs_human") this.addMessage(id, "system", this.waitingText(), null);
     } finally {
       stopTyping();
       this.events.emit(id, { type: "idle" });
     }
+  }
+
+  private waitingText(): string {
+    return MESSAGES.waiting(this.settings.team.replyTime);
   }
 
   /** Keeps the relay's typing indicator on while the assistant works (Discord's lasts about 10s). */

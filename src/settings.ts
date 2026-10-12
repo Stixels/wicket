@@ -23,6 +23,8 @@ const profileSchema = z
     askEmail: z.boolean().default(false),
     // What the widget shows. Options passed to Wicket.init() win over these.
     title: z.string().optional(),
+    /** Name under the assistant's messages. */
+    assistantName: z.string().optional(),
     subtitle: z.string().optional(),
     welcomeTitle: z.string().optional(),
     welcomeSubtitle: z.string().optional(),
@@ -75,6 +77,13 @@ const themeSchema = z
 const settingsSchema = z
   .object({
     theme: themeSchema.default({}),
+    team: z
+      .object({
+        /** Shown when a chat goes to the team, e.g. "a few hours" -> "They usually reply within a few hours." */
+        replyTime: z.string().optional(),
+      })
+      .strict()
+      .default({}),
     profiles: z.record(z.string(), profileSchema).default({}),
     rules: z.array(ruleSchema).default([]),
     budgets: z

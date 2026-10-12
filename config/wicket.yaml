@@ -12,6 +12,9 @@ theme:
     --wk-text: "#EDEDEF"
     --wk-muted: "#8A8F98"
 
+team:
+  replyTime: 6 hours   # same as the Featurebase messenger said
+
 profiles:
   # Marketing site, sign-in and sign-up: no assistant, so nothing to abuse.
   visitor:
