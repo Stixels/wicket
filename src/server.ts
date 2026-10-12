@@ -7,6 +7,8 @@ import { bodyLimit } from "hono/body-limit";
 import { z } from "zod";
 import type { ConversationService, PublicMessage } from "./conversations.js";
 import { signUserToken, verifyUserToken } from "./identity.js";
+import { teamRoutes, type TeamOptions } from "./team/routes.js";
+import type { Db } from "./db/index.js";
 import { INLINE_TYPES, MAX_FILES_PER_CONVERSATION, MAX_FILE_BYTES, allowedType } from "./files.js";
 
 export interface ServerOptions {
@@ -18,6 +20,8 @@ export interface ServerOptions {
   playground?: { title: string };
   /** Shared with the host app's backend, which signs user tokens with it. */
   identitySecret?: string;
+  /** The team dashboard at /admin. */
+  team?: TeamOptions & { db: Db };
 }
 
 const createBody = z.object({
@@ -55,6 +59,11 @@ export function createServer(service: ConversationService, opts: ServerOptions) 
   );
 
   app.get("/health", (c) => c.json({ ok: true }));
+
+  if (opts.team) {
+    app.get("/admin/", (c) => c.redirect("/admin"));
+    app.route("/admin", teamRoutes(opts.team.db, service, opts.team));
+  }
 
   app.get("/widget.js", (c) => {
     if (!fs.existsSync(widgetPath)) return c.text("widget not built; run npm run build:widget", 404);

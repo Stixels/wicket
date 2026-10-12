@@ -29,14 +29,21 @@ export const conversations = sqliteTable(
   (t) => [index("conversations_relay_thread").on(t.relayThreadId)],
 );
 
-/** What people see: the user, the agent and the team. */
+/**
+ * What people see: the user, the agent and the team. "note" is team-only (a handoff or
+ * an aside) and never reaches the user.
+ */
 export const messages = sqliteTable(
   "messages",
   {
     id: integer("id").primaryKey({ autoIncrement: true }),
     conversationId: text("conversation_id").notNull(),
-    author: text("author", { enum: ["user", "agent", "staff", "system"] }).notNull(),
+    author: text("author", { enum: ["user", "agent", "staff", "system", "note"] }).notNull(),
     authorName: text("author_name"),
+    /** The teammate who wrote a staff reply or note, wherever they wrote it. */
+    memberId: text("member_id"),
+    /** Teammates a note @mentions. */
+    mentions: text("mentions", { mode: "json" }).$type<string[]>(),
     body: text("body").notNull(),
     attachments: text("attachments", { mode: "json" }).$type<{ id: string; name: string; type: string; size: number }[]>(),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
@@ -92,3 +99,23 @@ export const files = sqliteTable(
   },
   (t) => [index("files_conversation").on(t.conversationId)],
 );
+
+/**
+ * One row per teammate, whichever tool they reply from. A reply from Discord and one from
+ * the dashboard by the same person point at the same member.
+ */
+export const members = sqliteTable("members", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  discordId: text("discord_id").unique(),
+  avatarUrl: text("avatar_url"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  lastSeenAt: integer("last_seen_at", { mode: "timestamp_ms" }),
+});
+
+/** Dashboard sign-ins. Only a hash of the cookie is stored. */
+export const teamSessions = sqliteTable("team_sessions", {
+  id: text("id").primaryKey(),
+  memberId: text("member_id").notNull(),
+  expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
+});

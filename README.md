@@ -102,6 +102,22 @@ How it behaves:
 - **Voice:** joining `➕ Start a call` creates a voice room named after you and moves you in. It's deleted when the last person leaves. `🎧 Talk to support` works the same way, but the room is visible only to the caller and the Team role, and it pings the team. The bot needs the **Move Members** permission for both.
 - **Community questions:** when someone opens a post in `#help`, the assistant answers once from the docs. If it can't, it pings the team. Everyone else can keep the thread going.
 
+## Team dashboard
+
+A reply inbox at `/admin`, for teammates who'd rather not answer from Discord. It's another place to reply, not a replacement: Wicket keeps the record, so a reply from the dashboard reaches the user's widget and shows up in the Discord post, and a reply in Discord shows up in the dashboard.
+
+- **Shared conversations.** Nobody owns a conversation. The dashboard shows who has replied ("Alex and you replied"), and anyone can jump in. Teammates are linked across tools by their Discord account, so Alex replying in Discord and Alex in the dashboard are the same person.
+- **Typing hints.** While someone types in the dashboard or in the Discord post, the others see "Alex is typing" on the conversation, so two people don't write the same answer.
+- **Hand off with a note.** Switch the composer to **Note** (or type `@`) to leave a team-only note like "@Alex can you take this?". Notes never reach the user. In Discord the note pings Alex, and the dashboard lists it under **Mentions** until Alex writes in that conversation. In Discord, a message that starts with an @mention of a teammate or role is treated the same way: it stays with the team instead of going to the user, and gets a 📝 reaction.
+- **Views:** Open, Needs reply (the user is waiting on the team), Mentions, Resolved, All. **Resolve** works like closing the Discord post. Each conversation shows the person, their plan, the page and app version they wrote from, and recent console errors.
+
+Sign-in is with Discord, for everyone with the Team role:
+
+1. In the same Discord application as the bot, open **OAuth2**, copy the **Client ID** and **Client Secret**, and add a redirect: `https://YOUR-SERVER/admin/auth/callback`.
+2. Set `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET` and `PUBLIC_URL` (your server's address). With `DISCORD_GUILD_ID` set, anyone with the Team role can sign in. To let in someone without the role, add their Discord user id to `TEAM_DISCORD_IDS`.
+
+For local work, `TEAM_DEV_LOGIN=true` adds a one-click "local teammate" sign-in. Never set it on a public server.
+
 ## Deploy on Railway
 
 1. In Railway, choose **New → GitHub Repo** and pick this repo. It builds from the `Dockerfile` and redeploys on every push to `main`.
@@ -154,6 +170,7 @@ See [`.env.example`](.env.example). The main settings:
 | `DOCS_GITHUB_REPO`, `DOCS_BASE_URL` | Markdown docs repo to index, and the public site its links should point to. Reindexed every `DOCS_REINDEX_HOURS`. |
 | `RELAY`, `DISCORD_*` | Where conversations show up for the team. |
 | `ALLOWED_ORIGINS` | Sites allowed to embed the widget. |
+| `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `PUBLIC_URL` | Discord sign-in for the team dashboard at `/admin`. `TEAM_DISCORD_IDS` lets in people without the Team role. |
 | `IDENTITY_SECRET` | Shared with your backend to sign user tokens (at least 32 characters). |
 | `WICKET_CONFIG` | Profiles, rules, budgets and extra knowledge repos (`knowledge:`, e.g. an SDK with examples): a file path or the YAML itself. Defaults to `config/wicket.yaml`. |
 
@@ -164,6 +181,8 @@ widget.js ──▶ Hono API ──▶ ConversationService ──▶ Agent (Clau
                  ▲               │                         │
          SSE live updates        ├──▶ SQLite (conversations, messages, transcript, FTS5 docs index)
                                  └──▶ Relay adapter (Discord) ◀── team replies
+                 ▲
+/admin dashboard ┘ (team replies, notes, typing; live over SSE)
 ```
 
 Each external tool sits behind an adapter interface in `src/adapters/types.ts` (`KnowledgeSource`, `Relay`), so Slack, other docs sources or trackers plug in without touching the core.

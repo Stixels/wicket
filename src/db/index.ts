@@ -72,6 +72,21 @@ CREATE TABLE IF NOT EXISTS files (
 );
 CREATE INDEX IF NOT EXISTS files_conversation ON files(conversation_id);
 
+CREATE TABLE IF NOT EXISTS members (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  discord_id TEXT UNIQUE,
+  avatar_url TEXT,
+  created_at INTEGER NOT NULL,
+  last_seen_at INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS team_sessions (
+  id TEXT PRIMARY KEY,
+  member_id TEXT NOT NULL,
+  expires_at INTEGER NOT NULL
+);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS docs USING fts5(
   title, heading, url UNINDEXED, body,
   tokenize = 'porter unicode61'
@@ -85,7 +100,7 @@ export function openDb(file: string): Db {
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(BOOTSTRAP);
   addMissingColumns(sqlite, "conversations", { user_id: "TEXT", plan: "TEXT", payer: "TEXT" });
-  addMissingColumns(sqlite, "messages", { attachments: "TEXT" });
+  addMissingColumns(sqlite, "messages", { attachments: "TEXT", member_id: "TEXT", mentions: "TEXT" });
   return drizzle(sqlite, { schema }) as Db;
 }
 

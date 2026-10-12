@@ -131,8 +131,9 @@ setInterval(refreshDocs, config.DOCS_REINDEX_HOURS * 3_600_000).unref();
 
 if (relay) {
   await relay.start(
-    ({ threadId, authorName, body, files }) => service.handleStaffReply(threadId, authorName, body, files),
+    ({ threadId, authorName, body, files, ...from }) => service.handleStaffReply(threadId, authorName, body, files, from),
     (threadId, deleted) => service.resolve(threadId, deleted),
+    ({ threadId, authorName, authorId }) => service.typingInThread(threadId, authorName, authorId),
   );
   console.log(`relay: ${relay.name} connected${config.LINEAR_API_KEY && anthropic ? ", tag the bot to file Linear tickets" : ""}`);
 }
@@ -143,7 +144,25 @@ const app = createServer(service, {
   maxConversationsPerIpPerHour: config.MAX_CONVERSATIONS_PER_IP_PER_HOUR,
   playground: config.PLAYGROUND ? { title: `${config.PRODUCT_NAME} Support` } : undefined,
   identitySecret: config.IDENTITY_SECRET,
+  team: {
+    db,
+    productName: config.PRODUCT_NAME,
+    discord:
+      config.DISCORD_CLIENT_ID && config.DISCORD_CLIENT_SECRET
+        ? {
+            clientId: config.DISCORD_CLIENT_ID,
+            clientSecret: config.DISCORD_CLIENT_SECRET,
+            guildId: config.DISCORD_GUILD_ID,
+            teamRoleId: config.DISCORD_TEAM_ROLE_ID,
+          }
+        : undefined,
+    allowIds: config.TEAM_DISCORD_IDS,
+    publicUrl: config.PUBLIC_URL,
+    devLogin: config.TEAM_DEV_LOGIN,
+    discordGuildId: config.DISCORD_GUILD_ID,
+  },
 });
+if (!config.DISCORD_CLIENT_ID && !config.TEAM_DEV_LOGIN) console.log("team: needs you: set DISCORD_CLIENT_ID and DISCORD_CLIENT_SECRET to sign in to the dashboard at /admin");
 const server = serve({ fetch: app.fetch, port: config.PORT }, (info) => {
   console.log(`wicket listening on http://localhost:${info.port} (agent: ${agent ? `${model}${gateway ? " via AI Gateway" : ""}` : "off"})`);
 });

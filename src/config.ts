@@ -51,6 +51,19 @@ const schema = z.object({
   LINEAR_TEAM_KEY: z.string().optional(), // e.g. "ED"
   LINEAR_SOURCE_LABEL: z.string().default("Source: Discord"), // added when the label exists
 
+  // Team dashboard at /admin, with Discord sign-in. Create an OAuth2 app (the bot's own app works)
+  // and add <PUBLIC_URL>/admin/auth/callback as a redirect.
+  DISCORD_CLIENT_ID: z.string().optional(),
+  DISCORD_CLIENT_SECRET: z.string().optional(),
+  PUBLIC_URL: z.string().optional(), // e.g. https://wicket.example.com; defaults to the request's own origin
+  /** Discord user ids allowed into the dashboard, besides everyone with the team role. */
+  TEAM_DISCORD_IDS: csv,
+  /** Local development only: a one-click sign-in with no Discord. Never set this on a public server. */
+  TEAM_DEV_LOGIN: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => v === "true"),
+
   // Signed-in users: the host app's backend signs a short-lived HS256 JWT with this secret
   // (claims: sub, name, email, plan). Only a valid token counts as signed in.
   IDENTITY_SECRET: z.string().min(32, "IDENTITY_SECRET should be at least 32 characters").optional(),

@@ -10,9 +10,11 @@ import { readDoc, searchDocs } from "./knowledge/index.js";
 import type { Identity } from "./identity.js";
 import { parseSettings, pathFromContext, resolveProfile, type Profile, type Settings } from "./settings.js";
 import { UsageLedger, dollarsToMicros } from "./usage.js";
+import { Members, type Member } from "./team/members.js";
 
 type MessageParam = Anthropic.Beta.Messages.BetaMessageParam;
-type Author = "user" | "agent" | "staff" | "system";
+type Author = "user" | "agent" | "staff" | "system" | "note";
+type Status = "agent" | "needs_human" | "human" | "resolved";
 
 export interface PublicMessage {
   id: number;
@@ -21,6 +23,26 @@ export interface PublicMessage {
   body: string;
   attachments: Attachment[];
   createdAt: number;
+}
+
+/** What the team sees of a message: also who wrote it and whom a note mentions. */
+export interface TeamMessage extends PublicMessage {
+  memberId: string | null;
+  mentions: string[];
+}
+
+/** Every conversation's activity goes out on this channel of `events`, for the team dashboard. */
+export const TEAM_EVENTS = "team";
+
+export type TeamEvent =
+  | { type: "message"; conversationId: string; message: TeamMessage }
+  | { type: "status"; conversationId: string; status: Status }
+  | { type: "typing"; conversationId: string; memberId: string | null; name: string; source: string };
+
+/** Who on the team wrote something, and where. */
+export interface TeamAuthor {
+  name: string;
+  member?: Member | null;
 }
 
 export interface Reporter {
@@ -61,6 +83,7 @@ export class ConversationService {
   readonly settings: Settings;
   readonly ledger: UsageLedger;
   readonly files: FileStore;
+  readonly members: Members;
   private log: (msg: string, err?: unknown) => void;
 
   constructor(
@@ -74,6 +97,7 @@ export class ConversationService {
     this.settings = o.settings ?? parseSettings("");
     this.ledger = o.ledger ?? new UsageLedger(db, this.settings.budgets.prices);
     this.files = o.files ?? new FileStore(db, ":memory:");
+    this.members = new Members(db);
     this.log = o.log ?? console.log;
   }
 
@@ -136,15 +160,20 @@ export class ConversationService {
     return a.length === b.length && crypto.timingSafeEqual(a, b) ? c : null;
   }
 
+  /** What the user sees: everything but the team's notes. */
   list(id: string, afterId = 0): PublicMessage[] {
-    return this.db
-      .select()
-      .from(schema.messages)
-      .where(eq(schema.messages.conversationId, id))
-      .orderBy(asc(schema.messages.id))
-      .all()
-      .filter((m) => m.id > afterId)
+    return this.rows(id)
+      .filter((m) => m.id > afterId && m.author !== "note")
       .map(toPublic);
+  }
+
+  /** What the team sees: everything, notes included. */
+  teamMessages(id: string): TeamMessage[] {
+    return this.rows(id).map(toTeam);
+  }
+
+  private rows(id: string) {
+    return this.db.select().from(schema.messages).where(eq(schema.messages.conversationId, id)).orderBy(asc(schema.messages.id)).all();
   }
 
   /** What the widget's conversation list shows: the opening message and the latest one. */
@@ -169,36 +198,114 @@ export class ConversationService {
     if (contextUpdate) this.mergeContext(id, contextUpdate);
     const msg = this.addMessage(id, "user", text, null, (messageId) => this.files.claim(id, attachmentIds, messageId));
     this.enqueue(id, () => this.handleUserMessage(id, msg.body, msg.attachments));
+    const { memberId: _member, mentions: _mentions, ...pub } = msg;
+    return pub;
+  }
+
+  /**
+   * Called by the relay when someone on the team writes in the conversation's thread.
+   * `from.authorId` is their id in the relay's tool; it links them to one member across tools.
+   */
+  async handleStaffReply(
+    threadId: string,
+    authorName: string,
+    body: string,
+    files: RelayFile[] = [],
+    from: { authorId?: string; avatarUrl?: string; note?: boolean; mentions?: string[] } = {},
+  ): Promise<void> {
+    const c = this.byThread(threadId);
+    if (!c) return;
+    const member = from.authorId ? this.members.upsertDiscord(from.authorId, authorName, from.avatarUrl ?? null) : null;
+    const name = member?.name ?? authorName;
+    if (from.note) {
+      const mentions = (from.mentions ?? []).flatMap((id) => this.members.byDiscordId(id)?.id ?? []);
+      this.addMessage(c.id, "note", body.slice(0, MAX_BODY), name, undefined, { memberId: member?.id ?? null, mentions });
+      return;
+    }
+    const saved = files.map((f) => this.files.save(c.id, f.name, f.type, f.data));
+    this.addStaffMessage(c.id, { name, member }, body, saved.map((f) => f.id));
+  }
+
+  /** A reply from the dashboard: goes to the user and to the relay thread, like one written there. */
+  async teamReply(id: string, author: TeamAuthor, body: string, attachmentIds: string[] = []): Promise<TeamMessage | null> {
+    const c = this.get(id);
+    if (!c) return null;
+    const msg = this.addStaffMessage(id, author, body, attachmentIds);
+    if (c.status === "resolved" && c.relayThreadId && this.relay?.reopen) {
+      await this.relay.reopen(c.relayThreadId).catch((err) => this.log("relay reopen failed", err));
+    }
+    if (!msg.body && !msg.attachments.length) return msg;
+    await this.mirror(id, "staff", msg.body, author.name, this.relayFiles(msg.attachments));
     return msg;
   }
 
-  /** Called by the relay when someone on the team replies in the conversation's thread. */
-  async handleStaffReply(threadId: string, authorName: string, body: string, files: RelayFile[] = []): Promise<void> {
-    const c = this.db
-      .select()
-      .from(schema.conversations)
-      .where(eq(schema.conversations.relayThreadId, threadId))
-      .get();
+  /** A team-only note from the dashboard. `mentions` are member ids; they get pinged in the relay. */
+  async teamNote(id: string, author: TeamAuthor, body: string, mentions: string[] = []): Promise<TeamMessage | null> {
+    if (!this.get(id)) return null;
+    const known = mentions.flatMap((m) => this.members.get(m) ?? []);
+    const msg = this.addMessage(id, "note", body.trim().slice(0, MAX_BODY), author.name, undefined, {
+      memberId: author.member?.id ?? null,
+      mentions: known.map((m) => m.id),
+    });
+    const threadId = this.get(id)?.relayThreadId;
+    if (threadId && this.relay?.postNote) {
+      await this.relay
+        .postNote(threadId, { name: author.name, relayId: author.member?.discordId }, msg.body, known.map((m) => ({ name: m.name, relayId: m.discordId })))
+        .catch((err) => this.log(`relay note failed for ${id}`, err));
+    }
+    return msg;
+  }
+
+  /** Someone on the team is typing in a conversation (in the dashboard, or in the relay's thread). */
+  teamTyping(id: string, who: { memberId: string | null; name: string }, source: string) {
+    this.events.emit(TEAM_EVENTS, { type: "typing", conversationId: id, memberId: who.memberId, name: who.name, source } satisfies TeamEvent);
+  }
+
+  /** Typing seen in a relay thread. */
+  typingInThread(threadId: string, authorName: string, authorId?: string) {
+    const c = this.byThread(threadId);
     if (!c) return;
-    if (c.status !== "human") this.setStatus(c.id, "human");
-    const joined = this.list(c.id).some((m) => m.author === "staff" && m.authorName === authorName);
-    if (!joined) this.addMessage(c.id, "system", MESSAGES.joined(authorName), null);
-    const saved = files.map((f) => this.files.save(c.id, f.name, f.type, f.data));
-    this.addMessage(c.id, "staff", body.slice(0, MAX_BODY), authorName, (messageId) => this.files.claim(c.id, saved.map((f) => f.id), messageId));
+    const member = authorId ? this.members.byDiscordId(authorId) : undefined;
+    this.teamTyping(c.id, { memberId: member?.id ?? null, name: member?.name ?? authorName }, this.relay?.name ?? "relay");
+  }
+
+  private addStaffMessage(id: string, author: TeamAuthor, body: string, attachmentIds: string[]): TeamMessage {
+    const memberId = author.member?.id ?? null;
+    if (this.get(id)?.status !== "human") this.setStatus(id, "human");
+    // Replies from before members existed only have a name.
+    const joined = this.rows(id).some(
+      (m) => m.author === "staff" && (memberId && m.memberId ? m.memberId === memberId : m.authorName === author.name),
+    );
+    if (!joined) this.addMessage(id, "system", MESSAGES.joined(author.name), null);
+    return this.addMessage(id, "staff", body.trim().slice(0, MAX_BODY), author.name, (messageId) => this.files.claim(id, attachmentIds, messageId), {
+      memberId,
+    });
+  }
+
+  private byThread(threadId: string) {
+    return this.db.select().from(schema.conversations).where(eq(schema.conversations.relayThreadId, threadId)).get();
   }
 
   /** Called by the relay when the team closes a conversation's thread. Returns false if it already was. */
   async resolve(threadId: string, deleted = false): Promise<boolean> {
-    const c = this.db.select().from(schema.conversations).where(eq(schema.conversations.relayThreadId, threadId)).get();
+    const c = this.byThread(threadId);
     if (!c) return false;
     if (deleted) {
       // The post is gone: forget it, so a new message opens a fresh post.
       this.db.update(schema.conversations).set({ relayThreadId: null }).where(eq(schema.conversations.id, c.id)).run();
     }
-    if (c.status === "resolved") return false;
+    return this.resolveConversation(c.id, !deleted);
+  }
+
+  /** Marks a conversation resolved (from the dashboard, or the relay). Returns false if it already was. */
+  async resolveConversation(id: string, updateRelay = true): Promise<boolean> {
+    const c = this.get(id);
+    if (!c || c.status === "resolved") return false;
     this.setStatus(c.id, "resolved");
     this.addMessage(c.id, "system", "The team marked this conversation as resolved. Write here anytime if you need anything else.", null);
-    if (!deleted && this.relay?.markResolved) await this.relay.markResolved(threadId).catch((err) => this.log("relay markResolved failed", err));
+    if (updateRelay && c.relayThreadId && this.relay?.markResolved) {
+      await this.relay.markResolved(c.relayThreadId).catch((err) => this.log("relay markResolved failed", err));
+    }
     return true;
   }
 
@@ -321,7 +428,7 @@ export class ConversationService {
   }
 
   /** Posts to the conversation's relay thread, creating it on the first message. */
-  private async mirror(id: string, author: "user" | "agent" | "system", body: string, authorName?: string | null, files: RelayFile[] = []) {
+  private async mirror(id: string, author: "user" | "agent" | "staff" | "system", body: string, authorName?: string | null, files: RelayFile[] = []) {
     if (!this.relay) return;
     const c = this.get(id);
     if (!c) return;
@@ -378,10 +485,25 @@ export class ConversationService {
   }
 
   /** `attach` claims uploaded files for the new message once its id is known. */
-  private addMessage(id: string, author: Author, body: string, authorName: string | null, attach?: (messageId: number) => Attachment[]): PublicMessage {
+  private addMessage(
+    id: string,
+    author: Author,
+    body: string,
+    authorName: string | null,
+    attach?: (messageId: number) => Attachment[],
+    team: { memberId?: string | null; mentions?: string[] } = {},
+  ): TeamMessage {
     let row = this.db
       .insert(schema.messages)
-      .values({ conversationId: id, author, authorName, body, createdAt: new Date() })
+      .values({
+        conversationId: id,
+        author,
+        authorName,
+        body,
+        memberId: team.memberId ?? null,
+        mentions: team.mentions?.length ? team.mentions : null,
+        createdAt: new Date(),
+      })
       .returning()
       .get();
     const attachments = attach?.(row.id) ?? [];
@@ -389,18 +511,21 @@ export class ConversationService {
       row = this.db.update(schema.messages).set({ attachments }).where(eq(schema.messages.id, row.id)).returning().get()!;
     }
     this.db.update(schema.conversations).set({ updatedAt: new Date() }).where(eq(schema.conversations.id, id)).run();
-    const msg = toPublic(row);
-    this.events.emit(id, { type: "message", message: msg });
+    const msg = toTeam(row);
+    // Notes stay with the team; the user's widget never hears about them.
+    if (author !== "note") this.events.emit(id, { type: "message", message: toPublic(row) });
+    this.events.emit(TEAM_EVENTS, { type: "message", conversationId: id, message: msg } satisfies TeamEvent);
     return msg;
   }
 
-  private setStatus(id: string, status: "agent" | "needs_human" | "human" | "resolved") {
+  private setStatus(id: string, status: Status) {
     this.db
       .update(schema.conversations)
       .set({ status, updatedAt: new Date() })
       .where(eq(schema.conversations.id, id))
       .run();
     this.events.emit(id, { type: "status", status });
+    this.events.emit(TEAM_EVENTS, { type: "status", conversationId: id, status } satisfies TeamEvent);
   }
 
   private mergeContext(id: string, update: Record<string, unknown>) {
@@ -474,6 +599,10 @@ function asBlocks(content: MessageParam["content"]): Anthropic.Beta.Messages.Bet
 
 function toPublic(m: typeof schema.messages.$inferSelect): PublicMessage {
   return { id: m.id, author: m.author, authorName: m.authorName, body: m.body, attachments: m.attachments ?? [], createdAt: m.createdAt.getTime() };
+}
+
+function toTeam(m: typeof schema.messages.$inferSelect): TeamMessage {
+  return { ...toPublic(m), memberId: m.memberId, mentions: m.mentions ?? [] };
 }
 
 function hash(v: string): string {
