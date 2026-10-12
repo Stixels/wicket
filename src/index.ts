@@ -5,7 +5,7 @@ import { openDb } from "./db/index.js";
 import { Agent, answerOnce } from "./agent/agent.js";
 import { ConversationService } from "./conversations.js";
 import { createServer } from "./server.js";
-import { reindex, searchDocs } from "./knowledge/index.js";
+import { reindex, readDoc, searchDocs } from "./knowledge/index.js";
 import { MarkdownRepoSource } from "./adapters/knowledge/markdownRepo.js";
 import { DiscordRelay } from "./adapters/relay/discord.js";
 import { setupGuild } from "./discord/setup.js";
@@ -31,6 +31,9 @@ if (config.DOCS_GITHUB_REPO) {
       baseUrl: config.DOCS_BASE_URL,
     }),
   );
+}
+for (const k of settings.knowledge) {
+  sources.push(new MarkdownRepoSource({ repo: k.github, ref: k.ref, baseUrl: k.baseUrl, include: k.include, exclude: k.exclude, token: config.DOCS_GITHUB_TOKEN }));
 }
 
 // No key means no assistant: every conversation goes straight to the team.
@@ -98,7 +101,7 @@ if (config.RELAY === "discord") {
         ? [{ channelId: config.DISCORD_SUPPORT_VOICE_HUB_CHANNEL_ID, prefix: SUPPORT_ROOM_PREFIX, teamRoleId: config.DISCORD_TEAM_ROLE_ID }]
         : []),
     ],
-    answerCommunityPost: agent ? (q) => answerOnce(agent, q, (query) => searchDocs(db, query)) : undefined,
+    answerCommunityPost: agent ? (q) => answerOnce(agent, q, { searchDocs: (query) => searchDocs(db, query), readDoc: (url) => readDoc(db, url) }) : undefined,
     tickets:
       anthropic && linear
         ? {

@@ -78,6 +78,19 @@ const themeSchema = z
   })
   .strict();
 
+/** A GitHub repo to search besides the main docs, e.g. an SDK with examples. */
+const knowledgeSchema = z
+  .object({
+    github: z.string().regex(/^[\w.-]+\/[\w.-]+$/, "use owner/repo"),
+    ref: z.string().optional(),
+    /** Public site for the markdown pages. Without it, links go to the files on GitHub. */
+    baseUrl: z.string().url().optional(),
+    /** Globs of files to index. Markdown only when left out. Code files are indexed whole. */
+    include: z.array(z.string()).optional(),
+    exclude: z.array(z.string()).optional(),
+  })
+  .strict();
+
 const settingsSchema = z
   .object({
     theme: themeSchema.default({}),
@@ -88,6 +101,8 @@ const settingsSchema = z
       })
       .strict()
       .default({}),
+    /** Extra repos to search. The main docs come from DOCS_GITHUB_REPO. */
+    knowledge: z.array(knowledgeSchema).default([]),
     profiles: z.record(z.string(), profileSchema).default({}),
     rules: z.array(ruleSchema).default([]),
     budgets: z
@@ -141,7 +156,13 @@ export function loadSettings(source = process.env.WICKET_CONFIG, fallbackPath = 
 
 export function parseSettings(text: string, where = "settings"): Settings {
   const raw = text.trim() ? parseYaml(text) : {};
-  const parsed = settingsSchema.safeParse(raw ?? {});
+  // A key whose options are all commented out parses as null; treat it as empty.
+  const tidy = (o: unknown) => (o && typeof o === "object" && !Array.isArray(o) ? Object.fromEntries(Object.entries(o).filter(([, v]) => v !== null)) : o);
+  const top = tidy(raw ?? {}) as Record<string, unknown>;
+  if (top.profiles && typeof top.profiles === "object") {
+    top.profiles = Object.fromEntries(Object.entries(top.profiles).map(([k, v]) => [k, v ?? {}]));
+  }
+  const parsed = settingsSchema.safeParse(top);
   if (!parsed.success) {
     const issues = parsed.error.issues.map((i) => `  ${i.path.join(".") || "(top)"}: ${i.message}`).join("\n");
     throw new Error(`Invalid Wicket settings in ${where}:\n${issues}`);

@@ -5,8 +5,8 @@ import { Readable } from "node:stream";
 import { create } from "tar";
 import { describe, expect, it } from "vitest";
 import { openDb } from "../src/db/index.js";
-import { replaceIndex, searchDocs } from "../src/knowledge/index.js";
-import { MarkdownRepoSource, splitMarkdown } from "../src/adapters/knowledge/markdownRepo.js";
+import { readDoc, replaceIndex, searchDocs } from "../src/knowledge/index.js";
+import { globToRegex, MarkdownRepoSource, splitMarkdown } from "../src/adapters/knowledge/markdownRepo.js";
 
 describe("splitMarkdown", () => {
   it("splits a page into sections with anchored links and strips GitBook tags", () => {
@@ -78,5 +78,47 @@ describe("navigation sections", () => {
   it("drops link-only sections like Next", () => {
     const sections = splitMarkdown("# Page\nReal intro text here.\n\n## Next\n\n[Other page](other.md)\n", "u");
     expect(sections.map((s) => s.heading)).toEqual([""]);
+  });
+});
+
+describe("code repos", () => {
+  it("indexes chosen code files whole, with GitHub links, and reads them back in full", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fl-"));
+    const root = path.join(dir, "acme-sdk-abc123");
+    fs.mkdirSync(path.join(root, "examples", "button_code"), { recursive: true });
+    fs.mkdirSync(path.join(root, "tests"), { recursive: true });
+    fs.writeFileSync(path.join(root, "README.md"), "# Acme SDK\nConnect props.\n\n## Pairing\nPress the button.");
+    fs.writeFileSync(path.join(root, "TRADEMARKS.md"), "# Trademarks\nLegal.");
+    fs.writeFileSync(path.join(root, "examples", "button_code", "button_code.ino"), '#include <Room.h>\n// <b>not html</b>\ncode.signal("solved", "Code entered");\n');
+    fs.writeFileSync(path.join(root, "tests", "x.cpp"), "int main() {}");
+    const tarball = path.join(dir, "repo.tgz");
+    await create({ gzip: true, file: tarball, cwd: dir }, ["acme-sdk-abc123"]);
+    const fetchImpl = (async () => new Response(Readable.toWeb(fs.createReadStream(tarball)) as any, { status: 200 })) as typeof fetch;
+
+    const source = new MarkdownRepoSource({ repo: "acme/sdk", include: ["**/*.md", "examples/**/*.ino"], exclude: ["TRADEMARKS.md"], fetchImpl });
+    const sections = await source.load();
+    expect(sections.map((s) => s.url).sort()).toEqual([
+      "https://github.com/acme/sdk/blob/HEAD/README.md",
+      "https://github.com/acme/sdk/blob/HEAD/README.md#pairing",
+      "https://github.com/acme/sdk/blob/HEAD/examples/button_code/button_code.ino",
+    ]);
+    const example = sections.find((s) => s.url.endsWith(".ino"))!;
+    expect(example.body).toBe('```cpp\n#include <Room.h>\n// <b>not html</b>\ncode.signal("solved", "Code entered");\n```');
+
+    const db = openDb(":memory:");
+    replaceIndex(db, sections);
+    const hit = searchDocs(db, "signal when the code is solved")[0]!;
+    expect(hit.url).toBe(example.url);
+    expect(readDoc(db, hit.url)).toContain('code.signal("solved", "Code entered");');
+    // A page link without the anchor returns every section of it.
+    expect(readDoc(db, "https://github.com/acme/sdk/blob/HEAD/README.md")).toBe("# Acme SDK\nConnect props.\n\n## Pairing\nPress the button.");
+    expect(readDoc(db, "https://nowhere")).toBeNull();
+  });
+
+  it("matches globs like .gitignore does", () => {
+    expect(globToRegex("*.md").test("docs/a.md")).toBe(true);
+    expect(globToRegex("examples/**/*.ino").test("examples/a/b.ino")).toBe(true);
+    expect(globToRegex("examples/**/*.ino").test("examples/b.ino")).toBe(true);
+    expect(globToRegex("src/Room.h").test("src/boards/Room.h")).toBe(false);
   });
 });

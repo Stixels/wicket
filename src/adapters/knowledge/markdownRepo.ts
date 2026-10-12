@@ -13,7 +13,31 @@ export interface MarkdownRepoOptions {
   token?: string;
   /** Public docs site. Paths map to `${baseUrl}/${path without .md}` (README -> folder). */
   baseUrl?: string;
+  /** Files to index, as globs ("**\/*.md", "examples/**\/*.ino"). Markdown only when left out. */
+  include?: string[];
+  /** Globs to skip, on top of contributor files like AGENTS.md and CONTRIBUTING.md. */
+  exclude?: string[];
   fetchImpl?: typeof fetch;
+}
+
+/** Code files are indexed whole, as one fenced block, so an example can be read in full. */
+const CODE_LANG: Record<string, string> = { ino: "cpp", h: "cpp", hpp: "cpp", c: "c", cpp: "cpp", py: "python", js: "js", ts: "ts", json: "json", yaml: "yaml", yml: "yaml" };
+const MAX_CODE_CHARS = 20_000;
+
+/** "**" matches across folders, "*" within one. A pattern without a slash matches the file name anywhere. */
+export function globToRegex(glob: string): RegExp {
+  const g = glob.includes("/") ? glob.replace(/^\//, "") : `**/${glob}`;
+  let re = "";
+  for (let i = 0; i < g.length; i++) {
+    const c = g[i]!;
+    if (c === "*" && g[i + 1] === "*") {
+      re += g[i + 2] === "/" ? "(?:.*/)?" : ".*";
+      i += g[i + 2] === "/" ? 2 : 1;
+    } else if (c === "*") re += "[^/]*";
+    else if (c === "?") re += "[^/]";
+    else re += c.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+  }
+  return new RegExp(`^${re}$`, "i");
 }
 
 /**
@@ -38,16 +62,19 @@ export class MarkdownRepoSource implements KnowledgeSource {
     });
     if (!res.ok || !res.body) throw new Error(`Fetching ${repo} failed: ${res.status}`);
 
+    const include = (this.opts.include ?? ["**/*.md"]).map(globToRegex);
+    const exclude = (this.opts.exclude ?? []).map(globToRegex);
+    const wanted = (rel: string) => include.some((r) => r.test(rel)) && !exclude.some((r) => r.test(rel)) && !SKIP.test(rel);
     const files: { path: string; text: string }[] = [];
     const parser = new Parser({
-      filter: (p: string) => p.endsWith(".md"),
+      filter: (p: string) => wanted(p.split("/").slice(1).join("/")),
       onReadEntry: (entry: ReadEntry) => {
         const chunks: Buffer[] = [];
         entry.on("data", (c: Buffer) => chunks.push(c));
         entry.on("end", () => {
           // Tarball paths start with "<owner>-<repo>-<sha>/".
           const rel = entry.path.split("/").slice(1).join("/");
-          if (rel && !SKIP.test(rel)) files.push({ path: rel, text: Buffer.concat(chunks).toString("utf8") });
+          if (rel && wanted(rel)) files.push({ path: rel, text: Buffer.concat(chunks).toString("utf8") });
         });
       },
     });
@@ -55,13 +82,23 @@ export class MarkdownRepoSource implements KnowledgeSource {
 
     return files
       .filter((f) => !/(^|\/)SUMMARY\.md$/i.test(f.path))
-      .flatMap((f) => splitMarkdown(f.text, this.urlFor(f.path)));
+      .flatMap((f) => (/\.(md|markdown)$/i.test(f.path) ? splitMarkdown(f.text, this.urlFor(f.path)) : [this.codeSection(f.path, f.text)]));
+  }
+
+  private codeSection(file: string, text: string): DocSection {
+    const ext = file.split(".").pop()!.toLowerCase();
+    const code = text.length > MAX_CODE_CHARS ? `${text.slice(0, MAX_CODE_CHARS)}\n// … (truncated)` : text;
+    return { title: file, heading: "", url: this.githubUrl(file), body: `\`\`\`${CODE_LANG[ext] ?? ""}\n${code.trimEnd()}\n\`\`\`` };
+  }
+
+  private githubUrl(file: string): string {
+    return `https://github.com/${this.opts.repo}/blob/${this.opts.ref ?? "HEAD"}/${file}`;
   }
 
   private urlFor(file: string): string {
     const page = file.replace(/(^|\/)README\.md$/i, "$1").replace(/\.md$/i, "").replace(/\/$/, "");
     if (this.opts.baseUrl) return `${this.opts.baseUrl.replace(/\/$/, "")}/${page}`.replace(/\/$/, "");
-    return `https://github.com/${this.opts.repo}/blob/${this.opts.ref ?? "HEAD"}/${file}`;
+    return this.githubUrl(file);
   }
 }
 

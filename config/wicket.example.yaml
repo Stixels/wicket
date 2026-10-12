@@ -15,6 +15,13 @@ team:
   # replyTime: a few hours   # "Passed to the team. They usually reply within a few hours."
 
 # A profile is a way of answering. Everything in it is optional.
+# Other GitHub repos to search besides the main docs (DOCS_GITHUB_REPO), such as an SDK.
+# knowledge:
+#   - github: acme/acme-sdk
+#     include: ["*.md", "examples/**"]   # globs; markdown only when left out. Code files are read whole.
+#     exclude: [CHANGELOG.md]
+#     baseUrl: https://sdk.acme.com      # optional; links go to GitHub otherwise
+
 profiles:
   # Applies when no rule matches.
   default:

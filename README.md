@@ -155,7 +155,7 @@ See [`.env.example`](.env.example). The main settings:
 | `RELAY`, `DISCORD_*` | Where conversations show up for the team. |
 | `ALLOWED_ORIGINS` | Sites allowed to embed the widget. |
 | `IDENTITY_SECRET` | Shared with your backend to sign user tokens (at least 32 characters). |
-| `WICKET_CONFIG` | Profiles, rules and budgets: a file path or the YAML itself. Defaults to `config/wicket.yaml`. |
+| `WICKET_CONFIG` | Profiles, rules, budgets and extra knowledge repos (`knowledge:`, e.g. an SDK with examples): a file path or the YAML itself. Defaults to `config/wicket.yaml`. |
 
 ## How it fits together
 

@@ -262,7 +262,7 @@ describe("RateLimiter", () => {
 describe("answerOnce (community forum posts)", () => {
   it("answers from the docs and flags posts the assistant hands off", async () => {
     const { answerOnce } = await import("../src/agent/agent.js");
-    const docs = () => [{ title: "Live View", heading: "Timers", url: "https://docs/x", snippet: "Add a timer" }];
+    const docs = { searchDocs: () => [{ title: "Live View", heading: "Timers", url: "https://docs/x", snippet: "Add a timer" }], readDoc: () => null };
 
     const ok = new Agent(new FakeClient([toolCall("search_docs", { query: "timer" }), text("Add a timer in Live View: https://docs/x")]), agentOpts);
     expect(await answerOnce(ok, "How do timers work?", docs)).toEqual({ reply: "Add a timer in Live View: https://docs/x", needsHuman: false });

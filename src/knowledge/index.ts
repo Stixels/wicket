@@ -42,3 +42,20 @@ export function searchDocs(db: Db, query: string, limit = 5): SearchHit[] {
     )
     .all(match, limit) as SearchHit[];
 }
+
+const MAX_READ_CHARS = 24_000;
+
+/** The full text behind a search result: one section by its link, or a whole page by its link without "#". */
+export function readDoc(db: Db, url: string): string | null {
+  // A link with "#" is one section; without, the page's intro plus all its sections.
+  const rows = (
+    url.includes("#")
+      ? db.$client.prepare("SELECT title, heading, body FROM docs WHERE url = ?").all(url)
+      : db.$client
+          .prepare("SELECT title, heading, body FROM docs WHERE url = ? OR url LIKE ? ESCAPE '\\' ORDER BY rowid")
+          .all(url, `${url.replace(/[\\%_]/g, "\\$&")}#%`)
+  ) as Pick<DocSection, "title" | "heading" | "body">[];
+  if (!rows.length) return null;
+  const text = rows.map((r, i) => `${i === 0 ? `# ${r.title}\n` : ""}${r.heading ? `## ${r.heading}\n` : ""}${r.body}`).join("\n\n");
+  return text.length > MAX_READ_CHARS ? `${text.slice(0, MAX_READ_CHARS)}\n… (truncated)` : text;
+}

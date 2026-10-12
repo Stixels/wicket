@@ -6,7 +6,7 @@ import { schema, type Db } from "./db/index.js";
 import { ThreadGoneError, type Relay, type RelayFile } from "./adapters/types.js";
 import { FileStore, MAX_MODEL_IMAGE_BYTES, MODEL_IMAGE_TYPES, formatSize, type Attachment } from "./files.js";
 import type { Agent } from "./agent/agent.js";
-import { searchDocs } from "./knowledge/index.js";
+import { readDoc, searchDocs } from "./knowledge/index.js";
 import type { Identity } from "./identity.js";
 import { parseSettings, pathFromContext, resolveProfile, type Profile, type Settings } from "./settings.js";
 import { UsageLedger, dollarsToMicros } from "./usage.js";
@@ -266,6 +266,7 @@ export class ConversationService {
         this.history(id),
         {
           searchDocs: (q) => searchDocs(this.db, q),
+          readDoc: (url) => readDoc(this.db, url),
           handoff: (reason) => this.handoff(id, reason),
         },
         { instructions: profile.instructions, model: profile.model, effort: profile.effort, topics: profile.topics, offTopic: profile.offTopic },

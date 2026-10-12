@@ -8,6 +8,8 @@ type ToolResult = Anthropic.Beta.Messages.BetaToolResultBlockParam;
 
 export interface AgentTools {
   searchDocs(query: string): SearchHit[];
+  /** Full text of a section or page from a search result's link. */
+  readDoc(url: string): string | null;
   /** Marks the conversation as needing a person and alerts the team. */
   handoff(reason: string): Promise<void>;
 }
@@ -71,6 +73,18 @@ const TOOLS: Anthropic.Beta.Messages.BetaTool[] = [
     },
   },
   {
+    name: "read_doc",
+    description:
+      "Read the full text of a documentation section, page or code example. Pass a link from search_docs; drop the part after # for the whole page. Use it when a search snippet is too short to answer from, and always before giving code.",
+    strict: true,
+    input_schema: {
+      type: "object",
+      properties: { url: { type: "string", description: "A link returned by search_docs" } },
+      required: ["url"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "handoff_to_human",
     description:
       "Bring in a person from the team. Use when the user asks for a person, is frustrated, raises billing, account access or data loss, or when the docs don't answer the question after searching. After calling it, tell the user someone from the team will reply here.",
@@ -96,7 +110,7 @@ export function systemPrompt(
     scope.offTopic === "allow"
       ? ""
       : `
-- Only help with ${o.productName}${also}. If someone asks for anything else, such as general coding, games, homework, writing, translation or trivia, don't do it, even partly and even if they insist or call it a test. Say in one sentence that you can only help with ${o.productName} here and ask what they need with it. Don't hand these off to the team. Code is fine only when it is about using ${o.productName} itself and is based on what search_docs returns. Keep it to a short snippet in a fenced code block, adapted from the closest example, and link that example. Don't write whole programs or code the docs don't support; link the relevant guide or example instead.`;
+- Only help with ${o.productName}${also}. If someone asks for anything else, such as general coding, games, homework, writing, translation or trivia, don't do it, even partly and even if they insist or call it a test. Say in one sentence that you can only help with ${o.productName} here and ask what they need with it. Don't hand these off to the team. Code is fine only when it is about using ${o.productName} itself and is based on documentation or examples you have read with read_doc, in the language they use. Keep it to a short snippet in a fenced code block, adapted from the closest example, and link that example. Don't write whole programs or code the docs don't support; link the relevant guide or example instead.`;
   const extra = instructions?.trim() ? `\n\nInstructions from the ${o.productName} team for this part of the app:\n${instructions.trim()}` : "";
   return `You are the in-app help assistant for ${o.productName}. ${o.productDescription}
 
@@ -182,6 +196,9 @@ export class Agent {
               ? hits.map((h) => `## ${h.title}${h.heading ? ` > ${h.heading}` : ""}\n${h.url}\n${h.snippet}`).join("\n\n")
               : "No matching documentation.",
           });
+        } else if (use.name === "read_doc") {
+          const doc = tools.readDoc(String(input.url ?? ""));
+          results.push({ type: "tool_result", tool_use_id: use.id, content: doc ?? "No page or section has that link. Use a link from search_docs." });
         } else if (use.name === "handoff_to_human") {
           if (!handedOff) await tools.handoff(String(input.reason ?? ""));
           handedOff = true;
@@ -207,7 +224,7 @@ export class Agent {
 }
 
 /** Answers a single public question (e.g. a community forum post) with no stored history. */
-export async function answerOnce(agent: Agent, question: string, searchDocs: AgentTools["searchDocs"]) {
+export async function answerOnce(agent: Agent, question: string, docs: Pick<AgentTools, "searchDocs" | "readDoc">) {
   let needsHuman = false;
   const result = await agent.respond(
     [
@@ -219,7 +236,7 @@ export async function answerOnce(agent: Agent, question: string, searchDocs: Age
         ],
       },
     ],
-    { searchDocs, handoff: async () => void (needsHuman = true) },
+    { ...docs, handoff: async () => void (needsHuman = true) },
   );
   return { reply: result.reply, needsHuman: needsHuman || result.handedOff };
 }

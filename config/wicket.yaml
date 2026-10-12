@@ -13,7 +13,13 @@ theme:
     --wk-muted: "#8A8F98"
 
 team:
-  replyTime: 6 hours   # same as the Featurebase messenger said
+  replyTime: a few hours
+
+# The Device SDK (Arduino), so the assistant can answer from its guides and examples.
+knowledge:
+  - github: directorhq/escape-director-device-sdk
+    include: ["*.md", "examples/**/*.ino", "src/EscapeDirectorRoom.h"]
+    exclude: [THIRD_PARTY.md, TRADEMARKS.md]
 
 profiles:
   # Marketing site, sign-in and sign-up: no assistant, so nothing to abuse.

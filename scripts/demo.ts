@@ -49,7 +49,7 @@ app.get("/", (c) => {
 <body><main><h1>Escape Director</h1><p>Demo host page for the help widget.</p><div class="card">Room: The Treehouse · Live session idle</div></main>
 <script src="/widget.js"></script><script>Wicket.init({ ${q.as === "visitor" ? "" : `userToken: ${JSON.stringify(signUserToken({ sub: "u1", name: "Sam (Treehouse Escape)", plan: q.plan }, SECRET, 3600))},`}
   context: { appVersion: "2.3.0"${q.path ? `, path: ${JSON.stringify(q.path)}` : ""} },
-  title: "Escape Director Support", subtitle: "We usually reply in minutes", launcherLabel: ${JSON.stringify(q.label ?? "")},
+  title: "Escape Director Support", launcherLabel: ${JSON.stringify(q.label ?? "")},
   theme: ${JSON.stringify(theme)} }); ${q.closed ? "" : "Wicket.open();"}</script></body></html>`);
 });
 app.post("/__staff", async (c) => { const { body } = await c.req.json(); const thread = [...relay.threads.keys()].at(-1)!; await relay.staffReply(thread, body); return c.json({ ok: true, posts: relay.threads.get(thread)?.posts }); });
