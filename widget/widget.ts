@@ -365,6 +365,16 @@ button { font: inherit; color: inherit; }
 .msg a { color: inherit; text-decoration: underline; text-underline-offset: 2px; text-decoration-thickness: 1px; }
 .msg code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em; padding: 1px 5px; border-radius: 6px;
   background: color-mix(in srgb, currentColor 10%, transparent); }
+.msg .code { margin: 8px 0; border-radius: 10px; overflow: hidden; white-space: normal; border: 1px solid var(--wk-border);
+  background: color-mix(in srgb, var(--wk-text) 6%, var(--wk-surface)); }
+.msg .code:first-child { margin-top: 2px; } .msg .code:last-child { margin-bottom: 2px; }
+.code-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 6px 4px 12px;
+  font-size: 11.5px; color: var(--wk-muted); border-bottom: 1px solid var(--wk-border); }
+.code-bar .copy { font: inherit; color: inherit; background: none; border: 0; padding: 3px 8px; border-radius: 6px; cursor: pointer; }
+.code-bar .copy:hover { background: color-mix(in srgb, var(--wk-text) 8%, transparent); color: var(--wk-text); }
+.msg pre { margin: 0; padding: 10px 12px; overflow-x: auto; white-space: pre; overflow-wrap: normal; font-size: 12.5px; line-height: 1.55; }
+.msg pre code { padding: 0; background: none; font-size: inherit; border-radius: 0; }
+.col:has(.code) { width: 100%; } .col:has(.code) .msg { min-width: 0; }
 .row.user .msg { background: var(--wk-accent); color: var(--wk-on-accent); border-bottom-right-radius: 6px; }
 .row.agent .msg, .row.staff .msg { background: var(--wk-bubble); border: 1px solid var(--wk-border);
   box-shadow: 0 1px 2px rgba(15,15,30,.04); }
@@ -1137,6 +1147,15 @@ class Widget {
     const text = m.body ? renderMarkdown(m.body) : "";
     const onlyImages = !m.body && (m.attachments ?? []).every((a) => a.type.startsWith("image/"));
     row.innerHTML = `<div class="col"><div class="msg${onlyImages ? " bare" : ""}">${files ? `<div class="atts">${files}</div>` : ""}${text}</div>${meta}</div>`;
+    for (const btn of row.querySelectorAll<HTMLButtonElement>(".code .copy")) {
+      btn.addEventListener("click", () => {
+        const code = btn.closest(".code")?.querySelector("pre")?.textContent ?? "";
+        void navigator.clipboard?.writeText(code).then(() => {
+          btn.textContent = "Copied";
+          setTimeout(() => (btn.textContent = "Copy"), 1500);
+        });
+      });
+    }
     this.log.insertBefore(row, this.typing);
     this.lastRow = row;
     if (m.author === "staff") this.setAgent(m.authorName || "Team");
@@ -1306,13 +1325,35 @@ export function readableOn(color: string): string {
   return lum > 0.4 ? "#16161d" : "#ffffff";
 }
 
-/** Minimal, safe markdown: escape everything, then allow links, bold and inline code. */
+/** Minimal, safe markdown: escape everything, then allow code blocks, links, bold and inline code. */
 export function renderMarkdown(text: string): string {
+  // Fenced code blocks first, so nothing inside them is treated as markdown. An unclosed fence runs to the end.
+  const parts = text.split(/^```[^\S\n]*([\w+#.-]*)[^\S\n]*\n([\s\S]*?)(?:^```[^\S\n]*$\n?|$(?![\s\S]))/m);
+  let html = "";
+  for (let i = 0; i < parts.length; i += 3) {
+    // The block itself breaks the line, so drop the newlines around it.
+    let prose = parts[i]!;
+    if (i > 0) prose = prose.replace(/^\n+/, "");
+    if (i + 3 < parts.length) prose = prose.replace(/\n+$/, "");
+    html += inlineMarkdown(prose);
+    if (i + 2 < parts.length) {
+      const lang = parts[i + 1] ?? "";
+      const code = (parts[i + 2] ?? "").replace(/\n$/, "");
+      html +=
+        `<div class="code"><div class="code-bar"><span>${escapeHtml(lang)}</span>` +
+        `<button type="button" class="copy" aria-label="Copy code">Copy</button></div>` +
+        `<pre><code>${escapeHtml(code)}</code></pre></div>`;
+    }
+  }
+  return html;
+}
+
+function inlineMarkdown(text: string): string {
   return escapeHtml(text)
     .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
     .replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, '$1<a href="$2" target="_blank" rel="noopener noreferrer">$2</a>')
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-    .replace(/`([^`]+)`/g, "<code>$1</code>");
+    .replace(/`([^`\n]+)`/g, "<code>$1</code>");
 }
 
 let instance: Widget | null = null;

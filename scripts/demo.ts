@@ -29,6 +29,7 @@ const client = {
       return { stop_reason: "end_turn", content: [{ type: "text", text: `Here's the guide that covers it: [${hit[0].replace(/^## /, "")}](${hit[1]}). Let me know if that doesn't do it.` }] };
     }
     const q = last.content.at(-1).text;
+    if (/snippet|script|code/i.test(q)) return { stop_reason: "end_turn", content: [{ type: "text", text: "From the SDK's MQTT example, publish the win like this:\n\n```python\nfrom escape_director import Device\n\ndevice = Device.from_env()\n\ndef on_win():\n    device.signal(\"tictactoe.won\", {\"board\": \"A\"})  # maps to a signal in Escape Director\n```\n\nThen map `tictactoe.won` to **Complete a puzzle** on the device page." }] };
     if (/person|human|refund/i.test(q)) return { stop_reason: "tool_use", content: [{ type: "tool_use", id: "h1", name: "handoff_to_human", input: { reason: q } }] };
     return { stop_reason: "tool_use", content: [{ type: "tool_use", id: "s1", name: "search_docs", input: { query: q } }] };
   } } },
