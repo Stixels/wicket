@@ -201,10 +201,6 @@ function Dashboard({ me, onSignOut }: { me: Member; onSignOut: () => void }) {
           ))}
         </nav>
         <div className="sidebar-foot">
-          <div className="team-row" title="Everyone who has signed in or replied from Discord">
-            <AvatarStack people={members.map((m) => ({ name: m.name, avatarUrl: m.avatarUrl }))} max={5} />
-            <span className="muted small">{members.length} on the team</span>
-          </div>
           <div className="me">
             <Avatar name={me.name} url={me.avatarUrl} size={28} />
             <span className="me-name">{me.name}</span>
@@ -219,15 +215,20 @@ function Dashboard({ me, onSignOut }: { me: Member; onSignOut: () => void }) {
       <section className="list">
         <header className="list-head">
           <h2>{VIEWS.find((v) => v.id === view)?.label}</h2>
+          <div className="mobile-brand">
+            <Logo size={26} />
+            <span>{boot.productName}</span>
+          </div>
           {!connected && <span className="offline">Reconnecting…</span>}
-          <select className="view-select" value={view} onChange={(e) => setView(e.target.value as View)}>
-            {VIEWS.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.label}
-              </option>
-            ))}
-          </select>
         </header>
+        <div className="view-tabs" role="tablist">
+          {VIEWS.filter((v) => v.id !== "all").map((v) => (
+            <button key={v.id} role="tab" aria-selected={view === v.id} className={view === v.id ? "on" : ""} onClick={() => setView(v.id)}>
+              {v.label}
+              {(v.id === "needs_reply" || v.id === "mentions") && counts[v.id] ? <span className="count hot">{counts[v.id]}</span> : null}
+            </button>
+          ))}
+        </div>
         <div className="list-body">
           {items === null ? (
             <div className="empty">
@@ -249,7 +250,7 @@ function Dashboard({ me, onSignOut }: { me: Member; onSignOut: () => void }) {
             <Logo size={56} muted />
             <p>Pick a conversation</p>
             <span className="muted small">
-              Replies here reach the user in the app and show up in Discord. <kbd>j</kbd> <kbd>k</kbd> to move.
+              Replies reach the user in the app and show up in Discord.
             </span>
           </div>
         )}
@@ -273,12 +274,13 @@ function ListItem({ item, active, typing, onClick }: { item: InboxItem; active: 
   const who = item.reporter.name ?? item.reporter.email ?? "Visitor";
   const typers = (typing ?? []).filter((t) => t.until > Date.now());
   return (
-    <button className={`item ${active ? "active" : ""} ${item.needsReply ? "unread" : ""}`} onClick={onClick}>
-      <Avatar name={who} size={34} />
+    <button className={`item ${active ? "active" : ""} ${item.needsReply ? "unread" : ""} ${item.status === "resolved" ? "done" : ""}`} onClick={onClick}>
+      <Avatar name={who} size={36} />
       <div className="item-main">
         <div className="item-top">
           <span className="item-name">{who}</span>
-          {item.reporter.plan && <span className="plan">{item.reporter.plan}</span>}
+          {item.mentionsMe && <span className="at-you" title="A teammate mentioned you">@</span>}
+          {item.participants.length > 0 && <AvatarStack people={item.participants.map((p) => ({ name: p.name }))} max={3} size={16} />}
           <span className="item-time">{ago(item.updatedAt)}</span>
         </div>
         <div className="item-title">{item.title}</div>
@@ -291,12 +293,9 @@ function ListItem({ item, active, typing, onClick }: { item: InboxItem; active: 
             <>
               <span className="who">{lastWho(item.last)}</span> {item.last.body}
             </>
-          ) : null}
-        </div>
-        <div className="item-tags">
-          <StatusChip status={item.status} needsReply={item.needsReply} />
-          {item.mentionsMe && <span className="chip chip-mention">@ you</span>}
-          {item.participants.length > 0 && <AvatarStack people={item.participants.map((p) => ({ name: p.name }))} max={3} size={18} />}
+          ) : (
+            <span className="state">{stateText(item)}</span>
+          )}
         </div>
       </div>
     </button>
@@ -311,12 +310,12 @@ function lastWho(last: NonNullable<InboxItem["last"]>): string {
   return "";
 }
 
-function StatusChip({ status, needsReply }: { status: InboxItem["status"]; needsReply: boolean }) {
-  if (needsReply) return <span className="chip chip-hot">{status === "needs_human" ? "Waiting for team" : "New reply"}</span>;
-  if (status === "agent") return <span className="chip">Assistant</span>;
-  if (status === "human") return <span className="chip chip-team">With team</span>;
-  if (status === "resolved") return <span className="chip chip-done">Resolved</span>;
-  return null;
+/** One quiet line for where a conversation stands. */
+function stateText(item: { status: InboxItem["status"]; needsReply: boolean }): string {
+  if (item.needsReply) return item.status === "needs_human" ? "Waiting for the team" : "New reply";
+  if (item.status === "agent") return "With the assistant";
+  if (item.status === "human") return "With the team";
+  return "Resolved";
 }
 
 // --- Conversation -----------------------------------------------------------------
@@ -387,28 +386,22 @@ function Conversation({
           </button>
           <Avatar name={who} size={36} />
           <div className="conv-title">
-            <div className="conv-name">
-              {who}
-              {conv.reporter.plan && <span className="plan">{conv.reporter.plan}</span>}
-            </div>
+            <div className="conv-name">{who}</div>
             <div className="conv-sub">
-              <StatusChip status={conv.status} needsReply={conv.needsReply} />
-              {conv.participants.length > 0 && (
-                <span className="muted small">
-                  {names(conv.participants.map((p) => (p.memberId === me.id ? "You" : p.name)))} replied
-                </span>
-              )}
+              <span className={`state-dot ${conv.needsReply ? "hot" : conv.status}`} />
+              {stateText(conv)}
+              {conv.participants.length > 0 && <> · {names(conv.participants.map((p) => (p.memberId === me.id ? "you" : p.name)))} replied</>}
             </div>
           </div>
           <div className="conv-actions">
             {conv.discordUrl && (
-              <a className="btn btn-sm btn-ghost" href={conv.discordUrl} target="_blank" rel="noreferrer">
-                <DiscordIcon /> <span className="hide-sm">Discord</span>
+              <a className="icon-btn" href={conv.discordUrl} target="_blank" rel="noreferrer" title="Open in Discord">
+                <DiscordIcon />
               </a>
             )}
             {conv.status !== "resolved" && (
               <button
-                className="btn btn-sm"
+                className="btn btn-sm btn-resolve"
                 onClick={() =>
                   void api(`/api/conversations/${id}/resolve`, { json: {} }).then(() => {
                     load();
@@ -466,7 +459,16 @@ function Conversation({
 }
 
 function Bubble({ m, prev, me, memberNames, reporter }: { m: Message; prev?: Message; me: Member; memberNames: string[]; reporter: string }) {
-  if (m.author === "system") return <div className="sys">{m.body}</div>;
+  if (m.author === "system") {
+    const done = m.body === "Marked as resolved" || m.body.startsWith("The team marked this conversation as resolved");
+    return done ? (
+      <div className="sys done">
+        <Icon d="M5 12.5 10 17 19 7" /> Marked as resolved
+      </div>
+    ) : (
+      <div className="sys">{m.body}</div>
+    );
+  }
   const grouped = prev && prev.author === m.author && prev.authorName === m.authorName && m.createdAt - prev.createdAt < 5 * 60_000;
   const side = m.author === "user" ? "them" : "team";
   const name = m.author === "user" ? reporter : m.author === "agent" ? "Assistant" : m.memberId === me.id ? "You" : (m.authorName ?? "Team");
@@ -475,7 +477,8 @@ function Bubble({ m, prev, me, memberNames, reporter }: { m: Message; prev?: Mes
       <div className={`note ${m.mentions.includes(me.id) ? "for-me" : ""}`}>
         <div className="note-head">
           <Icon d="M4 20h4L19 9l-4-4L4 16v4ZM13.5 6.5l4 4" />
-          <b>{name}</b> left a note · only the team sees this
+          <b>{name}</b>
+          <span className="note-tag" title="Only the team sees notes">Team note</span>
           <span className="time">{time(m.createdAt)}</span>
         </div>
         <div className="note-body">
@@ -714,9 +717,6 @@ function Composer({ conversation, members, me, onSent }: { conversation: Convers
           )}
           {error && <span className="composer-error">{error}</span>}
           <span className="spacer" />
-          <span className="muted small hide-sm">
-            <kbd>Enter</kbd> to send · <kbd>Shift</kbd>+<kbd>Enter</kbd> new line
-          </span>
           <button className={`btn btn-send ${note ? "btn-note" : ""}`} disabled={sending || (!text.trim() && (note || !files.length))} onClick={() => void send()}>
             {note ? "Add note" : "Send"}
           </button>

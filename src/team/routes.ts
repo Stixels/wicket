@@ -257,6 +257,8 @@ export function teamRoutes(db: Db, service: ConversationService, opts: TeamOptio
 <title>${escapeHtml(opts.productName)} · Wicket</title>
 <meta name="color-scheme" content="dark light">
 <link rel="icon" href="data:image/svg+xml,${encodeURIComponent(FAVICON)}">
+<link rel="preconnect" href="https://rsms.me/">
+<link rel="stylesheet" href="https://rsms.me/inter/inter.css">
 <link rel="stylesheet" href="/admin/app.css">
 <script>window.WICKET_TEAM=${boot};try{var t=localStorage.getItem("wicket-team-theme");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
 </head><body><div id="root"></div><script src="/admin/app.js"></script></body></html>`);

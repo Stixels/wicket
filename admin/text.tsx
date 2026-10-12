@@ -44,14 +44,17 @@ function CodeBlock({ code }: { code: string }) {
   );
 }
 
-const TOKEN = /(`[^`\n]+`|\*\*[^*\n]+\*\*|\[[^\]\n]+\]\(https?:\/\/[^\s)]+\)|https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"]|@[\p{L}\d][\p{L}\d._-]*(?: [\p{Lu}][\p{L}\d._-]*)?)/gu;
+const TOKEN = /(`[^`\n]+`|\*\*[^*\n]+\*\*|\[[^\]\n]+\]\(https?:\/\/[^\s)]+\)|https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"]|@[\p{L}\d])/gu;
 
 function inline(line: string, members: string[]): ReactNode[] {
   const out: ReactNode[] = [];
   let last = 0;
+  // Longest names first, so "@Alex Rivera" wins over "@Alex".
+  const byLength = [...members].sort((a, b) => b.length - a.length);
   for (const m of line.matchAll(TOKEN)) {
     const t = m[0];
     const at = m.index ?? 0;
+    if (at < last) continue; // inside a mention we already took
     if (at > last) out.push(line.slice(last, at));
     last = at + t.length;
     if (t.startsWith("`")) out.push(<code key={at}>{t.slice(1, -1)}</code>);
@@ -64,7 +67,9 @@ function inline(line: string, members: string[]): ReactNode[] {
         </a>,
       );
     } else if (t.startsWith("@")) {
-      const name = members.find((n) => t.slice(1).toLowerCase().startsWith(n.toLowerCase()));
+      // Names can have spaces, so match them against the team rather than the token.
+      const rest = line.slice(at + 1).toLowerCase();
+      const name = byLength.find((n) => rest.startsWith(n.toLowerCase()));
       if (name) {
         out.push(
           <span key={at} className="mention">
@@ -73,7 +78,8 @@ function inline(line: string, members: string[]): ReactNode[] {
         );
         last = at + 1 + name.length;
       } else {
-        out.push(t);
+        out.push("@");
+        last = at + 1;
       }
     } else
       out.push(
