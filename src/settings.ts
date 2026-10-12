@@ -15,6 +15,10 @@ const profileSchema = z
     ai: z.boolean().default(true),
     /** Extra instructions added to the assistant's system prompt. */
     instructions: z.string().optional(),
+    /** Subjects the assistant may help with besides the product, e.g. "escape room operations in general". */
+    topics: z.string().optional(),
+    /** decline: the assistant turns down anything unrelated to the product (default). allow: it helps with anything. */
+    offTopic: z.enum(["decline", "allow"]).default("decline"),
     model: z.string().optional(),
     effort: effort.optional(),
     /** Dollars per person per calendar month (UTC). Leave out for no limit. */

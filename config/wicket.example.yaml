@@ -23,6 +23,9 @@ profiles:
                              # Spend in every profile counts toward one total per person;
                              # each profile's budget is where that profile stops answering.
     # instructions: Extra guidance added to the assistant's prompt.
+    # offTopic: decline          # decline (default): turn down anything unrelated to the product,
+    #                            # like writing code or homework. allow: help with anything.
+    # topics: escape room operations in general   # other subjects it may help with
     # model: claude-sonnet-5-5   # defaults to AGENT_MODEL
     # effort: low                # low | medium | high | xhigh | max
     # askEmail: false            # offer an email field so the team can follow up

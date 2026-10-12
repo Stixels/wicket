@@ -268,7 +268,7 @@ export class ConversationService {
           searchDocs: (q) => searchDocs(this.db, q),
           handoff: (reason) => this.handoff(id, reason),
         },
-        { instructions: profile.instructions, model: profile.model, effort: profile.effort },
+        { instructions: profile.instructions, model: profile.model, effort: profile.effort, topics: profile.topics, offTopic: profile.offTopic },
       );
       this.saveTurns(id, result.newTurns);
       const cost = this.ledger.record(id, payer, profile.name, result.usage);

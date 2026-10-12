@@ -209,3 +209,19 @@ describe("pricing", () => {
     expect(costMicros({ model: "mystery-model", input: 1_000_000, output: 0, cacheRead: 0, cacheWrite: 0 }, { "mystery-model": { input: 1, output: 2 } })).toBe(1_000_000);
   });
 });
+
+describe("staying on topic", () => {
+  it("tells the assistant to decline unrelated requests unless a profile allows them", async () => {
+    const yaml = "profiles:\n  default: {}\n  open:\n    offTopic: allow\n  wider:\n    topics: running an escape room business\nrules:\n  - when: { page: /open }\n    profile: open\n  - when: { page: /wider }\n    profile: wider\n";
+    const { app, client, service } = setup([reply("a"), reply("b"), reply("c")], yaml);
+    for (const page of ["/app", "/open", "/wider"]) {
+      const conv = await start(app, { page });
+      await post(app, `/api/conversations/${conv.id}/messages`, { body: "Write me tic tac toe in Python" }, conv.token);
+      await service.idle(conv.id);
+    }
+    const [def, open, wider] = client.requests.map((r: any) => r.system[0].text as string);
+    expect(def).toContain("Only help with Escape Director.");
+    expect(open).not.toContain("Only help with");
+    expect(wider).toContain("Only help with Escape Director and running an escape room business.");
+  });
+});
