@@ -1,4 +1,5 @@
 import {
+  AttachmentBuilder,
   ChannelType,
   Client,
   EmbedBuilder,
@@ -10,7 +11,8 @@ import {
   type TextChannel,
   type ThreadChannel,
 } from "discord.js";
-import { ThreadGoneError, type Relay, type RelayConversation, type StaffReply } from "../types.js";
+import { ThreadGoneError, type Relay, type RelayConversation, type RelayFile, type StaffReply } from "../types.js";
+import { MAX_FILE_BYTES, allowedType } from "../../files.js";
 import { attachVoiceRooms, type VoiceHub } from "../../discord/voiceRooms.js";
 import { attachTicketCommand, mentionsBot, type TicketCommandOptions } from "../../discord/tickets.js";
 
@@ -65,14 +67,19 @@ export class DiscordRelay implements Relay {
       if (message.author.bot || message.system || !message.channel.isThread()) return;
       if (message.channel.parentId !== this.opts.channelId) return;
       if (this.opts.tickets && mentionsBot(message)) return; // a note to the bot, not a reply to the user
-      const body = [message.content, ...message.attachments.map((a) => a.url)].filter(Boolean).join("\n");
-      if (!body.trim()) return;
       try {
+        // Discord's file links expire, so the files are copied into Wicket's own store.
+        const files = await downloadAttachments(message);
+        const skipped = message.attachments.size - files.length;
+        const body = [message.content, skipped ? `(${skipped} file${skipped === 1 ? "" : "s"} too large or not allowed to send)` : ""].filter(Boolean).join("\n");
+        if (!body.trim() && !files.length) return;
         await onStaffReply({
           threadId: message.channel.id,
           authorName: message.member?.displayName ?? message.author.globalName ?? message.author.username,
           body,
+          files,
         });
+        if (skipped) await message.react("📎").catch(() => {});
       } catch (err) {
         console.error("discord: failed to relay staff reply", err);
         await message.react("⚠️").catch(() => {});
@@ -131,13 +138,15 @@ export class DiscordRelay implements Relay {
     return thread.id;
   }
 
-  async post(threadId: string, author: "user" | "agent" | "system", body: string, authorName?: string | null): Promise<void> {
+  async post(threadId: string, author: "user" | "agent" | "system", body: string, authorName?: string | null, files: RelayFile[] = []): Promise<void> {
     const thread = await this.thread(threadId);
-    if (author === "system") {
-      await thread.send({ content: `-# ${body}`.slice(0, LIMIT), allowedMentions: { parse: [] } });
+    const attachments = files.map((f) => new AttachmentBuilder(f.data, { name: f.name }));
+    if (author === "system" || !body.trim()) {
+      const content = author === "system" ? `-# ${body}` : `-# 📎 ${files.length === 1 ? "Attachment" : `${files.length} attachments`}`;
+      await thread.send({ content: content.slice(0, LIMIT), files: attachments, allowedMentions: { parse: [] } });
       return;
     }
-    await thread.send({ embeds: [card(author, body, authorName, this.client.user?.displayAvatarURL())], allowedMentions: { parse: [] } });
+    await thread.send({ embeds: [card(author, body, authorName, this.client.user?.displayAvatarURL())], files: attachments, allowedMentions: { parse: [] } });
   }
 
   async typing(threadId: string): Promise<void> {
@@ -232,6 +241,19 @@ export class DiscordRelay implements Relay {
 }
 
 /** A colored card for a user or assistant message. */
+/** Copies a message's files (up to Wicket's size limit and allowed types). */
+async function downloadAttachments(message: Message): Promise<RelayFile[]> {
+  const out: RelayFile[] = [];
+  for (const a of message.attachments.values()) {
+    const type = (a.contentType ?? "").split(";")[0]!.trim();
+    if (a.size > MAX_FILE_BYTES || !allowedType(type)) continue;
+    const res = await fetch(a.url).catch(() => null);
+    if (!res?.ok) continue;
+    out.push({ name: a.name, type, data: Buffer.from(await res.arrayBuffer()) });
+  }
+  return out;
+}
+
 function card(author: "user" | "agent", body: string, name?: string | null, avatar?: string) {
   const text = body.length > EMBED_LIMIT ? `${body.slice(0, EMBED_LIMIT)}…` : body;
   return new EmbedBuilder()

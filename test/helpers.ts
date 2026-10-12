@@ -1,4 +1,4 @@
-import { ThreadGoneError, type Relay, type RelayConversation, type StaffReply } from "../src/adapters/types.js";
+import { ThreadGoneError, type Relay, type RelayConversation, type RelayFile, type StaffReply } from "../src/adapters/types.js";
 import type { MessagesClient } from "../src/agent/agent.js";
 
 /** Scripted stand-in for the Anthropic client: returns queued responses and records requests. */
@@ -57,10 +57,10 @@ export class FakeRelay implements Relay {
     this.threads.set(id, { conversation, posts: [`user: ${firstMessage}`] });
     return id;
   }
-  async post(threadId: string, author: string, body: string) {
+  async post(threadId: string, author: string, body: string, _name?: string | null, files: RelayFile[] = []) {
     const thread = this.threads.get(threadId);
     if (!thread) throw new ThreadGoneError(threadId);
-    thread.posts.push(`${author}: ${body}`);
+    thread.posts.push(`${author}: ${body}${files.map((f) => ` [file ${f.name} ${f.data.length}B]`).join("")}`);
   }
   /** Deletes the thread without telling the service, like a missed Discord event. */
   vanish(threadId: string) {
@@ -70,7 +70,7 @@ export class FakeRelay implements Relay {
     this.humanRequests.push(`${threadId}: ${reason}`);
   }
   async stop() {}
-  staffReply(threadId: string, body: string) {
-    return this.onReply!({ threadId, authorName: "Matt", body });
+  staffReply(threadId: string, body: string, files?: RelayFile[]) {
+    return this.onReply!({ threadId, authorName: "Matt", body, files });
   }
 }

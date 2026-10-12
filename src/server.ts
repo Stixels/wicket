@@ -3,9 +3,11 @@ import path from "node:path";
 import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import { streamSSE } from "hono/streaming";
+import { bodyLimit } from "hono/body-limit";
 import { z } from "zod";
 import type { ConversationService, PublicMessage } from "./conversations.js";
 import { signUserToken, verifyUserToken } from "./identity.js";
+import { INLINE_TYPES, MAX_FILES_PER_CONVERSATION, MAX_FILE_BYTES, allowedType } from "./files.js";
 
 export interface ServerOptions {
   allowedOrigins: string[];
@@ -29,8 +31,9 @@ const sessionBody = z.object({
 });
 const emailBody = z.object({ email: z.string().max(320) });
 const messageBody = z.object({
-  body: z.string().min(1).max(4000),
+  body: z.string().max(4000).default(""),
   context: z.record(z.string(), z.unknown()).optional(),
+  attachments: z.array(z.string().max(64)).max(10).default([]),
 });
 
 const summariesBody = z.object({
@@ -138,9 +141,29 @@ export function createServer(service: ConversationService, opts: ServerOptions) 
       return c.json({ error: "Too many messages, try again later" }, 429);
     }
     const parsed = messageBody.safeParse(await c.req.json().catch(() => ({})));
-    if (!parsed.success || !parsed.data.body.trim()) return c.json({ error: "Invalid message" }, 400);
-    const message = await service.postUserMessage(conv.id, parsed.data.body, parsed.data.context);
+    if (!parsed.success || (!parsed.data.body.trim() && !parsed.data.attachments.length)) return c.json({ error: "Invalid message" }, 400);
+    const message = await service.postUserMessage(conv.id, parsed.data.body, parsed.data.context, parsed.data.attachments);
+    if (!message.body && !message.attachments.length) return c.json({ error: "Those files couldn't be attached" }, 400);
     return c.json({ message }, 201);
+  });
+
+  // Upload one file; the message that uses it lists its id. Multipart form with a "file" field.
+  const uploadLimit = bodyLimit({ maxSize: MAX_FILE_BYTES + 64 * 1024, onError: (c) => c.json({ error: "Files can be up to 10 MB" }, 413) });
+  app.post("/api/conversations/:id/files", uploadLimit, async (c) => {
+    const conv = service.authorize(c.req.param("id"), bearer(c) ?? "");
+    if (!conv) return c.json({ error: "Not found" }, 404);
+    if (Number(c.req.header("Content-Length") ?? 0) > MAX_FILE_BYTES + 64 * 1024) return c.json({ error: "Files can be up to 10 MB" }, 413);
+    if (!limiter.allow(`conv:${conv.id}`, opts.maxMessagesPerConversationPerHour)) {
+      return c.json({ error: "Too many messages, try again later" }, 429);
+    }
+    if (service.files.countFor(conv.id) >= MAX_FILES_PER_CONVERSATION) return c.json({ error: "This conversation has reached its file limit" }, 400);
+    const form = await c.req.parseBody().catch(() => null);
+    const file = form?.file;
+    if (!(file instanceof File)) return c.json({ error: "No file" }, 400);
+    if (file.size > MAX_FILE_BYTES) return c.json({ error: "Files can be up to 10 MB" }, 413);
+    if (!allowedType(file.type)) return c.json({ error: "That type of file can't be attached. Try an image, PDF, video, text or zip file." }, 415);
+    const saved = service.files.save(conv.id, file.name, file.type, Buffer.from(await file.arrayBuffer()));
+    return c.json({ file: { ...saved, url: fileUrl(saved) } }, 201);
   });
 
   app.post("/api/conversations/:id/email", async (c) => {
@@ -149,6 +172,19 @@ export function createServer(service: ConversationService, opts: ServerOptions) 
     const parsed = emailBody.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success || !(await service.setEmail(conv.id, parsed.data.email))) return c.json({ error: "That doesn't look like an email address" }, 400);
     return c.json({ ok: true });
+  });
+
+  // Files are served by their random id, so an <img> can load them without a token.
+  app.get("/files/:id/:name?", (c) => {
+    const meta = service.files.get(c.req.param("id"));
+    const data = meta && service.files.read(meta.id);
+    if (!meta || !data) return c.text("Not found", 404);
+    c.header("Content-Type", meta.type);
+    c.header("X-Content-Type-Options", "nosniff");
+    c.header("Content-Security-Policy", "default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'; sandbox");
+    c.header("Cache-Control", "private, max-age=86400, immutable");
+    c.header("Content-Disposition", `${INLINE_TYPES.has(meta.type) ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(meta.name)}`);
+    return c.body(new Uint8Array(data));
   });
 
   // EventSource can't send headers, so the token comes in the query string.
@@ -182,6 +218,10 @@ export function createServer(service: ConversationService, opts: ServerOptions) 
   });
 
   return app;
+}
+
+function fileUrl(f: { id: string; name: string }): string {
+  return `/files/${f.id}/${encodeURIComponent(f.name)}`;
 }
 
 function escapeHtml(s: string): string {

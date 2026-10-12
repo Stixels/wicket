@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS messages (
   author TEXT NOT NULL,
   author_name TEXT,
   body TEXT NOT NULL,
+  attachments TEXT,
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS messages_conversation ON messages(conversation_id, id);
@@ -60,6 +61,17 @@ CREATE TABLE IF NOT EXISTS usage (
 CREATE INDEX IF NOT EXISTS usage_payer ON usage(payer, created_at);
 CREATE INDEX IF NOT EXISTS usage_created ON usage(created_at);
 
+CREATE TABLE IF NOT EXISTS files (
+  id TEXT PRIMARY KEY,
+  conversation_id TEXT NOT NULL,
+  message_id INTEGER,
+  name TEXT NOT NULL,
+  type TEXT NOT NULL,
+  size INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS files_conversation ON files(conversation_id);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS docs USING fts5(
   title, heading, url UNINDEXED, body,
   tokenize = 'porter unicode61'
@@ -73,6 +85,7 @@ export function openDb(file: string): Db {
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(BOOTSTRAP);
   addMissingColumns(sqlite, "conversations", { user_id: "TEXT", plan: "TEXT", payer: "TEXT" });
+  addMissingColumns(sqlite, "messages", { attachments: "TEXT" });
   return drizzle(sqlite, { schema }) as Db;
 }
 

@@ -110,13 +110,24 @@ interface Summary {
   updatedAt: number;
 }
 
+interface Attachment {
+  id: string;
+  name: string;
+  type: string;
+  size: number;
+}
+
 interface Message {
   id: number;
   author: "user" | "agent" | "staff" | "system";
   authorName: string | null;
   body: string;
+  attachments?: Attachment[];
   createdAt: number;
 }
+
+const MAX_FILE_BYTES = 10 * 1024 * 1024;
+const ACCEPT = "image/png,image/jpeg,image/gif,image/webp,application/pdf,text/plain,text/csv,application/json,video/mp4,video/quicktime,video/webm,application/zip";
 
 const scriptEl = document.currentScript as HTMLScriptElement | null;
 const scriptSrc = scriptEl?.src;
@@ -312,6 +323,34 @@ button { font: inherit; color: inherit; }
 .row .mini.staff { background: color-mix(in srgb, var(--wk-text) 85%, transparent); color: var(--wk-bg); }
 .row .mini.hidden { visibility: hidden; }
 .col { display: flex; flex-direction: column; max-width: 82%; }
+.atts { display: flex; flex-direction: column; gap: 6px; margin: 2px 0 6px; }
+.msg.bare { padding: 0; background: transparent !important; border: 0 !important; box-shadow: none !important; }
+.msg.bare .atts { margin: 0; }
+.att-img { display: block; border-radius: 12px; overflow: hidden; line-height: 0; border: 1px solid var(--wk-border); }
+.att-img img { display: block; max-width: 100%; max-height: 260px; object-fit: cover; }
+.att-file { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 10px; text-decoration: none !important;
+  color: inherit !important; background: color-mix(in srgb, currentColor 9%, transparent); }
+.att-file svg { width: 20px; height: 20px; flex: none; opacity: .8; }
+.att-file span { display: flex; flex-direction: column; min-width: 0; }
+.att-file b { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.att-file small { font-size: 11.5px; opacity: .7; }
+.tray { display: none; gap: 6px; flex-wrap: wrap; margin: 0 0 8px; }
+.tray.on { display: flex; }
+.tray.busy { opacity: .55; pointer-events: none; }
+.pend { display: flex; align-items: center; gap: 6px; max-width: 180px; padding: 4px 4px 4px 4px; border-radius: 10px;
+  background: var(--wk-surface); border: 1px solid var(--wk-border); font-size: 12px; color: var(--wk-text); }
+.pend img, .pend .fi { width: 28px; height: 28px; border-radius: 7px; object-fit: cover; flex: none; display: grid; place-items: center; color: var(--wk-muted); }
+.pend .fi svg { width: 16px; height: 16px; }
+.pend .pn { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.pend button { width: 20px; height: 20px; flex: none; border: 0; border-radius: 6px; background: transparent; color: var(--wk-muted); cursor: pointer; display: grid; place-items: center; padding: 0; }
+.pend button:hover { color: var(--wk-text); }
+.pend button svg { width: 13px; height: 13px; }
+.attach { width: 30px; height: 36px; flex: none; border: 0; background: transparent; color: var(--wk-muted); cursor: pointer; display: grid; place-items: center; padding: 0; margin-left: -6px; border-radius: 10px; }
+.attach:hover { color: var(--wk-text); }
+.attach svg { width: 19px; height: 19px; }
+.wk.dropping .panel::after { content: "Drop files to attach"; position: absolute; inset: 8px; z-index: 5; display: grid; place-items: center;
+  border: 2px dashed var(--wk-accent); border-radius: calc(var(--wk-radius) * .8); background: color-mix(in srgb, var(--wk-bg) 85%, transparent);
+  color: var(--wk-text); font-size: 14px; font-weight: 600; pointer-events: none; }
 .meta { font-size: 11.5px; color: var(--wk-muted); margin: 5px 0 6px 4px; }
 .row.cont { margin-top: -2px; }
 .avatar.person { display: grid; place-items: center; font-size: 15px; font-weight: 650; letter-spacing: .02em;
@@ -420,6 +459,8 @@ const ICONS = {
   close: `<svg class="ic-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg>`,
   x: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>`,
   plus: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.4 3.6a2 2 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>`,
+  clip: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.4 11.1-8.8 8.8a5.5 5.5 0 0 1-7.8-7.8l8.8-8.8a3.7 3.7 0 0 1 5.2 5.2l-8.8 8.8a1.8 1.8 0 0 1-2.6-2.6l8.1-8.1"/></svg>`,
+  file: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5Z"/><path d="M14 2v6h6"/></svg>`,
   send: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>`,
   history: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg>`,
   spark: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5c.4 3.9 1.9 6.3 4.3 7.6 1.2.7 2.6 1.1 4.2 1.4v1c-3.9.4-6.3 1.9-7.6 4.3-.7 1.2-1.1 2.6-1.4 4.2h-1c-.4-3.9-1.9-6.3-4.3-7.6-1.2-.7-2.6-1.1-4.2-1.4v-1c3.9-.4 6.3-1.9 7.6-4.3.7-1.2 1.1-2.6 1.4-4.2Z"/></svg>`,
@@ -435,6 +476,8 @@ class Widget {
   private typing!: HTMLElement;
   private chips!: HTMLElement;
   private input!: HTMLTextAreaElement;
+  private tray!: HTMLElement;
+  private pending: { file: File; preview: string | null }[] = [];
   private sendBtn!: HTMLButtonElement;
   private errorEl!: HTMLElement;
   private emailEl!: HTMLFormElement;
@@ -657,7 +700,10 @@ class Widget {
         <div class="composer">
           <div class="error" role="alert"></div>
           <form class="email"><span>Leave your email so the team can follow up if you're away.</span><input type="email" placeholder="you@example.com" aria-label="Email" autocomplete="email"><button type="submit">Save</button><button class="skip" type="button">No thanks</button></form>
+          <div class="tray" aria-label="Attachments"></div>
           <form class="field">
+            <button class="attach" type="button" title="Attach a file" aria-label="Attach a file">${ICONS.clip}</button>
+            <input class="file-input" type="file" multiple accept="${ACCEPT}" hidden>
             <textarea rows="1" placeholder="${escapeAttr(o.placeholder!)}" aria-label="Message"></textarea>
             <button class="send" type="submit" aria-label="Send" disabled>${ICONS.send}</button>
           </form>
@@ -714,6 +760,36 @@ class Widget {
       }
     });
     this.input.addEventListener("input", () => this.autosize());
+    this.tray = this.wrap.querySelector(".tray")!;
+    const picker = this.wrap.querySelector<HTMLInputElement>(".file-input")!;
+    this.wrap.querySelector(".attach")!.addEventListener("click", () => picker.click());
+    picker.addEventListener("change", () => {
+      this.addFiles([...(picker.files ?? [])]);
+      picker.value = "";
+    });
+    // Pasting a screenshot, or dropping files anywhere on the panel, attaches them.
+    this.input.addEventListener("paste", (e) => {
+      const files = [...(e.clipboardData?.files ?? [])];
+      if (files.length) {
+        e.preventDefault();
+        this.addFiles(files);
+      }
+    });
+    const panel = this.wrap.querySelector(".panel")!;
+    panel.addEventListener("dragover", (e) => {
+      if ([...((e as DragEvent).dataTransfer?.types ?? [])].includes("Files")) {
+        e.preventDefault();
+        this.wrap.classList.add("dropping");
+      }
+    });
+    panel.addEventListener("dragleave", (e) => {
+      if (!panel.contains((e as DragEvent).relatedTarget as Node)) this.wrap.classList.remove("dropping");
+    });
+    panel.addEventListener("drop", (e) => {
+      e.preventDefault();
+      this.wrap.classList.remove("dropping");
+      this.addFiles([...((e as DragEvent).dataTransfer?.files ?? [])]);
+    });
     this.wrap.addEventListener("keydown", (e) => {
       if (e.key === "Escape") this.close();
     });
@@ -723,7 +799,7 @@ class Widget {
   private autosize() {
     this.input.style.height = "auto";
     this.input.style.height = `${Math.min(this.input.scrollHeight, 140)}px`;
-    this.sendBtn.disabled = !this.input.value.trim();
+    this.sendBtn.disabled = !this.input.value.trim() && !this.pending.length;
   }
 
   private showGreeting() {
@@ -863,9 +939,58 @@ class Widget {
     this.input.focus();
   }
 
+  /** Queues files to go with the next message. */
+  private addFiles(files: File[]) {
+    for (const file of files) {
+      if (this.pending.length >= 10) break;
+      if (file.size > MAX_FILE_BYTES) {
+        this.showError(`${file.name} is over 10 MB.`);
+        continue;
+      }
+      if (!ACCEPT.split(",").includes(file.type)) {
+        this.showError(`${file.name} can't be attached. Try an image, PDF, video, text or zip file.`);
+        continue;
+      }
+      this.pending.push({ file, preview: file.type.startsWith("image/") ? URL.createObjectURL(file) : null });
+    }
+    this.renderTray();
+    this.autosize();
+    this.input.focus();
+  }
+
+  private renderTray() {
+    this.tray.innerHTML = "";
+    this.pending.forEach((p, i) => {
+      const chip = document.createElement("div");
+      chip.className = "pend";
+      chip.innerHTML = `${p.preview ? `<img alt="" src="${escapeAttr(p.preview)}">` : `<span class="fi">${ICONS.file}</span>`}<span class="pn">${escapeHtml(p.file.name)}</span><button type="button" aria-label="Remove ${escapeAttr(p.file.name)}">${ICONS.x}</button>`;
+      chip.querySelector("button")!.addEventListener("click", () => {
+        if (p.preview) URL.revokeObjectURL(p.preview);
+        this.pending.splice(i, 1);
+        this.renderTray();
+        this.autosize();
+      });
+      this.tray.appendChild(chip);
+    });
+    this.tray.classList.toggle("on", this.pending.length > 0);
+  }
+
+  private async upload(file: File): Promise<string> {
+    const form = new FormData();
+    form.append("file", file, file.name);
+    const res = await fetch(`${this.opts.apiUrl}/api/conversations/${this.conv!.id}/files`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${this.conv!.token}` },
+      body: form,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `Couldn't upload ${file.name}.`);
+    return data.file.id as string;
+  }
+
   private async send() {
     const body = this.input.value.trim();
-    if (!body || this.input.disabled) return;
+    if ((!body && !this.pending.length) || this.input.disabled) return;
     this.input.disabled = true;
     this.sendBtn.disabled = true;
     this.showError("");
@@ -885,15 +1010,24 @@ class Widget {
       }
       this.input.value = "";
       this.autosize();
+      const files = [...this.pending];
+      if (files.length) this.tray.classList.add("busy");
+      const attachments: string[] = [];
+      for (const p of files) attachments.push(await this.upload(p.file));
       const { message } = await this.api(`/api/conversations/${this.conv.id}/messages`, {
         body,
+        attachments,
         context: { page: location.href },
       });
+      for (const p of files) if (p.preview) URL.revokeObjectURL(p.preview);
+      this.pending = [];
+      this.renderTray();
       this.appendBubble(message);
     } catch (err) {
       this.input.value = this.input.value || body;
       this.showError(err instanceof Error ? err.message : "Couldn't send. Please try again.");
     } finally {
+      this.tray.classList.remove("busy");
       this.input.disabled = false;
       this.autosize();
       this.input.focus();
@@ -999,11 +1133,22 @@ class Widget {
     row.className = `row ${m.author}${continued ? " cont" : " gap"}`;
     const name = m.author === "agent" ? this.opts.assistantName || "Assistant" : m.author === "staff" ? m.authorName || "Team" : "";
     const meta = m.author === "user" ? "" : `<div class="meta">${escapeHtml(name)} · <time data-t="${m.createdAt}">${timeAgo(m.createdAt, true)}</time></div>`;
-    row.innerHTML = `<div class="col"><div class="msg">${renderMarkdown(m.body)}</div>${meta}</div>`;
+    const files = (m.attachments ?? []).map((a) => this.attachmentHtml(a)).join("");
+    const text = m.body ? renderMarkdown(m.body) : "";
+    const onlyImages = !m.body && (m.attachments ?? []).every((a) => a.type.startsWith("image/"));
+    row.innerHTML = `<div class="col"><div class="msg${onlyImages ? " bare" : ""}">${files ? `<div class="atts">${files}</div>` : ""}${text}</div>${meta}</div>`;
     this.log.insertBefore(row, this.typing);
     this.lastRow = row;
     if (m.author === "staff") this.setAgent(m.authorName || "Team");
     this.scrollDown();
+  }
+
+  private attachmentHtml(a: Attachment): string {
+    const url = `${this.opts.apiUrl}/files/${encodeURIComponent(a.id)}/${encodeURIComponent(a.name)}`;
+    if (a.type.startsWith("image/")) {
+      return `<a class="att-img" href="${escapeAttr(url)}" target="_blank" rel="noopener"><img alt="${escapeAttr(a.name)}" src="${escapeAttr(url)}" loading="lazy"></a>`;
+    }
+    return `<a class="att-file" href="${escapeAttr(url)}" target="_blank" rel="noopener">${ICONS.file}<span><b>${escapeHtml(a.name)}</b><small>${formatSize(a.size)}</small></span></a>`;
   }
 
   /** Who the header shows: the assistant, or the person from the team who picked the conversation up. */
@@ -1124,6 +1269,11 @@ function tokenSubject(token: InitOptions["userToken"]): string | null {
 /** Drops undefined keys so they don't override defaults when spread. */
 function defined<T extends object>(o: T): T {
   return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as T;
+}
+
+function formatSize(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 function timeAgo(ms: number, capital = false): string {

@@ -14,6 +14,7 @@ import { draftTicket } from "./agent/tickets.js";
 import { COMMUNITY_ROOM_PREFIX, SUPPORT_ROOM_PREFIX } from "./discord/voiceRooms.js";
 import type { KnowledgeSource, Relay } from "./adapters/types.js";
 import { loadSettings } from "./settings.js";
+import { FileStore } from "./files.js";
 import { priceFor } from "./usage.js";
 
 const config = loadConfig();
@@ -109,7 +110,7 @@ if (config.RELAY === "discord") {
   });
 }
 
-const service = new ConversationService(db, agent, relay, { settings, log: (msg, err) => console.error(msg, err ?? "") });
+const service = new ConversationService(db, agent, relay, { settings, files: new FileStore(db, config.DATABASE_PATH), log: (msg, err) => console.error(msg, err ?? "") });
 describeSettings();
 
 async function refreshDocs() {
@@ -127,7 +128,7 @@ setInterval(refreshDocs, config.DOCS_REINDEX_HOURS * 3_600_000).unref();
 
 if (relay) {
   await relay.start(
-    ({ threadId, authorName, body }) => service.handleStaffReply(threadId, authorName, body),
+    ({ threadId, authorName, body, files }) => service.handleStaffReply(threadId, authorName, body, files),
     (threadId, deleted) => service.resolve(threadId, deleted),
   );
   console.log(`relay: ${relay.name} connected${config.LINEAR_API_KEY && anthropic ? ", tag the bot to file Linear tickets" : ""}`);

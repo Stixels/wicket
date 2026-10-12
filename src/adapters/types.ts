@@ -25,10 +25,18 @@ export interface RelayConversation {
   relayThreadId: string | null;
 }
 
+/** A file going to or coming from the team's chat tool. */
+export interface RelayFile {
+  name: string;
+  type: string;
+  data: Buffer;
+}
+
 export interface StaffReply {
   threadId: string;
   authorName: string;
   body: string;
+  files?: RelayFile[];
 }
 
 /** Mirrors conversations into the team's chat tool and brings replies back. */
@@ -38,7 +46,7 @@ export interface Relay {
   start(onStaffReply: (reply: StaffReply) => Promise<void>, onResolved?: (threadId: string, deleted?: boolean) => Promise<boolean>): Promise<void>;
   /** Creates the team-side thread for a conversation; returns its id. */
   openThread(conversation: RelayConversation, firstMessage: string): Promise<string>;
-  post(threadId: string, author: "user" | "agent" | "system", body: string, authorName?: string | null): Promise<void>;
+  post(threadId: string, author: "user" | "agent" | "system", body: string, authorName?: string | null, files?: RelayFile[]): Promise<void>;
   /** Flags a thread as needing a person (mention a role, tag the post, ...). */
   requestHuman(threadId: string, reason: string): Promise<void>;
   /** Shows that the assistant is working (e.g. "is typing…"). Optional. */

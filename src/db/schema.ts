@@ -38,6 +38,7 @@ export const messages = sqliteTable(
     author: text("author", { enum: ["user", "agent", "staff", "system"] }).notNull(),
     authorName: text("author_name"),
     body: text("body").notNull(),
+    attachments: text("attachments", { mode: "json" }).$type<{ id: string; name: string; type: string; size: number }[]>(),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   },
   (t) => [index("messages_conversation").on(t.conversationId, t.id)],
@@ -75,4 +76,19 @@ export const usage = sqliteTable(
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   },
   (t) => [index("usage_payer").on(t.payer, t.createdAt), index("usage_created").on(t.createdAt)],
+);
+
+/** Attachments. The bytes live in the file store; this is what they are and where they belong. */
+export const files = sqliteTable(
+  "files",
+  {
+    id: text("id").primaryKey(),
+    conversationId: text("conversation_id").notNull(),
+    messageId: integer("message_id"),
+    name: text("name").notNull(),
+    type: text("type").notNull(),
+    size: integer("size").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (t) => [index("files_conversation").on(t.conversationId)],
 );

@@ -3,7 +3,8 @@ import { EventEmitter } from "node:events";
 import { asc, eq } from "drizzle-orm";
 import type Anthropic from "@anthropic-ai/sdk";
 import { schema, type Db } from "./db/index.js";
-import { ThreadGoneError, type Relay } from "./adapters/types.js";
+import { ThreadGoneError, type Relay, type RelayFile } from "./adapters/types.js";
+import { FileStore, MAX_MODEL_IMAGE_BYTES, MODEL_IMAGE_TYPES, formatSize, type Attachment } from "./files.js";
 import type { Agent } from "./agent/agent.js";
 import { searchDocs } from "./knowledge/index.js";
 import type { Identity } from "./identity.js";
@@ -18,6 +19,7 @@ export interface PublicMessage {
   author: Author;
   authorName: string | null;
   body: string;
+  attachments: Attachment[];
   createdAt: number;
 }
 
@@ -31,6 +33,8 @@ export interface ServiceOptions {
   settings?: Settings;
   /** Prices come from settings; pass a ledger to share one, e.g. in tests. */
   ledger?: UsageLedger;
+  /** Where attachments are kept. Defaults to a temporary folder (fine for tests). */
+  files?: FileStore;
   log?: (msg: string, err?: unknown) => void;
 }
 
@@ -56,6 +60,7 @@ export class ConversationService {
 
   readonly settings: Settings;
   readonly ledger: UsageLedger;
+  readonly files: FileStore;
   private log: (msg: string, err?: unknown) => void;
 
   constructor(
@@ -68,6 +73,7 @@ export class ConversationService {
     const o = typeof opts === "function" ? { log: opts } : opts;
     this.settings = o.settings ?? parseSettings("");
     this.ledger = o.ledger ?? new UsageLedger(db, this.settings.budgets.prices);
+    this.files = o.files ?? new FileStore(db, ":memory:");
     this.log = o.log ?? console.log;
   }
 
@@ -151,23 +157,23 @@ export class ConversationService {
     return {
       id: c.id,
       status: c.status,
-      title: first?.body.slice(0, 140) ?? "",
-      last: last ? { author: last.author, authorName: last.authorName, body: last.body.slice(0, 200), createdAt: last.createdAt } : null,
+      title: (first ? previewText(first) : "").slice(0, 140),
+      last: last ? { author: last.author, authorName: last.authorName, body: previewText(last).slice(0, 200), createdAt: last.createdAt } : null,
       updatedAt: last?.createdAt ?? c.createdAt.getTime(),
     };
   }
 
   /** Accepts a user message and processes it in the background (one at a time per conversation). */
-  async postUserMessage(id: string, body: string, contextUpdate?: Record<string, unknown>): Promise<PublicMessage> {
+  async postUserMessage(id: string, body: string, contextUpdate?: Record<string, unknown>, attachmentIds: string[] = []): Promise<PublicMessage> {
     const text = body.trim().slice(0, MAX_BODY);
     if (contextUpdate) this.mergeContext(id, contextUpdate);
-    const msg = this.addMessage(id, "user", text, null);
-    this.enqueue(id, () => this.handleUserMessage(id, msg.body));
+    const msg = this.addMessage(id, "user", text, null, (messageId) => this.files.claim(id, attachmentIds, messageId));
+    this.enqueue(id, () => this.handleUserMessage(id, msg.body, msg.attachments));
     return msg;
   }
 
   /** Called by the relay when someone on the team replies in the conversation's thread. */
-  async handleStaffReply(threadId: string, authorName: string, body: string): Promise<void> {
+  async handleStaffReply(threadId: string, authorName: string, body: string, files: RelayFile[] = []): Promise<void> {
     const c = this.db
       .select()
       .from(schema.conversations)
@@ -177,7 +183,8 @@ export class ConversationService {
     if (c.status !== "human") this.setStatus(c.id, "human");
     const joined = this.list(c.id).some((m) => m.author === "staff" && m.authorName === authorName);
     if (!joined) this.addMessage(c.id, "system", MESSAGES.joined(authorName), null);
-    this.addMessage(c.id, "staff", body.slice(0, MAX_BODY), authorName);
+    const saved = files.map((f) => this.files.save(c.id, f.name, f.type, f.data));
+    this.addMessage(c.id, "staff", body.slice(0, MAX_BODY), authorName, (messageId) => this.files.claim(c.id, saved.map((f) => f.id), messageId));
   }
 
   /** Called by the relay when the team closes a conversation's thread. Returns false if it already was. */
@@ -209,11 +216,11 @@ export class ConversationService {
     });
   }
 
-  private async handleUserMessage(id: string, body: string) {
+  private async handleUserMessage(id: string, body: string, attachments: Attachment[] = []) {
     const c = this.get(id);
     if (!c) return;
 
-    await this.mirror(id, "user", body, c.reporterName);
+    await this.mirror(id, "user", body, c.reporterName, this.relayFiles(attachments));
     c.status = this.get(id)?.status ?? c.status; // mirroring can hand a conversation back (deleted post)
     if (c.status === "resolved") {
       // A new question after the team closed it: the assistant takes it first again.
@@ -246,7 +253,9 @@ export class ConversationService {
     if (isFirst && c.context) {
       content.push({ type: "text", text: `<app_context>\n${JSON.stringify(c.context, null, 2)}\n</app_context>` });
     }
-    content.push({ type: "text", text: body });
+    // Files go in as markers; history() turns image markers into images for the model.
+    for (const a of attachments) content.push({ type: "text", text: `<wicket-file id="${a.id}"/>` });
+    if (body) content.push({ type: "text", text: body });
     const userTurn: MessageParam = { role: "user", content };
     this.saveTurns(id, [userTurn]);
 
@@ -311,17 +320,21 @@ export class ConversationService {
   }
 
   /** Posts to the conversation's relay thread, creating it on the first message. */
-  private async mirror(id: string, author: "user" | "agent" | "system", body: string, authorName?: string | null) {
+  private async mirror(id: string, author: "user" | "agent" | "system", body: string, authorName?: string | null, files: RelayFile[] = []) {
     if (!this.relay) return;
     const c = this.get(id);
     if (!c) return;
     try {
       if (!c.relayThreadId) {
-        await this.ensureThread(id, author === "user" ? body : undefined);
-        if (author === "user") return; // first message went into the thread opener
+        const threadId = await this.ensureThread(id, author === "user" ? body || "📎 Sent an attachment" : undefined);
+        if (author === "user") {
+          // The first message went into the thread opener; its files follow right after.
+          if (threadId && files.length) await this.relay.post(threadId, "user", "", authorName, files);
+          return;
+        }
       }
       const threadId = this.get(id)?.relayThreadId;
-      if (threadId) await this.relay.post(threadId, author, body, authorName);
+      if (threadId) await this.relay.post(threadId, author, body, authorName, files);
     } catch (err) {
       if (err instanceof ThreadGoneError) {
         // The team deleted the post. Nobody can answer there, so the assistant takes over again,
@@ -329,7 +342,11 @@ export class ConversationService {
         this.db.update(schema.conversations).set({ relayThreadId: null }).where(eq(schema.conversations.id, id)).run();
         if (this.get(id)?.status !== "agent") this.setStatus(id, "agent");
         this.log(`relay thread for ${id} was deleted; opening a new one`);
-        if (author === "user") await this.ensureThread(id, body).catch((e) => this.log(`relay reopen failed for ${id}`, e));
+        if (author === "user") {
+          await this.ensureThread(id, body || "📎 Sent an attachment")
+            .then((t) => (t && files.length ? this.relay!.post(t, "user", "", authorName, files) : undefined))
+            .catch((e) => this.log(`relay reopen failed for ${id}`, e));
+        }
         return;
       }
       this.log(`relay post failed for ${id}`, err);
@@ -351,12 +368,25 @@ export class ConversationService {
     return threadId;
   }
 
-  private addMessage(id: string, author: Author, body: string, authorName: string | null): PublicMessage {
-    const row = this.db
+  /** The bytes of a message's files, for the relay. */
+  private relayFiles(attachments: Attachment[]): RelayFile[] {
+    return attachments.flatMap((a) => {
+      const data = this.files.read(a.id);
+      return data ? [{ name: a.name, type: a.type, data }] : [];
+    });
+  }
+
+  /** `attach` claims uploaded files for the new message once its id is known. */
+  private addMessage(id: string, author: Author, body: string, authorName: string | null, attach?: (messageId: number) => Attachment[]): PublicMessage {
+    let row = this.db
       .insert(schema.messages)
       .values({ conversationId: id, author, authorName, body, createdAt: new Date() })
       .returning()
       .get();
+    const attachments = attach?.(row.id) ?? [];
+    if (attachments.length) {
+      row = this.db.update(schema.messages).set({ attachments }).where(eq(schema.messages.id, row.id)).returning().get()!;
+    }
     this.db.update(schema.conversations).set({ updatedAt: new Date() }).where(eq(schema.conversations.id, id)).run();
     const msg = toPublic(row);
     this.events.emit(id, { type: "message", message: msg });
@@ -392,7 +422,8 @@ export class ConversationService {
   /** Stored turns with consecutive user turns merged, so the API always sees alternating roles. */
   private history(id: string): MessageParam[] {
     const out: MessageParam[] = [];
-    for (const turn of this.loadTurns(id)) {
+    for (const stored of this.loadTurns(id)) {
+      const turn = stored.role === "user" ? { ...stored, content: asBlocks(stored.content).flatMap((b) => this.expandFile(b)) } : stored;
       const last = out[out.length - 1];
       if (last && last.role === "user" && turn.role === "user") {
         last.content = [...asBlocks(last.content), ...asBlocks(turn.content)];
@@ -401,6 +432,25 @@ export class ConversationService {
       }
     }
     return out;
+  }
+
+  /** A file marker becomes the image itself, or a note the model can pass on, so it knows what was sent. */
+  private expandFile(block: Anthropic.Beta.Messages.BetaContentBlockParam): Anthropic.Beta.Messages.BetaContentBlockParam[] {
+    if (block.type !== "text") return [block];
+    const m = /^<wicket-file id="([\w-]+)"\/>$/.exec(block.text);
+    if (!m) return [block];
+    const file = this.files.get(m[1]!);
+    if (!file) return [{ type: "text", text: "[The user attached a file that is no longer available.]" }];
+    if (MODEL_IMAGE_TYPES.has(file.type) && file.size <= MAX_MODEL_IMAGE_BYTES) {
+      const data = this.files.read(file.id);
+      if (data) {
+        return [
+          { type: "text", text: `[The user attached an image: ${file.name}]` },
+          { type: "image", source: { type: "base64", media_type: file.type as "image/png", data: data.toString("base64") } },
+        ];
+      }
+    }
+    return [{ type: "text", text: `[The user attached ${file.name} (${file.type}, ${formatSize(file.size)}). You can't open it, but the team can.]` }];
   }
 
   private saveTurns(id: string, turns: MessageParam[]) {
@@ -412,12 +462,17 @@ export class ConversationService {
   }
 }
 
+/** The text of a message, or its first file's name when it only has files. */
+function previewText(m: PublicMessage): string {
+  return m.body || (m.attachments[0] ? `📎 ${m.attachments[0].name}` : "");
+}
+
 function asBlocks(content: MessageParam["content"]): Anthropic.Beta.Messages.BetaContentBlockParam[] {
   return typeof content === "string" ? [{ type: "text", text: content }] : [...content];
 }
 
 function toPublic(m: typeof schema.messages.$inferSelect): PublicMessage {
-  return { id: m.id, author: m.author, authorName: m.authorName, body: m.body, createdAt: m.createdAt.getTime() };
+  return { id: m.id, author: m.author, authorName: m.authorName, body: m.body, attachments: m.attachments ?? [], createdAt: m.createdAt.getTime() };
 }
 
 function hash(v: string): string {
