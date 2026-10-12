@@ -1,0 +1,29 @@
+# Escape Director. See wicket.example.yaml for every option.
+
+profiles:
+  # Marketing site, sign-in and sign-up: no assistant, so nothing to abuse.
+  visitor:
+    ai: false
+    askEmail: true
+    welcomeSubtitle: Send us a message and the team will reply here.
+
+  default:
+    budget: 0.50
+
+  analytics:
+    budget: 2.00
+    instructions: >
+      The person is on the Analytics page. Explain what a metric or chart means using the docs.
+      You can't see their numbers; for questions about their own results, point them to the
+      Ask Analytics assistant on this page.
+    suggestions: ["What does Success Rate mean?", "How is Average Time calculated?", "Something looks wrong"]
+
+rules:
+  - when: { signedIn: false }
+    profile: visitor
+  - when: { page: /app/analytics }
+    profile: analytics
+
+budgets:
+  warnAt: 0.8
+  monthlyTotal: 20

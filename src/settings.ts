@@ -1,0 +1,174 @@
+import fs from "node:fs";
+import { parse as parseYaml } from "yaml";
+import { z } from "zod";
+
+/**
+ * How the assistant behaves, per profile, and which profile applies to whom and where.
+ * Loaded from a YAML (or JSON) file; secrets and infrastructure stay in environment variables.
+ */
+
+const effort = z.enum(["low", "medium", "high", "xhigh", "max"]);
+
+const profileSchema = z
+  .object({
+    /** false: no assistant. Messages go straight to the team. */
+    ai: z.boolean().default(true),
+    /** Extra instructions added to the assistant's system prompt. */
+    instructions: z.string().optional(),
+    model: z.string().optional(),
+    effort: effort.optional(),
+    /** Dollars per person per calendar month (UTC). Leave out for no limit. */
+    budget: z.number().min(0).optional(),
+    /** After the first message, offer an email field so the team can follow up. */
+    askEmail: z.boolean().default(false),
+    // What the widget shows. Options passed to Wicket.init() win over these.
+    title: z.string().optional(),
+    subtitle: z.string().optional(),
+    welcomeTitle: z.string().optional(),
+    welcomeSubtitle: z.string().optional(),
+    placeholder: z.string().optional(),
+    suggestions: z.array(z.string()).optional(),
+  })
+  .strict();
+
+const oneOrMany = z.union([z.string(), z.array(z.string())]).transform((v) => (Array.isArray(v) ? v : [v]));
+
+const ruleSchema = z
+  .object({
+    when: z
+      .object({
+        /** Signed in means a valid signed user token, not just a name passed to the widget. */
+        signedIn: z.boolean().optional(),
+        /** The `plan` claim in the signed user token. */
+        plan: oneOrMany.optional(),
+        /** Page paths. "/app/analytics" also matches pages below it; "*" matches anything. */
+        page: oneOrMany.optional(),
+      })
+      .strict()
+      .default({}),
+    profile: z.string(),
+  })
+  .strict();
+
+/** US dollars per million tokens. */
+const priceSchema = z
+  .object({
+    input: z.number().min(0),
+    output: z.number().min(0),
+    cacheRead: z.number().min(0).optional(),
+    cacheWrite: z.number().min(0).optional(),
+  })
+  .strict();
+
+const settingsSchema = z
+  .object({
+    profiles: z.record(z.string(), profileSchema).default({}),
+    rules: z.array(ruleSchema).default([]),
+    budgets: z
+      .object({
+        /** Tell people when they've used this share of their budget. */
+        warnAt: z.number().min(0).max(1).default(0.8),
+        /** Dollars per calendar month across everyone. When reached, every chat goes to the team. */
+        monthlyTotal: z.number().min(0).optional(),
+        /** Overrides and additions to the built-in price list, keyed by model id. */
+        prices: z.record(z.string(), priceSchema).default({}),
+      })
+      .strict()
+      .default({ warnAt: 0.8, prices: {} }),
+  })
+  .strict();
+
+export type Profile = z.infer<typeof profileSchema> & { name: string };
+export type Settings = z.infer<typeof settingsSchema>;
+export type Price = z.infer<typeof priceSchema>;
+
+export interface Who {
+  signedIn: boolean;
+  plan: string | null;
+  /** Path of the page the person is on, e.g. "/app/analytics". */
+  path: string | null;
+}
+
+export const DEFAULT_PROFILE = "default";
+
+/**
+ * Reads settings from WICKET_CONFIG (a file path, or the YAML itself), else config/wicket.yaml
+ * when it exists. With nothing configured, everyone gets one "default" profile with the assistant on.
+ */
+export function loadSettings(source = process.env.WICKET_CONFIG, fallbackPath = "config/wicket.yaml"): Settings {
+  let text: string | null = null;
+  let where = "";
+  if (source && fs.existsSync(source)) {
+    text = fs.readFileSync(source, "utf8");
+    where = source;
+  } else if (source && /[\n:{]/.test(source)) {
+    text = source;
+    where = "WICKET_CONFIG";
+  } else if (source) {
+    throw new Error(`WICKET_CONFIG points at ${source}, which doesn't exist`);
+  } else if (fs.existsSync(fallbackPath)) {
+    text = fs.readFileSync(fallbackPath, "utf8");
+    where = fallbackPath;
+  }
+  return parseSettings(text ?? "", where || "defaults");
+}
+
+export function parseSettings(text: string, where = "settings"): Settings {
+  const raw = text.trim() ? parseYaml(text) : {};
+  const parsed = settingsSchema.safeParse(raw ?? {});
+  if (!parsed.success) {
+    const issues = parsed.error.issues.map((i) => `  ${i.path.join(".") || "(top)"}: ${i.message}`).join("\n");
+    throw new Error(`Invalid Wicket settings in ${where}:\n${issues}`);
+  }
+  const settings = parsed.data;
+  for (const rule of settings.rules) {
+    if (!settings.profiles[rule.profile] && rule.profile !== DEFAULT_PROFILE) {
+      throw new Error(`Invalid Wicket settings in ${where}: rule points at profile "${rule.profile}", which isn't defined`);
+    }
+  }
+  return settings;
+}
+
+/** The first rule that matches picks the profile; otherwise "default". */
+export function resolveProfile(settings: Settings, who: Who): Profile {
+  const rule = settings.rules.find((r) => matches(r.when, who));
+  const name = rule?.profile ?? DEFAULT_PROFILE;
+  return { ...profileSchema.parse(settings.profiles[name] ?? {}), name };
+}
+
+function matches(when: z.infer<typeof ruleSchema>["when"], who: Who): boolean {
+  if (when.signedIn !== undefined && when.signedIn !== who.signedIn) return false;
+  if (when.plan && !(who.plan && when.plan.includes(who.plan))) return false;
+  if (when.page && !(who.path !== null && when.page.some((p) => pathMatches(p, who.path!)))) return false;
+  return true;
+}
+
+/** "/app/analytics" matches itself and anything below it; "*" is a wildcard. */
+export function pathMatches(pattern: string, path: string): boolean {
+  const norm = (p: string) => (p.length > 1 ? p.replace(/\/+$/, "") : p);
+  const pat = norm(pattern.trim());
+  const target = norm(path);
+  if (pat.includes("*")) {
+    const re = new RegExp(`^${pat.split("*").map(escapeRegex).join(".*")}$`);
+    return re.test(target);
+  }
+  return target === pat || target.startsWith(pat === "/" ? "/" : `${pat}/`);
+}
+
+/** The page path from widget context: an explicit `path`, or the pathname of `page` (a URL). */
+export function pathFromContext(context: Record<string, unknown> | null | undefined): string | null {
+  if (!context) return null;
+  if (typeof context.path === "string" && context.path.startsWith("/")) return context.path;
+  if (typeof context.page === "string") {
+    try {
+      return new URL(context.page, "http://x").pathname;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
+}

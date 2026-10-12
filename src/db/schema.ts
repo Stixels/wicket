@@ -16,6 +16,11 @@ export const conversations = sqliteTable(
     reporterId: text("reporter_id"),
     reporterName: text("reporter_name"),
     reporterEmail: text("reporter_email"),
+    /** Set only from a valid signed user token. */
+    userId: text("user_id"),
+    plan: text("plan"),
+    /** Who the assistant's spend counts against: "user:<id>" or "visitor:<hash of IP>". */
+    payer: text("payer"),
     context: text("context", { mode: "json" }).$type<Record<string, unknown>>(),
     relayThreadId: text("relay_thread_id"),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
@@ -51,4 +56,23 @@ export const agentTurns = sqliteTable(
     content: text("content", { mode: "json" }).notNull().$type<unknown>(),
   },
   (t) => [index("agent_turns_conversation").on(t.conversationId, t.id)],
+);
+
+/** What each assistant response cost, for budgets. Kept when a conversation is deleted. */
+export const usage = sqliteTable(
+  "usage",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    conversationId: text("conversation_id").notNull(),
+    payer: text("payer").notNull(),
+    profile: text("profile").notNull(),
+    model: text("model").notNull(),
+    inputTokens: integer("input_tokens").notNull(),
+    outputTokens: integer("output_tokens").notNull(),
+    cacheReadTokens: integer("cache_read_tokens").notNull(),
+    cacheWriteTokens: integer("cache_write_tokens").notNull(),
+    costMicros: integer("cost_micros").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (t) => [index("usage_payer").on(t.payer, t.createdAt), index("usage_created").on(t.createdAt)],
 );

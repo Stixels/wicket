@@ -6,6 +6,9 @@ import { schema, type Db } from "./db/index.js";
 import { ThreadGoneError, type Relay } from "./adapters/types.js";
 import type { Agent } from "./agent/agent.js";
 import { searchDocs } from "./knowledge/index.js";
+import type { Identity } from "./identity.js";
+import { parseSettings, pathFromContext, resolveProfile, type Profile, type Settings } from "./settings.js";
+import { UsageLedger, dollarsToMicros } from "./usage.js";
 
 type MessageParam = Anthropic.Beta.Messages.BetaMessageParam;
 type Author = "user" | "agent" | "staff" | "system";
@@ -24,6 +27,20 @@ export interface Reporter {
   email?: string;
 }
 
+export interface ServiceOptions {
+  settings?: Settings;
+  /** Prices come from settings; pass a ledger to share one, e.g. in tests. */
+  ledger?: UsageLedger;
+  log?: (msg: string, err?: unknown) => void;
+}
+
+export const MESSAGES = {
+  toTeam: "Thanks! Someone from the team will reply here.",
+  overBudget: "You've reached this month's limit for the assistant, so I've passed your message to the team. Someone will reply here.",
+  overTotal: "The assistant is unavailable right now, so I've passed your message to the team. Someone will reply here.",
+  nearBudget: "Heads up: you've used most of this month's assistant allowance. After that, your messages go straight to the team.",
+};
+
 const MAX_BODY = 4000;
 const MAX_CONTEXT_JSON = 8000;
 
@@ -35,24 +52,41 @@ export class ConversationService {
   readonly events = new EventEmitter();
   private queues = new Map<string, Promise<void>>();
 
+  readonly settings: Settings;
+  readonly ledger: UsageLedger;
+  private log: (msg: string, err?: unknown) => void;
+
   constructor(
     private db: Db,
     private agent: Agent | null,
     private relay: Relay | null,
-    private log: (msg: string, err?: unknown) => void = console.log,
+    opts: ServiceOptions | ((msg: string, err?: unknown) => void) = {},
   ) {
     this.events.setMaxListeners(0);
+    const o = typeof opts === "function" ? { log: opts } : opts;
+    this.settings = o.settings ?? parseSettings("");
+    this.ledger = o.ledger ?? new UsageLedger(db, this.settings.budgets.prices);
+    this.log = o.log ?? console.log;
   }
 
-  create(reporter: Reporter, context: Record<string, unknown> | undefined) {
+  /**
+   * Starts a conversation. `identity` comes from a verified user token and wins over whatever
+   * the widget says about the reporter. `visitorKey` (e.g. the IP) is what an anonymous
+   * person's spend counts against; it is stored hashed.
+   */
+  create(reporter: Reporter, context: Record<string, unknown> | undefined, opts: { identity?: Identity | null; visitorKey?: string } = {}) {
     const now = new Date();
+    const id = opts.identity;
     const row = {
       id: crypto.randomUUID(),
       token: crypto.randomBytes(24).toString("base64url"),
       status: "agent" as const,
-      reporterId: clip(reporter.id, 200),
-      reporterName: clip(reporter.name, 200),
-      reporterEmail: clip(reporter.email, 320),
+      reporterId: clip(id?.id ?? reporter.id, 200),
+      reporterName: clip(id?.name ?? reporter.name, 200),
+      reporterEmail: clip(id?.email ?? reporter.email, 320),
+      userId: id ? clip(id.id, 200) : null,
+      plan: id ? clip(id.plan, 100) : null,
+      payer: id ? `user:${clip(id.id, 200)}` : `visitor:${hash(opts.visitorKey ?? "unknown")}`,
       context: sanitizeContext(context),
       relayThreadId: null,
       createdAt: now,
@@ -60,6 +94,26 @@ export class ConversationService {
     };
     this.db.insert(schema.conversations).values(row).run();
     return { id: row.id, token: row.token };
+  }
+
+  get hasAgent(): boolean {
+    return Boolean(this.agent);
+  }
+
+  /** The profile that applies to someone, given who they are and the page they're on. */
+  profileFor(who: { userId: string | null; plan: string | null; context: Record<string, unknown> | null }): Profile {
+    return resolveProfile(this.settings, { signedIn: Boolean(who.userId), plan: who.plan, path: pathFromContext(who.context) });
+  }
+
+  /** Saves an email someone left so the team can follow up, and shows it to the team. */
+  async setEmail(id: string, email: string): Promise<boolean> {
+    const c = this.get(id);
+    const clean = email.trim().slice(0, 320);
+    if (!c || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean)) return false;
+    if (c.userId && c.reporterEmail) return true; // signed-in users already have a verified email
+    this.db.update(schema.conversations).set({ reporterEmail: clean, updatedAt: new Date() }).where(eq(schema.conversations.id, id)).run();
+    await this.mirror(id, "system", `Email for follow-up: ${clean}`);
+    return true;
   }
 
   get(id: string) {
@@ -163,11 +217,23 @@ export class ConversationService {
       c.status = "agent";
       if (c.relayThreadId && this.relay?.reopen) await this.relay.reopen(c.relayThreadId).catch((err) => this.log("relay reopen failed", err));
     }
-    if (c.status !== "agent" || !this.agent) {
-      if (!this.agent && c.status === "agent") {
-        await this.handoff(id, "New message (no assistant configured).");
-        this.addMessage(id, "system", "Thanks! Someone from the team will reply here.", null);
-      }
+    if (c.status !== "agent") return;
+
+    const profile = this.profileFor(this.get(id) ?? c);
+    if (!this.agent || !profile.ai) {
+      await this.handoff(id, this.agent ? `New message (${profile.name}: assistant off).` : "New message (no assistant configured).");
+      this.addMessage(id, "system", MESSAGES.toTeam, null);
+      return;
+    }
+
+    const payer = c.payer ?? `conversation:${id}`;
+    const limit = profile.budget !== undefined ? dollarsToMicros(profile.budget) : null;
+    const total = this.settings.budgets.monthlyTotal;
+    const overTotal = total !== undefined && this.ledger.spentThisMonth(null) >= dollarsToMicros(total);
+    const spent = limit !== null ? this.ledger.spentThisMonth(payer) : 0;
+    if (overTotal || (limit !== null && spent >= limit)) {
+      await this.handoff(id, overTotal ? "The assistant's monthly spending cap is reached." : "This person reached their monthly assistant budget.");
+      this.addMessage(id, "system", overTotal ? MESSAGES.overTotal : MESSAGES.overBudget, null);
       return;
     }
 
@@ -183,14 +249,23 @@ export class ConversationService {
     this.events.emit(id, { type: "typing" });
     const stopTyping = this.relayTyping(id);
     try {
-      const result = await this.agent.respond(this.history(id), {
-        searchDocs: (q) => searchDocs(this.db, q),
-        handoff: (reason) => this.handoff(id, reason),
-      });
+      const result = await this.agent.respond(
+        this.history(id),
+        {
+          searchDocs: (q) => searchDocs(this.db, q),
+          handoff: (reason) => this.handoff(id, reason),
+        },
+        { instructions: profile.instructions, model: profile.model, effort: profile.effort },
+      );
       this.saveTurns(id, result.newTurns);
+      const cost = this.ledger.record(id, payer, profile.name, result.usage);
       if (result.reply) {
         this.addMessage(id, "agent", result.reply, null);
         await this.mirror(id, "agent", result.reply);
+      }
+      if (limit !== null && limit > 0) {
+        const warnAt = limit * this.settings.budgets.warnAt;
+        if (spent < warnAt && spent + cost >= warnAt && spent + cost < limit) this.addMessage(id, "system", MESSAGES.nearBudget, null);
       }
     } catch (err) {
       this.log(`agent failed on ${id}`, err);
@@ -333,6 +408,10 @@ function asBlocks(content: MessageParam["content"]): Anthropic.Beta.Messages.Bet
 
 function toPublic(m: typeof schema.messages.$inferSelect): PublicMessage {
   return { id: m.id, author: m.author, authorName: m.authorName, body: m.body, createdAt: m.createdAt.getTime() };
+}
+
+function hash(v: string): string {
+  return crypto.createHash("sha256").update(v).digest("base64url").slice(0, 16);
 }
 
 function clip(v: unknown, n: number): string | null {

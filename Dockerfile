@@ -12,6 +12,7 @@ WORKDIR /app
 ENV NODE_ENV=production DATABASE_PATH=/data/wicket.db
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
+COPY --from=build /app/config ./config
 COPY package.json ./
 EXPOSE 4318
 CMD ["node", "dist/src/index.js"]

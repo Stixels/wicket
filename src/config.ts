@@ -51,6 +51,12 @@ const schema = z.object({
   LINEAR_TEAM_KEY: z.string().optional(), // e.g. "ED"
   LINEAR_SOURCE_LABEL: z.string().default("Source: Discord"), // added when the label exists
 
+  // Signed-in users: the host app's backend signs a short-lived HS256 JWT with this secret
+  // (claims: sub, name, email, plan). Only a valid token counts as signed in.
+  IDENTITY_SECRET: z.string().min(32, "IDENTITY_SECRET should be at least 32 characters").optional(),
+  // Profiles, rules and budgets: a YAML file path, or the YAML itself. Defaults to config/wicket.yaml.
+  WICKET_CONFIG: z.string().optional(),
+
   // Abuse limits
   MAX_MESSAGES_PER_CONVERSATION_PER_HOUR: z.coerce.number().default(30),
   MAX_CONVERSATIONS_PER_IP_PER_HOUR: z.coerce.number().default(10),

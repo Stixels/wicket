@@ -8,6 +8,11 @@ import { createServer } from "../src/server.js";
 import { reindex, searchDocs } from "../src/knowledge/index.js";
 import { MarkdownRepoSource } from "../src/adapters/knowledge/markdownRepo.js";
 import { FakeRelay } from "../test/helpers.js";
+import { loadSettings } from "../src/settings.js";
+import { signUserToken } from "../src/identity.js";
+
+// Profiles from config/wicket.yaml. ?as=visitor shows the page signed out; ?path=/app/analytics pretends to be on that page.
+const SECRET = "demo-secret-demo-secret-demo-secret!";
 
 const db = openDb(":memory:");
 const n = await reindex(db, [new MarkdownRepoSource({ repo: process.env.DOCS_GITHUB_REPO ?? "directorhq/escape-director-documentation", baseUrl: process.env.DOCS_BASE_URL ?? "https://docs.escapedirector.com" })]);
@@ -29,10 +34,10 @@ const client = {
   } } },
 };
 const relay = new FakeRelay();
-const service = new ConversationService(db, new Agent(client as any, { model: "x", effort: "low", maxSteps: 4, productName: "Escape Director", productDescription: "" }), relay, console.error);
+const service = new ConversationService(db, new Agent(client as any, { model: "x", effort: "low", maxSteps: 4, productName: "Escape Director", productDescription: "" }), relay, { settings: loadSettings(), log: console.error });
 await relay.start((r) => service.handleStaffReply(r.threadId, r.authorName, r.body));
 (globalThis as any).relay = relay;
-const app = createServer(service, { allowedOrigins: [], maxConversationsPerIpPerHour: 50, maxMessagesPerConversationPerHour: 50 });
+const app = createServer(service, { allowedOrigins: [], maxConversationsPerIpPerHour: 50, maxMessagesPerConversationPerHour: 50, identitySecret: SECRET });
 app.get("/", (c) => {
   const q = c.req.query();
   const theme = { accentColor: q.accent ? `#${q.accent}` : "#e8590c", mode: q.mode ?? "auto", position: q.position ?? "right" };
@@ -40,7 +45,8 @@ app.get("/", (c) => {
 <style>body{margin:0;font-family:system-ui;background:${q.mode === "dark" ? "#0d0d10;color:#eee" : "#f4f1ec;color:#222"}} main{max-width:880px;margin:0 auto;padding:56px 24px}
 .card{background:${q.mode === "dark" ? "#17171b" : "#fff"};border-radius:14px;padding:24px;margin-top:20px;box-shadow:0 1px 3px rgba(0,0,0,.08)}</style></head>
 <body><main><h1>Escape Director</h1><p>Demo host page for the help widget.</p><div class="card">Room: The Treehouse · Live session idle</div></main>
-<script src="/widget.js"></script><script>Wicket.init({ user: { id: "u1", name: "Sam (Treehouse Escape)" }, context: { appVersion: "2.3.0" },
+<script src="/widget.js"></script><script>Wicket.init({ ${q.as === "visitor" ? "" : `userToken: ${JSON.stringify(signUserToken({ sub: "u1", name: "Sam (Treehouse Escape)", plan: q.plan }, SECRET, 3600))},`}
+  context: { appVersion: "2.3.0"${q.path ? `, path: ${JSON.stringify(q.path)}` : ""} },
   title: "Escape Director Support", subtitle: "We usually reply in minutes", launcherLabel: ${JSON.stringify(q.label ?? "")},
   theme: ${JSON.stringify(theme)} }); ${q.closed ? "" : "Wicket.open();"}</script></body></html>`);
 });

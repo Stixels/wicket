@@ -39,6 +39,12 @@ export interface Theme {
 interface InitOptions {
   apiUrl?: string;
   user?: User;
+  /**
+   * A short-lived token your backend signs for the signed-in user (HS256 JWT with the shared
+   * IDENTITY_SECRET; claims sub, name, email, plan). Pass the token, or a function that fetches one.
+   * Only a valid token counts as signed in for profiles and budgets.
+   */
+  userToken?: string | (() => string | Promise<string>);
   context?: Record<string, unknown>;
   title?: string;
   subtitle?: string;
@@ -60,6 +66,37 @@ interface InitOptions {
   theme?: Theme;
   /** @deprecated use theme.accentColor */
   accentColor?: string;
+}
+
+type UiKey = "title" | "subtitle" | "welcomeTitle" | "welcomeSubtitle" | "placeholder" | "suggestions";
+const UI_KEYS: UiKey[] = ["title", "subtitle", "welcomeTitle", "welcomeSubtitle", "placeholder", "suggestions"];
+
+const DEFAULTS = {
+  title: "Help & feedback",
+  subtitle: "Ask, report a problem or share an idea",
+  greeting: "Ask a question, report something that's not working, or share an idea.",
+  welcomeSubtitle: "How can we help you today?",
+  placeholder: "Write a message…",
+  launcherLabel: "",
+  suggestions: ["I have a question", "Something's not working", "I have an idea"],
+  showBranding: true,
+};
+
+/** Defaults when the profile has no assistant and messages go straight to the team. */
+const TEAM_ONLY_DEFAULTS: Partial<Record<UiKey, string>> = {
+  welcomeSubtitle: "Send us a message and the team will reply here.",
+  placeholder: "Message the team…",
+};
+
+/** What the server says applies to this person on this page. */
+interface Session {
+  profile: string;
+  ai: boolean;
+  signedIn: boolean;
+  /** The signed-in user's name, from their token. */
+  name: string | null;
+  askEmail: boolean;
+  ui: Partial<Record<UiKey, any>>;
 }
 
 interface Summary {
@@ -337,6 +374,13 @@ textarea::placeholder { color: var(--wk-muted); }
 .send:hover:not(:disabled) { transform: scale(1.05); }
 .send:disabled { opacity: .35; cursor: default; }
 .send svg { width: 18px; height: 18px; }
+.email { display: none; align-items: center; gap: 6px; margin: 0 0 8px; padding: 8px 8px 8px 12px; border: 1px solid var(--wk-border); border-radius: 12px; background: var(--wk-surface); font-size: 12.5px; color: var(--wk-muted); }
+.email.on { display: flex; flex-wrap: wrap; }
+.email span { flex: 1 1 100%; }
+.email input { flex: 1; min-width: 0; font: inherit; font-size: 13px; color: var(--wk-text); background: var(--wk-bubble); border: 1px solid var(--wk-border); border-radius: 8px; padding: 6px 8px; outline: none; }
+.email input:focus { border-color: var(--wk-accent); }
+.email button { font: inherit; font-size: 12.5px; border: 0; border-radius: 8px; padding: 6px 10px; cursor: pointer; background: var(--wk-accent); color: var(--wk-on-accent); }
+.email button.skip { background: transparent; color: var(--wk-muted); padding: 6px; }
 .error { color: #dc2626; font-size: 12.5px; padding: 0 4px 8px; display: none; }
 .error.on { display: block; }
 .brand { text-align: center; font-size: 11px; color: var(--wk-muted); padding-top: 8px; }
@@ -385,6 +429,11 @@ class Widget {
   private input!: HTMLTextAreaElement;
   private sendBtn!: HTMLButtonElement;
   private errorEl!: HTMLElement;
+  private emailEl!: HTMLFormElement;
+  private given: InitOptions;
+  private session: Session | null = null;
+  private sessionPath = "";
+  private sessionSeq = 0;
   private badge!: HTMLElement;
   private conv: { id: string; token: string } | null = null;
   private source: EventSource | null = null;
@@ -397,18 +446,8 @@ class Widget {
   constructor(options: InitOptions) {
     options = defined(options);
     const apiUrl = (options.apiUrl ?? (scriptSrc ? new URL(scriptSrc).origin : location.origin)).replace(/\/$/, "");
-    this.opts = {
-      title: "Help & feedback",
-      subtitle: "Ask, report a problem or share an idea",
-      greeting: "Ask a question, report something that's not working, or share an idea.",
-      welcomeSubtitle: "How can we help you today?",
-      placeholder: "Write a message…",
-      launcherLabel: "",
-      suggestions: ["I have a question", "Something's not working", "I have an idea"],
-      showBranding: true,
-      ...options,
-      apiUrl,
-    };
+    this.given = options;
+    this.opts = { ...DEFAULTS, ...defined(options), apiUrl };
     this.theme = { mode: "auto", position: "right", ...defined(options.theme ?? {}) };
     if (options.accentColor && !this.theme.accentColor) this.theme.accentColor = options.accentColor;
 
@@ -421,9 +460,11 @@ class Widget {
     this.media?.addEventListener?.("change", () => this.applyTheme());
     this.conv = this.loadStored();
     if (this.conv) this.connect();
+    void this.refreshSession();
   }
 
   open() {
+    if (location.pathname !== this.sessionPath) void this.refreshSession();
     this.wrap.classList.add("open");
     this.halftone.play();
     this.setUnread(0);
@@ -444,8 +485,91 @@ class Widget {
     this.renderWelcome();
   }
 
+  setUserToken(token: InitOptions["userToken"]) {
+    this.opts.userToken = token;
+    void this.refreshSession();
+  }
+
   setContext(context: Record<string, unknown>) {
     this.opts.context = { ...(this.opts.context ?? {}), ...context };
+    void this.refreshSession();
+  }
+
+  /** Asks the server which profile applies here (it depends on the page and who's signed in). */
+  private async refreshSession() {
+    this.sessionPath = location.pathname;
+    const seq = ++this.sessionSeq;
+    try {
+      const res = await fetch(`${this.opts.apiUrl}/api/session`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userToken: await this.userToken(), context: this.collectContext() }),
+      });
+      if (!res.ok || seq !== this.sessionSeq) return;
+      this.session = (await res.json()) as Session;
+      this.applySession();
+    } catch {}
+  }
+
+  /** Options passed to init() win, then the profile's settings, then the defaults. */
+  private applySession() {
+    const s = this.session;
+    if (!s) return;
+    const o = this.opts as unknown as Record<string, unknown>;
+    for (const key of UI_KEYS) {
+      o[key] = (this.given as unknown as Record<string, unknown>)[key] ?? s.ui[key] ?? (s.ai ? undefined : TEAM_ONLY_DEFAULTS[key]) ?? DEFAULTS[key as keyof typeof DEFAULTS];
+    }
+    this.wrap.classList.toggle("team-only", !s.ai);
+    this.wrap.querySelector(".title")!.textContent = this.opts.title ?? "";
+    const sub = this.wrap.querySelector(".subtitle span:last-child");
+    if (sub) sub.textContent = this.opts.subtitle ?? "";
+    this.wrap.querySelector(".ask")!.textContent = this.opts.welcomeSubtitle ?? "";
+    this.input.placeholder = this.opts.placeholder ?? "";
+    this.renderWelcome();
+    this.renderChips();
+    this.updateEmailAsk();
+  }
+
+  private async userToken(): Promise<string | undefined> {
+    const t = this.opts.userToken;
+    if (!t) return undefined;
+    try {
+      return typeof t === "function" ? await t() : t;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** Offers an email field in a conversation when the profile asks for one and we don't know it. */
+  private updateEmailAsk() {
+    const show = Boolean(this.conv && this.session?.askEmail && !this.opts.user?.email && !this.emailDone(this.conv.id));
+    this.emailEl.classList.toggle("on", show);
+  }
+
+  private emailDone(id: string): boolean {
+    try {
+      return localStorage.getItem(`${this.storageKey()}:email:${id}`) === "1";
+    } catch {
+      return false;
+    }
+  }
+
+  private async saveEmail(skip = false) {
+    if (!this.conv) return;
+    const input = this.emailEl.querySelector("input")!;
+    if (!skip) {
+      try {
+        await this.api(`/api/conversations/${this.conv.id}/email`, { email: input.value });
+      } catch (err) {
+        this.showError(err instanceof Error ? err.message : "Couldn't save that email.");
+        return;
+      }
+      this.showError("");
+    }
+    try {
+      localStorage.setItem(`${this.storageKey()}:email:${this.conv.id}`, "1");
+    } catch {}
+    this.updateEmailAsk();
   }
 
   setTheme(theme: Theme) {
@@ -472,7 +596,7 @@ class Widget {
   }
 
   private renderWelcome() {
-    const first = this.opts.user?.name?.trim().split(/\s+/)[0];
+    const first = (this.opts.user?.name ?? this.session?.name)?.trim().split(/\s+/)[0];
     this.wrap.querySelector(".hello")!.textContent = this.opts.welcomeTitle ?? `Hi${first ? ` ${first}` : ""} 👋`;
   }
 
@@ -506,6 +630,7 @@ class Widget {
         <div class="log" aria-live="polite"></div>
         <div class="composer">
           <div class="error" role="alert"></div>
+          <form class="email"><span>Leave your email so the team can follow up if you're away.</span><input type="email" placeholder="you@example.com" aria-label="Email" autocomplete="email"><button type="submit">Save</button><button class="skip" type="button">No thanks</button></form>
           <form class="field">
             <textarea rows="1" placeholder="${escapeAttr(o.placeholder!)}" aria-label="Message"></textarea>
             <button class="send" type="submit" aria-label="Send" disabled>${ICONS.send}</button>
@@ -528,6 +653,12 @@ class Widget {
     const head = this.wrap.querySelector(".head")!;
     this.log.addEventListener("scroll", () => head.classList.toggle("scrolled", this.log.scrollTop > 4), { passive: true });
     this.errorEl = this.wrap.querySelector(".error")!;
+    this.emailEl = this.wrap.querySelector(".email")!;
+    this.emailEl.addEventListener("submit", (e) => {
+      e.preventDefault();
+      void this.saveEmail();
+    });
+    this.emailEl.querySelector(".skip")!.addEventListener("click", () => void this.saveEmail(true));
     this.input = this.wrap.querySelector("textarea")!;
     this.sendBtn = this.wrap.querySelector(".send")!;
 
@@ -546,7 +677,7 @@ class Widget {
     this.wrap.querySelector(".hist")!.addEventListener("click", () =>
       this.wrap.classList.contains("list") ? this.reset() : void this.showHistory(),
     );
-    this.wrap.querySelector("form")!.addEventListener("submit", (e) => {
+    this.wrap.querySelector("form.field")!.addEventListener("submit", (e) => {
       e.preventDefault();
       void this.send();
     });
@@ -574,6 +705,12 @@ class Widget {
     this.log.innerHTML = "";
     this.lastAuthor = null;
     this.log.appendChild(this.typing);
+    this.renderChips();
+    void this.showRecent();
+  }
+
+  private renderChips() {
+    if (!this.wrap.classList.contains("home")) return;
     this.chips.innerHTML = "";
     for (const s of this.opts.suggestions ?? []) {
       const chip = document.createElement("button");
@@ -588,8 +725,8 @@ class Widget {
       });
       this.chips.appendChild(chip);
     }
-    if (this.chips.childElementCount) this.log.insertBefore(this.chips, this.typing);
-    void this.showRecent();
+    if (!this.chips.childElementCount) this.chips.remove();
+    else if (!this.chips.isConnected) this.log.insertBefore(this.chips, this.log.querySelector(".recent") ?? this.typing);
   }
 
   /** Up to three earlier conversations under the start screen. */
@@ -702,11 +839,16 @@ class Widget {
     this.leaveHome();
     try {
       if (!this.conv) {
-        const res = await this.api("/api/conversations", { reporter: this.opts.user ?? {}, context: this.collectContext() });
+        const res = await this.api("/api/conversations", {
+          reporter: this.opts.user ?? {},
+          userToken: await this.userToken(),
+          context: this.collectContext(),
+        });
         this.conv = { id: res.id, token: res.token };
         this.store();
         this.saveList([this.conv, ...this.loadList()]);
         this.connect();
+        this.updateEmailAsk();
       }
       this.input.value = "";
       this.autosize();
@@ -882,7 +1024,7 @@ class Widget {
   }
 
   private storageKey() {
-    return `wicket:${this.opts.apiUrl}:${this.opts.user?.id ?? "anon"}`;
+    return `wicket:${this.opts.apiUrl}:${this.opts.user?.id ?? tokenSubject(this.opts.userToken) ?? "anon"}`;
   }
 
   private loadStored(): { id: string; token: string } | null {
@@ -916,6 +1058,17 @@ class Widget {
       const unique = list.filter((x, i) => list.findIndex((y) => y.id === x.id) === i);
       localStorage.setItem(`${this.storageKey()}:all`, JSON.stringify(unique.slice(0, 50)));
     } catch {}
+  }
+}
+
+/** The user id in a token string, read without checking it (only to keep each user's history apart in this browser). */
+function tokenSubject(token: InitOptions["userToken"]): string | null {
+  if (typeof token !== "string") return null;
+  try {
+    const claims = JSON.parse(atob(token.split(".")[1]!.replace(/-/g, "+").replace(/_/g, "/")));
+    return String(claims.sub ?? claims.userId ?? "") || null;
+  } catch {
+    return null;
   }
 }
 
@@ -973,6 +1126,7 @@ const api = {
   close: () => instance?.close(),
   toggle: () => instance?.toggle(),
   setUser: (user: User) => instance?.setUser(user),
+  setUserToken: (token: InitOptions["userToken"]) => instance?.setUserToken(token),
   setContext: (context: Record<string, unknown>) => instance?.setContext(context),
   setTheme: (theme: Theme) => instance?.setTheme(theme),
 };

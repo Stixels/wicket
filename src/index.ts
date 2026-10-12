@@ -13,8 +13,11 @@ import { LinearTracker } from "./adapters/tracker/linear.js";
 import { draftTicket } from "./agent/tickets.js";
 import { COMMUNITY_ROOM_PREFIX, SUPPORT_ROOM_PREFIX } from "./discord/voiceRooms.js";
 import type { KnowledgeSource, Relay } from "./adapters/types.js";
+import { loadSettings } from "./settings.js";
+import { priceFor } from "./usage.js";
 
 const config = loadConfig();
+const settings = loadSettings(config.WICKET_CONFIG);
 const db = openDb(config.DATABASE_PATH);
 
 const sources: KnowledgeSource[] = [];
@@ -47,6 +50,7 @@ const agent = anthropic
       productDescription: config.PRODUCT_DESCRIPTION,
       // Haiku has no server-side fallback, and the gateway does not offer it.
       serverFallback: !gateway && !model.includes("haiku"),
+      modelId: gateway ? gatewayModelId : undefined,
     })
   : null;
 
@@ -105,7 +109,8 @@ if (config.RELAY === "discord") {
   });
 }
 
-const service = new ConversationService(db, agent, relay, (msg, err) => console.error(msg, err ?? ""));
+const service = new ConversationService(db, agent, relay, { settings, log: (msg, err) => console.error(msg, err ?? "") });
+describeSettings();
 
 async function refreshDocs() {
   if (!sources.length) return;
@@ -133,6 +138,7 @@ const app = createServer(service, {
   maxMessagesPerConversationPerHour: config.MAX_MESSAGES_PER_CONVERSATION_PER_HOUR,
   maxConversationsPerIpPerHour: config.MAX_CONVERSATIONS_PER_IP_PER_HOUR,
   playground: config.PLAYGROUND ? { title: `${config.PRODUCT_NAME} Support` } : undefined,
+  identitySecret: config.IDENTITY_SECRET,
 });
 const server = serve({ fetch: app.fetch, port: config.PORT }, (info) => {
   console.log(`wicket listening on http://localhost:${info.port} (agent: ${agent ? `${model}${gateway ? " via AI Gateway" : ""}` : "off"})`);
@@ -145,6 +151,24 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
     db.$client.close();
     process.exit(0);
   });
+}
+
+/** One line per profile on boot, plus anything that won't work the way the settings read. */
+function describeSettings() {
+  const names = new Set(["default", ...Object.keys(settings.profiles)]);
+  for (const name of names) {
+    const prof = settings.profiles[name] ?? {};
+    const ai = prof.ai === false || !agent ? "goes to the team" : `assistant on ${prof.model ?? config.AGENT_MODEL}`;
+    const budget = prof.budget !== undefined ? `, $${prof.budget}/person/month` : "";
+    console.log(`profiles: ${name}: ${ai}${budget}`);
+    if (prof.budget !== undefined && agent && prof.ai !== false && !priceFor(prof.model ?? model, settings.budgets.prices)) {
+      console.log(`profiles: needs you: no price known for ${prof.model ?? model}; counting it at a high rate. Add it under budgets.prices.`);
+    }
+  }
+  const usesSignIn = settings.rules.some((r) => r.when.signedIn !== undefined || r.when.plan);
+  if (usesSignIn && !config.IDENTITY_SECRET) {
+    console.log("profiles: needs you: rules check sign-in or plan, but IDENTITY_SECRET isn't set, so nobody counts as signed in");
+  }
 }
 
 /** "claude-sonnet-5-5" -> "anthropic/claude-sonnet-5.5", the gateway's naming. Full gateway ids pass through. */

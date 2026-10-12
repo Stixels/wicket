@@ -16,6 +16,9 @@ CREATE TABLE IF NOT EXISTS conversations (
   reporter_id TEXT,
   reporter_name TEXT,
   reporter_email TEXT,
+  user_id TEXT,
+  plan TEXT,
+  payer TEXT,
   context TEXT,
   relay_thread_id TEXT,
   created_at INTEGER NOT NULL,
@@ -41,6 +44,22 @@ CREATE TABLE IF NOT EXISTS agent_turns (
 );
 CREATE INDEX IF NOT EXISTS agent_turns_conversation ON agent_turns(conversation_id, id);
 
+CREATE TABLE IF NOT EXISTS usage (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  conversation_id TEXT NOT NULL,
+  payer TEXT NOT NULL,
+  profile TEXT NOT NULL,
+  model TEXT NOT NULL,
+  input_tokens INTEGER NOT NULL,
+  output_tokens INTEGER NOT NULL,
+  cache_read_tokens INTEGER NOT NULL,
+  cache_write_tokens INTEGER NOT NULL,
+  cost_micros INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS usage_payer ON usage(payer, created_at);
+CREATE INDEX IF NOT EXISTS usage_created ON usage(created_at);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS docs USING fts5(
   title, heading, url UNINDEXED, body,
   tokenize = 'porter unicode61'
@@ -53,7 +72,16 @@ export function openDb(file: string): Db {
   sqlite.pragma("journal_mode = WAL");
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(BOOTSTRAP);
+  addMissingColumns(sqlite, "conversations", { user_id: "TEXT", plan: "TEXT", payer: "TEXT" });
   return drizzle(sqlite, { schema }) as Db;
+}
+
+/** Columns added after a table first shipped; existing databases get them on boot. */
+function addMissingColumns(sqlite: Database.Database, table: string, columns: Record<string, string>) {
+  const have = new Set((sqlite.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name));
+  for (const [name, type] of Object.entries(columns)) {
+    if (!have.has(name)) sqlite.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
+  }
 }
 
 export { schema };

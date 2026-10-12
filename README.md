@@ -35,7 +35,22 @@ The demo indexes the Escape Director docs, uses a scripted assistant and simulat
 </script>
 ```
 
-You can also call `Wicket.open()`, `Wicket.close()`, `Wicket.setContext({ roomId })`, `Wicket.setUser({...})` and `Wicket.setTheme({...})` at any time.
+You can also call `Wicket.open()`, `Wicket.close()`, `Wicket.setContext({ roomId })`, `Wicket.setUser({...})`, `Wicket.setUserToken(...)` and `Wicket.setTheme({...})` at any time.
+
+### Signed-in users
+
+A name or id passed in `user` is only a label. For profiles that depend on who someone is (signed in, their plan) and for per-person budgets, your backend signs a short-lived token and the widget passes it on:
+
+```ts
+// Your backend, with the same IDENTITY_SECRET Wicket has (HS256 JWT)
+jwt.sign({ sub: user.id, name: user.name, email: user.email, plan: user.plan }, process.env.WICKET_IDENTITY_SECRET, { expiresIn: "5m" });
+```
+
+```js
+Wicket.init({ userToken: () => fetch("/api/wicket-token").then((r) => r.json()).then((d) => d.token) });
+```
+
+`userToken` takes the token or a function that returns one. Without a valid token, the person counts as a visitor.
 
 ### Customizing
 
@@ -96,6 +111,37 @@ How it behaves:
 
 Keep it to one replica. SQLite and the Discord connection expect a single instance.
 
+## Profiles, rules and budgets
+
+How the assistant behaves lives in one YAML file: [`config/wicket.yaml`](config/wicket.yaml), or the YAML pasted into the `WICKET_CONFIG` variable. [`config/wicket.example.yaml`](config/wicket.example.yaml) lists every option.
+
+```yaml
+profiles:
+  visitor:                # not signed in
+    ai: false             # no assistant: messages go straight to the team
+    askEmail: true        # offer an email field so the team can follow up
+  default:
+    budget: 0.50          # dollars per person per month
+  analytics:
+    instructions: Explain metrics using the docs.
+    suggestions: ["What does Success Rate mean?"]
+    budget: 2.00
+rules:                    # first match wins; otherwise "default"
+  - when: { signedIn: false }
+    profile: visitor
+  - when: { page: /app/analytics, plan: pro }
+    profile: analytics
+budgets:
+  warnAt: 0.8             # warn at 80% of a budget
+  monthlyTotal: 20        # cap across everyone
+```
+
+- **Profiles** set whether the assistant answers at all, extra instructions, the model and effort, a monthly budget per person, and what the widget shows (title, welcome text, placeholder, quick starts). Options passed to `Wicket.init()` still win.
+- **Rules** pick a profile from whether someone is signed in, their `plan`, and the page they're on. Signed in and plan come only from a verified token; the page comes from the widget.
+- **Budgets** count what each person's assistant answers cost this calendar month (UTC), from token usage and list prices. Signed-in people are counted by user id, visitors by IP. Near the limit the widget says so; at the limit their messages go to the team instead. `monthlyTotal` does the same for everyone at once. Prices for current Claude models and GPT-6 Luna are built in; add others under `budgets.prices`.
+
+On boot the log lists each profile and anything that won't work as written, such as rules about sign-in without `IDENTITY_SECRET`.
+
 ## Configuration
 
 See [`.env.example`](.env.example). The main settings:
@@ -107,6 +153,8 @@ See [`.env.example`](.env.example). The main settings:
 | `DOCS_GITHUB_REPO`, `DOCS_BASE_URL` | Markdown docs repo to index, and the public site its links should point to. Reindexed every `DOCS_REINDEX_HOURS`. |
 | `RELAY`, `DISCORD_*` | Where conversations show up for the team. |
 | `ALLOWED_ORIGINS` | Sites allowed to embed the widget. |
+| `IDENTITY_SECRET` | Shared with your backend to sign user tokens (at least 32 characters). |
+| `WICKET_CONFIG` | Profiles, rules and budgets: a file path or the YAML itself. Defaults to `config/wicket.yaml`. |
 
 ## How it fits together
 
