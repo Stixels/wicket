@@ -382,6 +382,9 @@ button { font: inherit; color: inherit; }
 .wk.dark .row.agent a, .wk.dark .row.staff a { color: color-mix(in srgb, var(--wk-accent) 60%, white); }
 .system { align-self: center; margin: 10px 0; font-size: 12px; color: var(--wk-muted); padding: 5px 12px; border-radius: 999px;
   background: color-mix(in srgb, var(--wk-text) 5%, transparent); animation: wk-in .25s ease; text-align: center; }
+.system.done { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; color: var(--wk-text); padding: 6px 12px 6px 8px;
+  background: color-mix(in srgb, #22c55e 12%, transparent); }
+.system.done svg { width: 16px; height: 16px; padding: 2px; border-radius: 50%; background: #22c55e; color: #fff; box-sizing: border-box; }
 
 .typing { display: none; gap: 8px; align-items: flex-end; margin-top: 6px; }
 .typing.on { display: flex; }
@@ -411,6 +414,17 @@ button { font: inherit; color: inherit; }
 .new-conv { margin-top: 6px; align-self: center; border: 0; border-radius: 999px; padding: 10px 18px; font: inherit; font-size: 14px;
   font-weight: 600; background: var(--wk-accent); color: var(--wk-on-accent); cursor: pointer; }
 .wk.list .composer { display: none; }
+/* A resolved conversation offers a fresh start instead of the message box. */
+.closed { display: none; flex-direction: column; align-items: center; gap: 10px; padding: 4px 0 2px; }
+.wk.resolved .closed { display: flex; }
+.wk.resolved .field, .wk.resolved .tray, .wk.resolved .email { display: none !important; }
+.closed .new-conv { margin: 0; width: 100%; padding: 12px 18px; border-radius: calc(var(--wk-radius) * .8); display: inline-flex;
+  align-items: center; justify-content: center; gap: 8px; transition: transform .15s, box-shadow .15s;
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--wk-accent) 28%, transparent); }
+.closed .new-conv:hover { transform: translateY(-1px); }
+.closed .new-conv svg { width: 16px; height: 16px; }
+.closed .linkish { font-weight: 550; color: var(--wk-muted) !important; }
+.closed .linkish:hover { color: var(--wk-text) !important; }
 .wk.list .titles .subtitle { display: none; }
 .wk.home .hist { display: none; }
 .chip { border: 1px solid color-mix(in srgb, var(--wk-accent) 35%, var(--wk-border)); background: var(--wk-bg); color: var(--wk-accent);
@@ -454,9 +468,17 @@ textarea::placeholder { color: var(--wk-muted); }
 @keyframes wk-pop { 0% { transform: scale(.4); opacity: 0; } 70% { transform: scale(1.12); opacity: 1; } 100% { transform: none; } }
 @keyframes wk-bounce { 0%, 60%, 100% { transform: translateY(0); opacity: .5; } 30% { transform: translateY(-4px); opacity: 1; } }
 
-@media (max-width: 480px) {
-  .panel { inset: 0; width: 100%; height: 100%; border-radius: 0; border: 0; }
+/* Phones: the chat takes the whole screen and follows the keyboard, so nothing hides behind it.
+   Fields are 16px, below which iOS zooms the page in on focus. */
+@media (max-width: 640px) {
+  .panel { inset: auto 0 auto 0; top: var(--wk-vtop, 0px); width: 100%; height: var(--wk-vh, 100dvh); max-height: none;
+    border-radius: 0; border: 0; box-shadow: none; transform-origin: bottom center; }
+  .left .panel { left: 0; }
   .wk.open .launcher { display: none; }
+  .head { padding-top: env(safe-area-inset-top); }
+  .composer { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+  textarea, .email input { font-size: 16px; }
+  .log { overscroll-behavior: contain; }
 }
 @media (prefers-reduced-motion: reduce) {
   .launcher, .panel, .row, .system, .chip, .send, .launcher svg, .glow, .hero { transition: none !important; animation: none !important; }
@@ -468,6 +490,7 @@ const ICONS = {
   chat: `<svg class="ic-chat" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>`,
   close: `<svg class="ic-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg>`,
   x: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>`,
+  check: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5 10 17 19 7"/></svg>`,
   plus: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.4 3.6a2 2 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>`,
   clip: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.4 11.1-8.8 8.8a5.5 5.5 0 0 1-7.8-7.8l8.8-8.8a3.7 3.7 0 0 1 5.2 5.2l-8.8 8.8a1.8 1.8 0 0 1-2.6-2.6l8.1-8.1"/></svg>`,
   file: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5Z"/><path d="M14 2v6h6"/></svg>`,
@@ -505,6 +528,8 @@ class Widget {
   private lastRow: HTMLElement | null = null;
   private staffName: string | null = null;
   private status = "agent";
+  /** The person chose to keep writing in a resolved conversation rather than start a new one. */
+  private replyAnyway = false;
   private unread = 0;
   private media = window.matchMedia?.("(prefers-color-scheme: dark)");
 
@@ -535,6 +560,7 @@ class Widget {
   open() {
     if (location.pathname !== this.sessionPath) void this.refreshSession();
     this.wrap.classList.add("open");
+    this.fitToScreen(true);
     this.halftone.play();
     this.setUnread(0);
     setTimeout(() => this.input.focus(), 50);
@@ -542,7 +568,49 @@ class Widget {
 
   close() {
     this.wrap.classList.remove("open");
+    this.fitToScreen(false);
     this.halftone.pause();
+  }
+
+  private viewportListener?: () => void;
+  private pageOverflow: string | null = null;
+
+  /**
+   * On a phone the chat is fullscreen: the page behind it stops scrolling, and the panel tracks the
+   * visible area so the on-screen keyboard never covers the message box.
+   */
+  private fitToScreen(on: boolean) {
+    const phone = window.matchMedia?.("(max-width: 640px)").matches;
+    const vv = window.visualViewport;
+    const host = this.root.host as HTMLElement;
+    if (on && phone) {
+      if (this.pageOverflow === null) {
+        this.pageOverflow = document.documentElement.style.overflow;
+        document.documentElement.style.overflow = "hidden";
+      }
+      if (vv && !this.viewportListener) {
+        this.viewportListener = () => {
+          host.style.setProperty("--wk-vh", `${vv.height}px`);
+          host.style.setProperty("--wk-vtop", `${vv.offsetTop}px`);
+          this.scrollDown();
+        };
+        this.viewportListener();
+        vv.addEventListener("resize", this.viewportListener);
+        vv.addEventListener("scroll", this.viewportListener);
+      }
+      return;
+    }
+    if (this.pageOverflow !== null) {
+      document.documentElement.style.overflow = this.pageOverflow;
+      this.pageOverflow = null;
+    }
+    if (vv && this.viewportListener) {
+      vv.removeEventListener("resize", this.viewportListener);
+      vv.removeEventListener("scroll", this.viewportListener);
+      this.viewportListener = undefined;
+      host.style.removeProperty("--wk-vh");
+      host.style.removeProperty("--wk-vtop");
+    }
   }
 
   toggle() {
@@ -711,6 +779,10 @@ class Widget {
           <div class="error" role="alert"></div>
           <form class="email"><span>Leave your email so the team can follow up if you're away.</span><input type="email" placeholder="you@example.com" aria-label="Email" autocomplete="email"><button type="submit">Save</button><button class="skip" type="button">No thanks</button></form>
           <div class="tray" aria-label="Attachments"></div>
+          <div class="closed">
+            <button class="new-conv" type="button">${ICONS.plus}<span>Start a new conversation</span></button>
+            <button class="linkish reopen" type="button">Reply here instead</button>
+          </div>
           <form class="field">
             <button class="attach" type="button" title="Attach a file" aria-label="Attach a file">${ICONS.clip}</button>
             <input class="file-input" type="file" multiple accept="${ACCEPT}" hidden>
@@ -756,6 +828,12 @@ class Widget {
     launcher.addEventListener("click", () => this.toggle());
     this.wrap.querySelector(".x")!.addEventListener("click", () => this.close());
     this.wrap.querySelector(".new")!.addEventListener("click", () => this.reset());
+    this.wrap.querySelector(".closed .new-conv")!.addEventListener("click", () => this.reset());
+    this.wrap.querySelector(".closed .reopen")!.addEventListener("click", () => {
+      this.replyAnyway = true;
+      this.updateHeader();
+      this.input.focus();
+    });
     this.wrap.querySelector(".hist")!.addEventListener("click", () =>
       this.wrap.classList.contains("list") ? this.reset() : void this.showHistory(),
     );
@@ -818,6 +896,7 @@ class Widget {
     this.lastAuthor = null;
     this.lastRow = null;
     this.status = "agent";
+    this.replyAnyway = false;
     this.setAgent(null);
     this.updateHeader();
     this.log.appendChild(this.typing);
@@ -906,6 +985,7 @@ class Widget {
     this.lastAuthor = null;
     this.lastRow = null;
     this.status = "agent";
+    this.replyAnyway = false;
     this.setAgent(null);
     this.chips.remove();
     this.log.innerHTML = "";
@@ -936,6 +1016,9 @@ class Widget {
   }
 
   private reset() {
+    this.replyAnyway = false;
+    this.status = "agent";
+    this.wrap.classList.remove("resolved");
     this.source?.close();
     this.source = null;
     this.conv = null;
@@ -1059,6 +1142,7 @@ class Widget {
     });
     es.addEventListener("status", (e) => {
       this.status = JSON.parse((e as MessageEvent).data).status ?? "agent";
+      if (this.status !== "resolved") this.replyAnyway = false;
       if (this.status === "resolved" || this.status === "agent") this.setAgent(null);
       this.updateHeader();
     });
@@ -1126,7 +1210,12 @@ class Widget {
     if (m.author === "system") {
       const el = document.createElement("div");
       el.className = "system";
-      el.textContent = m.body;
+      if (isResolvedNote(m.body)) {
+        el.classList.add("done");
+        el.innerHTML = `${ICONS.check}<span>Marked as resolved</span>`;
+      } else {
+        el.textContent = m.body;
+      }
       this.log.insertBefore(el, this.typing);
       this.lastAuthor = "system";
       this.scrollDown();
@@ -1187,6 +1276,7 @@ class Widget {
     const title = this.wrap.querySelector(".title")!;
     const sub = this.wrap.querySelector(".subtitle span:last-child");
     this.wrap.classList.toggle("waiting", !this.staffName && this.status === "needs_human");
+    this.wrap.classList.toggle("resolved", this.status === "resolved" && !this.replyAnyway && Boolean(this.conv));
     title.textContent = this.staffName ?? this.opts.title ?? "";
     if (sub) sub.textContent = this.staffName ? "Team" : this.status === "needs_human" ? "Waiting for the team…" : this.opts.subtitle ?? "";
   }
@@ -1382,4 +1472,9 @@ if (scriptEl?.hasAttribute("data-auto-init")) {
       theme: { accentColor: d.accentColor, mode: d.theme as Theme["mode"], position: d.position as Theme["position"] },
     });
   document.readyState === "loading" ? document.addEventListener("DOMContentLoaded", start) : start();
+}
+
+/** The note the server adds when the team resolves a conversation (older ones were a full sentence). */
+function isResolvedNote(body: string): boolean {
+  return body === "Marked as resolved" || body.startsWith("The team marked this conversation as resolved");
 }

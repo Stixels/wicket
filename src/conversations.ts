@@ -64,6 +64,8 @@ export const MESSAGES = {
   waiting: (replyTime?: string) =>
     replyTime ? `Passed to the team. They usually reply within ${replyTime}.` : "Passed to the team. Someone will reply here.",
   joined: (name: string) => `${name} joined the conversation`,
+  /** The widget shows this as a "resolved" badge with a button to start a new conversation. */
+  resolved: "Marked as resolved",
   overBudget: "You've reached this month's limit for the assistant, so I've passed your message to the team. Someone will reply here.",
   overTotal: "The assistant is unavailable right now, so I've passed your message to the team. Someone will reply here.",
   nearBudget: "Heads up: you've used most of this month's assistant allowance. After that, your messages go straight to the team.",
@@ -302,7 +304,7 @@ export class ConversationService {
     const c = this.get(id);
     if (!c || c.status === "resolved") return false;
     this.setStatus(c.id, "resolved");
-    this.addMessage(c.id, "system", "The team marked this conversation as resolved. Write here anytime if you need anything else.", null);
+    this.addMessage(c.id, "system", MESSAGES.resolved, null);
     if (updateRelay && c.relayThreadId && this.relay?.markResolved) {
       await this.relay.markResolved(c.relayThreadId).catch((err) => this.log("relay markResolved failed", err));
     }
