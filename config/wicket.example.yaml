@@ -7,7 +7,9 @@ profiles:
   # Applies when no rule matches.
   default:
     ai: true                 # false sends every message straight to the team
-    budget: 0.50             # dollars per person per month; leave out for no limit
+    budget: 0.50             # dollars per person per month; leave out for no limit.
+                             # Spend in every profile counts toward one total per person;
+                             # each profile's budget is where that profile stops answering.
     # instructions: Extra guidance added to the assistant's prompt.
     # model: claude-sonnet-5-5   # defaults to AGENT_MODEL
     # effort: low                # low | medium | high | xhigh | max

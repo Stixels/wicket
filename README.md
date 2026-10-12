@@ -138,7 +138,7 @@ budgets:
 
 - **Profiles** set whether the assistant answers at all, extra instructions, the model and effort, a monthly budget per person, and what the widget shows (title, welcome text, placeholder, quick starts). Options passed to `Wicket.init()` still win.
 - **Rules** pick a profile from whether someone is signed in, their `plan`, and the page they're on. Signed in and plan come only from a verified token; the page comes from the widget.
-- **Budgets** count what each person's assistant answers cost this calendar month (UTC), from token usage and list prices. Signed-in people are counted by user id, visitors by IP. Near the limit the widget says so; at the limit their messages go to the team instead. `monthlyTotal` does the same for everyone at once. Prices for current Claude models and GPT-6 Luna are built in; add others under `budgets.prices`.
+- **Budgets** count what each person's assistant answers cost this calendar month (UTC), from token usage and list prices. Signed-in people are counted by user id, visitors by IP. Each person has one total across all profiles; a profile's `budget` is the point where that profile stops answering, so giving every profile the same number makes it a single shared budget. Near the limit the widget says so; at the limit their messages go to the team instead. `monthlyTotal` does the same for everyone at once. Prices for current Claude models and GPT-6 Luna are built in; add others under `budgets.prices`.
 
 On boot the log lists each profile and anything that won't work as written, such as rules about sign-in without `IDENTITY_SECRET`.
 

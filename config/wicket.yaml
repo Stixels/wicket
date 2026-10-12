@@ -7,11 +7,13 @@ profiles:
     askEmail: true
     welcomeSubtitle: Send us a message and the team will reply here.
 
+  # Budgets are one pot per person: spend in any profile counts toward it,
+  # and each profile's number is where that profile stops answering.
   default:
-    budget: 0.50
+    budget: 3.00
 
   analytics:
-    budget: 2.00
+    budget: 3.00
     instructions: >
       The person is on the Analytics page. Explain what a metric or chart means using the docs.
       You can't see their numbers; for questions about their own results, point them to the
