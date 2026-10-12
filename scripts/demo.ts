@@ -40,10 +40,11 @@ await relay.start((r) => service.handleStaffReply(r.threadId, r.authorName, r.bo
 const app = createServer(service, { allowedOrigins: [], maxConversationsPerIpPerHour: 50, maxMessagesPerConversationPerHour: 50, identitySecret: SECRET });
 app.get("/", (c) => {
   const q = c.req.query();
-  const theme = { accentColor: q.accent ? `#${q.accent}` : "#e8590c", mode: q.mode ?? "auto", position: q.position ?? "right" };
+  // With no theme in the URL, the widget takes the theme from config/wicket.yaml.
+  const theme = Object.fromEntries(Object.entries({ accentColor: q.accent ? `#${q.accent}` : undefined, mode: q.mode, position: q.position }).filter(([, v]) => v));
   return c.html(`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Escape Director (demo)</title>
-<style>body{margin:0;font-family:system-ui;background:${q.mode === "dark" ? "#0d0d10;color:#eee" : "#f4f1ec;color:#222"}} main{max-width:880px;margin:0 auto;padding:56px 24px}
-.card{background:${q.mode === "dark" ? "#17171b" : "#fff"};border-radius:14px;padding:24px;margin-top:20px;box-shadow:0 1px 3px rgba(0,0,0,.08)}</style></head>
+<style>body{margin:0;font-family:system-ui;background:${(q.mode ?? q.host) === "dark" ? "#0d0d10;color:#eee" : "#f4f1ec;color:#222"}} main{max-width:880px;margin:0 auto;padding:56px 24px}
+.card{background:${(q.mode ?? q.host) === "dark" ? "#17171b" : "#fff"};border-radius:14px;padding:24px;margin-top:20px;box-shadow:0 1px 3px rgba(0,0,0,.08)}</style></head>
 <body><main><h1>Escape Director</h1><p>Demo host page for the help widget.</p><div class="card">Room: The Treehouse · Live session idle</div></main>
 <script src="/widget.js"></script><script>Wicket.init({ ${q.as === "visitor" ? "" : `userToken: ${JSON.stringify(signUserToken({ sub: "u1", name: "Sam (Treehouse Escape)", plan: q.plan }, SECRET, 3600))},`}
   context: { appVersion: "2.3.0"${q.path ? `, path: ${JSON.stringify(q.path)}` : ""} },

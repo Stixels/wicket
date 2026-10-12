@@ -96,6 +96,7 @@ interface Session {
   /** The signed-in user's name, from their token. */
   name: string | null;
   askEmail: boolean;
+  theme?: Theme;
   ui: Partial<Record<UiKey, any>>;
 }
 
@@ -431,6 +432,7 @@ class Widget {
   private errorEl!: HTMLElement;
   private emailEl!: HTMLFormElement;
   private given: InitOptions;
+  private givenTheme: Theme = {};
   private session: Session | null = null;
   private sessionPath = "";
   private sessionSeq = 0;
@@ -448,8 +450,9 @@ class Widget {
     const apiUrl = (options.apiUrl ?? (scriptSrc ? new URL(scriptSrc).origin : location.origin)).replace(/\/$/, "");
     this.given = options;
     this.opts = { ...DEFAULTS, ...defined(options), apiUrl };
-    this.theme = { mode: "auto", position: "right", ...defined(options.theme ?? {}) };
-    if (options.accentColor && !this.theme.accentColor) this.theme.accentColor = options.accentColor;
+    this.givenTheme = defined(options.theme ?? {});
+    if (options.accentColor && !this.givenTheme.accentColor) this.givenTheme.accentColor = options.accentColor;
+    this.theme = { mode: "auto", position: "right", ...this.givenTheme };
 
     const host = document.createElement("div");
     host.setAttribute("data-wicket", "");
@@ -520,6 +523,17 @@ class Widget {
       o[key] = (this.given as unknown as Record<string, unknown>)[key] ?? s.ui[key] ?? (s.ai ? undefined : TEAM_ONLY_DEFAULTS[key]) ?? DEFAULTS[key as keyof typeof DEFAULTS];
     }
     this.wrap.classList.toggle("team-only", !s.ai);
+    if (s.theme) {
+      // The server's theme fills in what init() didn't set; cssVars merge so both can add variables.
+      this.theme = {
+        mode: "auto",
+        position: "right",
+        ...defined(s.theme),
+        ...this.givenTheme,
+        cssVars: { ...(s.theme.cssVars ?? {}), ...(this.givenTheme.cssVars ?? {}) },
+      };
+      this.applyTheme();
+    }
     this.wrap.querySelector(".title")!.textContent = this.opts.title ?? "";
     const sub = this.wrap.querySelector(".subtitle span:last-child");
     if (sub) sub.textContent = this.opts.subtitle ?? "";
@@ -573,6 +587,7 @@ class Widget {
   }
 
   setTheme(theme: Theme) {
+    this.givenTheme = { ...this.givenTheme, ...defined(theme) };
     this.theme = { ...this.theme, ...theme };
     this.applyTheme();
   }

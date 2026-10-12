@@ -60,8 +60,21 @@ const priceSchema = z
   })
   .strict();
 
+/** The widget's look, same fields as Wicket.init({ theme }). Options passed to init() win. */
+const themeSchema = z
+  .object({
+    accentColor: z.string().optional(),
+    mode: z.enum(["auto", "light", "dark"]).optional(),
+    radius: z.number().min(0).optional(),
+    fontFamily: z.string().optional(),
+    position: z.enum(["left", "right"]).optional(),
+    cssVars: z.record(z.string(), z.string()).optional(),
+  })
+  .strict();
+
 const settingsSchema = z
   .object({
+    theme: themeSchema.default({}),
     profiles: z.record(z.string(), profileSchema).default({}),
     rules: z.array(ruleSchema).default([]),
     budgets: z

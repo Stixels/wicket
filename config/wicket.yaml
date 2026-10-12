@@ -1,5 +1,17 @@
 # Escape Director. See wicket.example.yaml for every option.
 
+# ED's dark theme and brand red (src/theme.ts in the frontend).
+theme:
+  accentColor: "#DD3333"
+  mode: dark
+  cssVars:
+    --wk-bg: "#181414"
+    --wk-surface: "#0f0b0b"
+    --wk-bubble: "#221d1d"
+    --wk-border: "rgba(255,255,255,0.07)"
+    --wk-text: "#EDEDEF"
+    --wk-muted: "#8A8F98"
+
 profiles:
   # Marketing site, sign-in and sign-up: no assistant, so nothing to abuse.
   visitor:

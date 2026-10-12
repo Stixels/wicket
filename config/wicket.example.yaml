@@ -2,6 +2,15 @@
 # Copy to config/wicket.yaml, or paste the whole thing into the WICKET_CONFIG variable.
 # Secrets and connections (model key, Discord, Linear, IDENTITY_SECRET) stay in environment variables.
 
+# The widget's look. Same fields as Wicket.init({ theme }); options passed to init() win.
+theme:
+  accentColor: "#4f46e5"
+  mode: auto                 # auto | light | dark
+  # radius: 20
+  # fontFamily: Inter, sans-serif
+  # position: right
+  # cssVars: { --wk-bg: "#fffaf5" }
+
 # A profile is a way of answering. Everything in it is optional.
 profiles:
   # Applies when no rule matches.

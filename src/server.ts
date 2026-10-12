@@ -98,6 +98,7 @@ export function createServer(service: ConversationService, opts: ServerOptions) 
       signedIn: Boolean(identity),
       name: identity?.name ?? null,
       askEmail: p.askEmail && !identity?.email,
+      theme: service.settings.theme,
       ui: { title: p.title, subtitle: p.subtitle, welcomeTitle: p.welcomeTitle, welcomeSubtitle: p.welcomeSubtitle, placeholder: p.placeholder, suggestions: p.suggestions },
     });
   });
