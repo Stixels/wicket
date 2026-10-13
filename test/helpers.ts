@@ -1,4 +1,4 @@
-import { ThreadGoneError, type Relay, type RelayConversation, type RelayFile, type StaffReply } from "../src/adapters/types.js";
+import { ThreadGoneError, type Relay, type RelayConversation, type RelayFile, type RelayMember, type StaffReply } from "../src/adapters/types.js";
 import type { MessagesClient } from "../src/agent/agent.js";
 
 /** Scripted stand-in for the Anthropic client: returns queued responses and records requests. */
@@ -66,11 +66,16 @@ export class FakeRelay implements Relay {
   vanish(threadId: string) {
     this.threads.delete(threadId);
   }
+  async postNote(threadId: string, author: RelayMember, body: string, mentions: RelayMember[]) {
+    const thread = this.threads.get(threadId);
+    if (!thread) throw new ThreadGoneError(threadId);
+    thread.posts.push(`note ${author.name}: ${body}${mentions.map((m) => ` [ping ${m.relayId ?? m.name}]`).join("")}`);
+  }
   async requestHuman(threadId: string, reason: string) {
     this.humanRequests.push(`${threadId}: ${reason}`);
   }
   async stop() {}
-  staffReply(threadId: string, body: string, files?: RelayFile[]) {
-    return this.onReply!({ threadId, authorName: "Matt", body, files });
+  staffReply(threadId: string, body: string, files?: RelayFile[], extra: Partial<StaffReply> = {}) {
+    return this.onReply!({ threadId, authorName: "Matt", body, files, ...extra });
   }
 }

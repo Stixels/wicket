@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, lt, or } from "drizzle-orm";
 import { schema, type Db } from "./db/index.js";
 
 /** What a message carries about each file; the bytes stay in the file store. */
@@ -11,9 +11,13 @@ export interface Attachment {
   name: string;
   type: string;
   size: number;
+  /** The file was removed; the message keeps its name so the conversation still reads right. */
+  expired?: boolean;
 }
 
 export const MAX_FILE_BYTES = 10 * 1024 * 1024; // Discord's upload limit without boosts
+/** Uploads that never made it into a message (closed tab, removed before sending). */
+const UNSENT_KEEP_MS = 24 * 60 * 60 * 1000;
 export const MAX_FILES_PER_CONVERSATION = 30;
 
 /**
@@ -85,7 +89,7 @@ export class FileStore {
 
   get(id: string) {
     if (!/^[\w-]{10,64}$/.test(id)) return null;
-    return this.db.select().from(schema.files).where(eq(schema.files.id, id)).get() ?? null;
+    return this.db.select().from(schema.files).where(and(eq(schema.files.id, id), isNull(schema.files.deletedAt))).get() ?? null;
   }
 
   read(id: string): Buffer | null {
@@ -98,7 +102,11 @@ export class FileStore {
   }
 
   countFor(conversationId: string): number {
-    return this.db.select().from(schema.files).where(eq(schema.files.conversationId, conversationId)).all().length;
+    return this.db
+      .select()
+      .from(schema.files)
+      .where(and(eq(schema.files.conversationId, conversationId), isNull(schema.files.deletedAt)))
+      .all().length;
   }
 
   /** Marks uploaded files as part of a message. Only unclaimed files from the same conversation count. */
@@ -107,7 +115,7 @@ export class FileStore {
     const rows = this.db
       .select()
       .from(schema.files)
-      .where(and(eq(schema.files.conversationId, conversationId), inArray(schema.files.id, ids), isNull(schema.files.messageId)))
+      .where(and(eq(schema.files.conversationId, conversationId), inArray(schema.files.id, ids), isNull(schema.files.messageId), isNull(schema.files.deletedAt)))
       .all();
     if (!rows.length) return [];
     this.db
@@ -117,6 +125,51 @@ export class FileStore {
       .run();
     // Keep the order the person attached them in.
     return ids.flatMap((id) => rows.filter((r) => r.id === id)).map(({ id, name, type, size }) => ({ id, name, type, size }));
+  }
+
+  /**
+   * Removes a file's bytes and marks it expired on its message. Returns the message id it was on,
+   * if any, so callers can tell people watching the conversation.
+   */
+  remove(id: string): { messageId: number | null } | null {
+    const row = this.get(id);
+    if (!row) return null;
+    this.drop([row]);
+    return { messageId: row.messageId };
+  }
+
+  /**
+   * Removes attachments older than keepDays (0 keeps them) and uploads that were never sent.
+   * Returns how many files went.
+   */
+  sweep(keepDays: number, now = Date.now()): number {
+    const unsent = and(isNull(schema.files.messageId), lt(schema.files.createdAt, new Date(now - UNSENT_KEEP_MS)));
+    const old = keepDays > 0 ? and(isNotNull(schema.files.messageId), lt(schema.files.createdAt, new Date(now - keepDays * 86_400_000))) : undefined;
+    const rows = this.db
+      .select()
+      .from(schema.files)
+      .where(and(isNull(schema.files.deletedAt), old ? or(unsent, old) : unsent))
+      .all();
+    this.drop(rows);
+    return rows.length;
+  }
+
+  private drop(rows: (typeof schema.files.$inferSelect)[]) {
+    if (!rows.length) return;
+    for (const r of rows) fs.rmSync(path.join(this.dir, r.id), { force: true });
+    this.db
+      .update(schema.files)
+      .set({ deletedAt: new Date() })
+      .where(inArray(schema.files.id, rows.map((r) => r.id)))
+      .run();
+    // Keep the name on the message, flagged, so the conversation still makes sense.
+    const gone = new Set(rows.map((r) => r.id));
+    const messageIds = [...new Set(rows.flatMap((r) => (r.messageId == null ? [] : [r.messageId])))];
+    if (!messageIds.length) return;
+    for (const m of this.db.select().from(schema.messages).where(inArray(schema.messages.id, messageIds)).all()) {
+      const attachments = (m.attachments ?? []).map((a) => (gone.has(a.id) ? { ...a, expired: true } : a));
+      this.db.update(schema.messages).set({ attachments }).where(eq(schema.messages.id, m.id)).run();
+    }
   }
 }
 

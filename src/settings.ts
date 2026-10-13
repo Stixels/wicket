@@ -101,6 +101,13 @@ const settingsSchema = z
       })
       .strict()
       .default({}),
+    files: z
+      .object({
+        /** Days to keep attachments before their bytes are removed. 0 keeps them forever. */
+        keepDays: z.number().int().min(0).default(90),
+      })
+      .strict()
+      .default({ keepDays: 90 }),
     /** Extra repos to search. The main docs come from DOCS_GITHUB_REPO. */
     knowledge: z.array(knowledgeSchema).default([]),
     profiles: z.record(z.string(), profileSchema).default({}),

@@ -35,18 +35,46 @@ export interface RelayFile {
 export interface StaffReply {
   threadId: string;
   authorName: string;
+  /** The teammate's id in the relay's tool (e.g. their Discord user id), to link them to one member. */
+  authorId?: string;
+  avatarUrl?: string;
   body: string;
   files?: RelayFile[];
+  /** Team-only (a handoff like "@Alex can you take this?"); not sent to the user. */
+  note?: boolean;
+  /** Relay ids of the teammates a note mentions. */
+  mentions?: string[];
+}
+
+/** Someone on the team started typing in a conversation's thread. */
+export interface StaffTyping {
+  threadId: string;
+  authorName: string;
+  authorId?: string;
+}
+
+/** A teammate, as a relay needs to know them (to show their name or mention them). */
+export interface RelayMember {
+  name: string;
+  /** Their id in the relay's tool, when known. */
+  relayId?: string | null;
 }
 
 /** Mirrors conversations into the team's chat tool and brings replies back. */
 export interface Relay {
   name: string;
   /** onResolved returns true when the conversation wasn't resolved yet. `deleted` means the thread is gone. */
-  start(onStaffReply: (reply: StaffReply) => Promise<void>, onResolved?: (threadId: string, deleted?: boolean) => Promise<boolean>): Promise<void>;
+  start(
+    onStaffReply: (reply: StaffReply) => Promise<void>,
+    onResolved?: (threadId: string, deleted?: boolean) => Promise<boolean>,
+    onTyping?: (typing: StaffTyping) => void,
+  ): Promise<void>;
   /** Creates the team-side thread for a conversation; returns its id. */
   openThread(conversation: RelayConversation, firstMessage: string): Promise<string>;
-  post(threadId: string, author: "user" | "agent" | "system", body: string, authorName?: string | null, files?: RelayFile[]): Promise<void>;
+  /** "staff" is a team reply written somewhere else (e.g. the dashboard), shown under that person's name. */
+  post(threadId: string, author: "user" | "agent" | "staff" | "system", body: string, authorName?: string | null, files?: RelayFile[]): Promise<void>;
+  /** Posts a team-only note written elsewhere, pinging the teammates it mentions. Optional. */
+  postNote?(threadId: string, author: RelayMember, body: string, mentions: RelayMember[]): Promise<void>;
   /** Flags a thread as needing a person (mention a role, tag the post, ...). */
   requestHuman(threadId: string, reason: string): Promise<void>;
   /** Shows that the assistant is working (e.g. "is typing…"). Optional. */

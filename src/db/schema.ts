@@ -23,22 +23,38 @@ export const conversations = sqliteTable(
     payer: text("payer"),
     context: text("context", { mode: "json" }).$type<Record<string, unknown>>(),
     relayThreadId: text("relay_thread_id"),
+    /** When the user last had the widget connected. */
+    lastSeenAt: integer("last_seen_at", { mode: "timestamp_ms" }),
+    /** The newest message the widget has shown the user. Replies past it are unread. */
+    seenMessageId: integer("seen_message_id"),
+    /** The newest team reply already sent by email, and when. */
+    emailedMessageId: integer("emailed_message_id"),
+    emailedAt: integer("emailed_at", { mode: "timestamp_ms" }),
+    /** The user asked for no more emails about this conversation. */
+    emailOptOut: integer("email_opt_out", { mode: "boolean" }),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
   },
   (t) => [index("conversations_relay_thread").on(t.relayThreadId)],
 );
 
-/** What people see: the user, the agent and the team. */
+/**
+ * What people see: the user, the agent and the team. "note" is team-only (a handoff or
+ * an aside) and never reaches the user.
+ */
 export const messages = sqliteTable(
   "messages",
   {
     id: integer("id").primaryKey({ autoIncrement: true }),
     conversationId: text("conversation_id").notNull(),
-    author: text("author", { enum: ["user", "agent", "staff", "system"] }).notNull(),
+    author: text("author", { enum: ["user", "agent", "staff", "system", "note"] }).notNull(),
     authorName: text("author_name"),
+    /** The teammate who wrote a staff reply or note, wherever they wrote it. */
+    memberId: text("member_id"),
+    /** Teammates a note @mentions. */
+    mentions: text("mentions", { mode: "json" }).$type<string[]>(),
     body: text("body").notNull(),
-    attachments: text("attachments", { mode: "json" }).$type<{ id: string; name: string; type: string; size: number }[]>(),
+    attachments: text("attachments", { mode: "json" }).$type<{ id: string; name: string; type: string; size: number; expired?: boolean }[]>(),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   },
   (t) => [index("messages_conversation").on(t.conversationId, t.id)],
@@ -89,6 +105,37 @@ export const files = sqliteTable(
     type: text("type").notNull(),
     size: integer("size").notNull(),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    /** Set when the bytes were removed (expired or deleted by the team). The row stays as a record. */
+    deletedAt: integer("deleted_at", { mode: "timestamp_ms" }),
   },
   (t) => [index("files_conversation").on(t.conversationId)],
 );
+
+/**
+ * One row per teammate, whichever tool they reply from. A reply from Discord and one from
+ * the dashboard by the same person point at the same member.
+ */
+export const members = sqliteTable("members", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  discordId: text("discord_id").unique(),
+  avatarUrl: text("avatar_url"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  lastSeenAt: integer("last_seen_at", { mode: "timestamp_ms" }),
+});
+
+/** Answers the team gives often, shared by everyone on it. */
+export const savedReplies = sqliteTable("saved_replies", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  createdBy: text("created_by"),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});
+
+/** Dashboard sign-ins. Only a hash of the cookie is stored. */
+export const teamSessions = sqliteTable("team_sessions", {
+  id: text("id").primaryKey(),
+  memberId: text("member_id").notNull(),
+  expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
+});
