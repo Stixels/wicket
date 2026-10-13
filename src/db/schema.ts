@@ -23,6 +23,8 @@ export const conversations = sqliteTable(
     payer: text("payer"),
     context: text("context", { mode: "json" }).$type<Record<string, unknown>>(),
     relayThreadId: text("relay_thread_id"),
+    /** When the user last had the widget connected. */
+    lastSeenAt: integer("last_seen_at", { mode: "timestamp_ms" }),
     /** The newest message the widget has shown the user. Replies past it are unread. */
     seenMessageId: integer("seen_message_id"),
     /** The newest team reply already sent by email, and when. */

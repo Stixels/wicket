@@ -8,7 +8,7 @@ import { bodyLimit } from "hono/body-limit";
 import { desc } from "drizzle-orm";
 import { z } from "zod";
 import { schema, type Db } from "../db/index.js";
-import { TEAM_EVENTS, type ConversationService, type TeamEvent, type TeamMessage } from "../conversations.js";
+import { TEAM_EVENTS, type ConversationService, type Presence, type TeamEvent, type TeamMessage } from "../conversations.js";
 import { MAX_FILES_PER_CONVERSATION, MAX_FILE_BYTES, allowedType } from "../files.js";
 import { toPublicMember, type Member } from "./members.js";
 
@@ -289,6 +289,8 @@ export interface InboxItem {
   /** A note mentions me and I haven't written since. */
   mentionsMe: boolean;
   discordUrl: string | null;
+  /** Whether the user has the chat open right now. */
+  presence: Presence;
 }
 
 export function inboxItem(service: ConversationService, row: typeof schema.conversations.$inferSelect, me: string, guildId?: string): InboxItem {
@@ -321,6 +323,7 @@ export function inboxItem(service: ConversationService, row: typeof schema.conve
     needsReply,
     mentionsMe,
     discordUrl: guildId && row.relayThreadId ? `https://discord.com/channels/${guildId}/${row.relayThreadId}` : null,
+    presence: service.presenceOf(row.id, row),
   };
 }
 

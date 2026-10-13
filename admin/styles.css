@@ -773,6 +773,44 @@ nav {
   color: var(--muted);
   box-shadow: inset 0 0 0 1px var(--border-strong);
 }
+.presence-wrap {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-self: flex-start;
+}
+.pdot {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2.5px var(--panel);
+}
+.pdot.viewing {
+  background: var(--good);
+}
+.pdot.online {
+  background: var(--panel);
+  box-shadow: 0 0 0 2.5px var(--panel), inset 0 0 0 2.5px var(--good);
+}
+.item:hover .pdot {
+  --ring: var(--hover);
+}
+.item.active .pdot {
+  --ring: var(--raised);
+}
+.item .pdot {
+  box-shadow: 0 0 0 2.5px var(--ring, var(--panel));
+}
+.item .pdot.online {
+  background: var(--ring, var(--panel));
+  box-shadow: 0 0 0 2.5px var(--ring, var(--panel)), inset 0 0 0 2.5px var(--good);
+}
+.presence-text.viewing {
+  color: var(--good);
+}
 .stack {
   display: inline-flex;
 }
@@ -1498,4 +1536,7 @@ nav {
     animation: none !important;
     transition: none !important;
   }
+}
+.conv-head .presence-wrap {
+  align-self: center;
 }

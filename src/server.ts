@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { Hono, type Context } from "hono";
@@ -39,6 +40,7 @@ const sessionBody = z.object({
   context: z.record(z.string(), z.unknown()).optional(),
 });
 const emailBody = z.object({ email: z.string().max(320) });
+const presenceBody = z.object({ cid: z.string().min(1).max(64), viewing: z.boolean() });
 const messageBody = z.object({
   body: z.string().max(4000).default(""),
   context: z.record(z.string(), z.unknown()).optional(),
@@ -203,6 +205,15 @@ export function createServer(service: ConversationService, opts: ServerOptions) 
     return c.body(new Uint8Array(data));
   });
 
+  app.post("/api/conversations/:id/presence", async (c) => {
+    const conv = service.authorize(c.req.param("id"), bearer(c) ?? "");
+    if (!conv) return c.json({ error: "Not found" }, 404);
+    const parsed = presenceBody.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: "Invalid request" }, 400);
+    service.widgetViewing(conv.id, parsed.data.cid, parsed.data.viewing);
+    return c.json({ ok: true });
+  });
+
   // A page with just the chat, for links in emails. The token is in the #fragment, so it never
   // reaches server logs; the widget reads it and keeps the conversation in this browser.
   app.get("/chat/:id", (c) => {
@@ -282,14 +293,22 @@ Wicket.init({ page: true, conversation: token ? { id: id, token: token } : undef
 
       const listener = (event: { type: string }) => void send(event).catch(() => {});
       service.events.on(conv.id, listener);
-      stream.onAbort(() => {
+      // Each open widget names its connection, so it can say whether its chat is in view.
+      const cid = (c.req.query("cid") ?? "").slice(0, 64) || crypto.randomUUID();
+      service.widgetConnected(conv.id, cid);
+      let gone = false;
+      const leave = () => {
+        if (gone) return;
+        gone = true;
         service.events.off(conv.id, listener);
-      });
+        service.widgetDisconnected(conv.id, cid);
+      };
+      stream.onAbort(leave);
       while (!stream.aborted) {
         await stream.sleep(25_000);
         await stream.writeSSE({ event: "ping", data: "{}" }).catch(() => {});
       }
-      service.events.off(conv.id, listener);
+      leave();
     });
   });
 

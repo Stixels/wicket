@@ -204,6 +204,35 @@ describe("team dashboard", () => {
     expect((await call(`/api/conversations/${conv.id}/files/${file.id}`, { method: "DELETE" })).status).toBe(404);
   });
 
+  it("shows whether the user is in the chat, on the site, or gone", async () => {
+    const { app, service } = setup();
+    const conv = await userConversation(app, service);
+    const call = await teammate(app);
+    const events: TeamEvent[] = [];
+    service.events.on(TEAM_EVENTS, (e: TeamEvent) => e.type === "presence" && events.push(e));
+    const presence = async () => ((await (await call(`/api/conversations?view=all`)).json()) as any).conversations[0].presence;
+
+    expect((await presence()).state).toBe("offline");
+    service.widgetConnected(conv.id, "tab1");
+    expect((await presence()).state).toBe("online");
+    const viewing = await app.request(`/api/conversations/${conv.id}/presence`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${conv.token}` },
+      body: JSON.stringify({ cid: "tab1", viewing: true }),
+    });
+    expect(viewing.status).toBe(200);
+    expect((await presence()).state).toBe("viewing");
+    // A second tab with the chat closed doesn't change what the team sees.
+    service.widgetConnected(conv.id, "tab2");
+    service.widgetDisconnected(conv.id, "tab1");
+    expect((await presence()).state).toBe("online");
+    service.widgetDisconnected(conv.id, "tab2");
+    const gone = await presence();
+    expect(gone.state).toBe("offline");
+    expect(Date.now() - gone.lastSeenAt).toBeLessThan(5000);
+    expect(events.map((e) => (e as any).presence.state)).toEqual(["online", "viewing", "online", "offline"]);
+  });
+
   it("announces who is typing, from the dashboard or Discord", async () => {
     const { app, relay, service } = setup();
     const conv = await userConversation(app, service);

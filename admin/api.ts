@@ -40,6 +40,12 @@ export interface InboxItem {
   needsReply: boolean;
   mentionsMe: boolean;
   discordUrl: string | null;
+  presence: Presence;
+}
+
+export interface Presence {
+  state: "viewing" | "online" | "offline";
+  lastSeenAt: number | null;
 }
 
 export interface ConversationDetail extends InboxItem {
@@ -52,7 +58,8 @@ export type View = "open" | "needs_reply" | "mentions" | "resolved" | "all";
 export type TeamEvent =
   | { type: "message"; conversationId: string; message: Message }
   | { type: "status"; conversationId: string; status: Status }
-  | { type: "typing"; conversationId: string; memberId: string | null; name: string; source: string };
+  | { type: "typing"; conversationId: string; memberId: string | null; name: string; source: string }
+  | { type: "presence"; conversationId: string; presence: Presence };
 
 export class ApiError extends Error {
   constructor(

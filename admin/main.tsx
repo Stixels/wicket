@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
-import { api, ApiError, fileUrl, type Attachment, type ConversationDetail, type InboxItem, type Member, type Message, type TeamEvent, type View } from "./api.js";
+import { api, ApiError, fileUrl, type Attachment, type ConversationDetail, type InboxItem, type Member, type Message, type Presence, type TeamEvent, type View } from "./api.js";
 import { EMOJI, GROUPS, recentEmoji, rememberEmoji, searchEmoji } from "./emoji.js";
 import { RichText } from "./text.js";
 import "./styles.css";
@@ -126,13 +126,17 @@ function Dashboard({ me, onSignOut }: { me: Member; onSignOut: () => void }) {
         });
         return;
       }
+      if (event.type === "presence") {
+        setItems((list) => list?.map((i) => (i.id === event.conversationId ? { ...i, presence: event.presence } : i)) ?? list);
+        return;
+      }
       if (event.type === "message" && event.message.author === "staff") {
         // Their reply landed, so they're done typing.
         setTyping((t) => ({ ...t, [event.conversationId]: (t[event.conversationId] ?? []).filter((x) => x.name !== event.message.authorName) }));
       }
       soon();
     };
-    for (const type of ["message", "status", "typing"]) es.addEventListener(type, on as EventListener);
+    for (const type of ["message", "status", "typing", "presence"]) es.addEventListener(type, on as EventListener);
     es.addEventListener("ready", () => setConnected(true));
     es.onerror = () => setConnected(false);
     return () => {
@@ -271,7 +275,7 @@ function ListItem({ item, active, typing, onClick }: { item: InboxItem; active: 
   const typers = (typing ?? []).filter((t) => t.until > Date.now());
   return (
     <button className={`item ${active ? "active" : ""} ${item.needsReply ? "unread" : ""} ${item.status === "resolved" ? "done" : ""}`} onClick={onClick}>
-      <Avatar name={who} size={36} />
+      <UserAvatar name={who} size={36} presence={item.presence} />
       <div className="item-main">
         <div className="item-top">
           <span className="item-name">{who}</span>
@@ -355,7 +359,8 @@ function Conversation({
     if (live.type === "message")
       setMessages((m) => (m.some((x) => x.id === live.message.id) ? m.map((x) => (x.id === live.message.id ? live.message : x)) : [...m, live.message]));
     if (live.type === "status") setConv((c) => (c ? { ...c, status: live.status } : c));
-    if (live.type !== "typing") {
+    if (live.type === "presence") setConv((c) => (c ? { ...c, presence: live.presence } : c));
+    if (live.type !== "typing" && live.type !== "presence") {
       // Who has replied and whether someone is waiting come from the server.
       const t = setTimeout(load, 300);
       return () => clearTimeout(t);
@@ -381,12 +386,13 @@ function Conversation({
           <button className="icon-btn back" onClick={onBack} title="Back">
             <Icon d="M15 18l-6-6 6-6" />
           </button>
-          <Avatar name={who} size={36} />
+          <UserAvatar name={who} size={36} presence={conv.presence} />
           <div className="conv-title">
             <div className="conv-name">{who}</div>
             <div className="conv-sub">
               <span className={`state-dot ${conv.needsReply ? "hot" : conv.status}`} />
               {stateText(conv)}
+              {presenceText(conv.presence) && <span className={`presence-text ${conv.presence.state}`}> · {presenceText(conv.presence)}</span>}
               {conv.participants.length > 0 && <> · {names(conv.participants.map((p) => (p.memberId === me.id ? "you" : p.name)))} replied</>}
             </div>
           </div>
@@ -844,6 +850,26 @@ function Avatar({ name, url, size = 28 }: { name: string; url?: string | null; s
       {url ? <img src={url} alt="" /> : initials || "?"}
     </span>
   );
+}
+
+/** The user's avatar, with a dot while they're around: solid in the chat, ring on the site. */
+function UserAvatar({ name, size, presence }: { name: string; size: number; presence?: Presence }) {
+  const state = presence?.state ?? "offline";
+  return (
+    <span className="presence-wrap">
+      <Avatar name={name} size={size} />
+      {state !== "offline" && <i className={`pdot ${state}`} title={presenceText(presence!) ?? ""} />}
+    </span>
+  );
+}
+
+function presenceText(p: Presence): string | null {
+  if (p.state === "viewing") return "In the chat now";
+  if (p.state === "online") return "On the site";
+  if (!p.lastSeenAt) return null;
+  const a = ago(p.lastSeenAt);
+  if (a === "now") return "Left just now";
+  return /^\d/.test(a) ? `Last seen ${a} ago` : `Last seen ${a}`;
 }
 
 function AvatarStack({ people, max = 4, size = 22 }: { people: { name: string; avatarUrl?: string | null }[]; max?: number; size?: number }) {

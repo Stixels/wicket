@@ -559,6 +559,7 @@ class Widget {
     this.render();
     this.applyTheme();
     this.media?.addEventListener?.("change", () => this.applyTheme());
+    document.addEventListener("visibilitychange", () => this.sendPresence());
     if (options.conversation) {
       this.conv = options.conversation;
       this.store();
@@ -585,12 +586,14 @@ class Widget {
     this.fitToScreen(true);
     this.halftone.play();
     this.setUnread(0);
+    this.sendPresence();
     setTimeout(() => this.input.focus(), 50);
   }
 
   close() {
     if (this.opts.page) return;
     this.wrap.classList.remove("open");
+    this.sendPresence();
     this.fitToScreen(false);
     this.halftone.pause();
   }
@@ -1152,9 +1155,11 @@ class Widget {
 
   private connect() {
     if (!this.conv || this.source) return;
-    const url = `${this.opts.apiUrl}/api/conversations/${this.conv.id}/events?token=${encodeURIComponent(this.conv.token)}&after=${this.lastId}`;
+    const url = `${this.opts.apiUrl}/api/conversations/${this.conv.id}/events?token=${encodeURIComponent(this.conv.token)}&after=${this.lastId}&cid=${this.cid}`;
     const es = new EventSource(url);
     this.source = es;
+    // A new connection starts as "not looking"; say so once it's open.
+    es.addEventListener("open", () => this.sendPresence(true));
     es.addEventListener("message", (e) => {
       const m = JSON.parse((e as MessageEvent).data).message as Message;
       const fresh = !this.seen.has(m.id);
@@ -1187,6 +1192,24 @@ class Widget {
           .catch(() => {});
       }
     });
+  }
+
+  /** This page's connection, so the team can see whether the chat is in view here. */
+  private cid = Math.random().toString(36).slice(2) + Date.now().toString(36);
+  private viewingSent: boolean | null = null;
+
+  /** Tells the team whether the user is looking at the chat right now. */
+  private sendPresence(force = false) {
+    if (!this.conv || !this.source) return;
+    const viewing = this.wrap.classList.contains("open") && document.visibilityState === "visible";
+    if (!force && viewing === this.viewingSent) return;
+    this.viewingSent = viewing;
+    void fetch(`${this.opts.apiUrl}/api/conversations/${this.conv.id}/presence`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${this.conv.token}` },
+      body: JSON.stringify({ cid: this.cid, viewing }),
+      keepalive: true,
+    }).catch(() => {});
   }
 
   private thinkingStop?: () => void;

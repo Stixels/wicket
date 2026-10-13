@@ -37,7 +37,17 @@ export const TEAM_EVENTS = "team";
 export type TeamEvent =
   | { type: "message"; conversationId: string; message: TeamMessage }
   | { type: "status"; conversationId: string; status: Status }
-  | { type: "typing"; conversationId: string; memberId: string | null; name: string; source: string };
+  | { type: "typing"; conversationId: string; memberId: string | null; name: string; source: string }
+  | { type: "presence"; conversationId: string; presence: Presence };
+
+/**
+ * Whether the user is around: "viewing" has the chat open in a visible tab, "online" has the page
+ * open with the chat closed or in the background, "offline" has no page open.
+ */
+export interface Presence {
+  state: "viewing" | "online" | "offline";
+  lastSeenAt: number | null;
+}
 
 /** Who on the team wrote something, and where. */
 export interface TeamAuthor {
@@ -282,6 +292,48 @@ export class ConversationService {
         .catch((err) => this.log(`relay note failed for ${id}`, err));
     }
     return msg;
+  }
+
+  // Open widget connections per conversation, each with whether its chat is in view.
+  private connections = new Map<string, Map<string, boolean>>();
+
+  presenceOf(id: string, row = this.get(id)): Presence {
+    const views = [...(this.connections.get(id)?.values() ?? [])];
+    const state = views.some(Boolean) ? "viewing" : views.length ? "online" : "offline";
+    return { state, lastSeenAt: state === "offline" ? (row?.lastSeenAt?.getTime() ?? null) : Date.now() };
+  }
+
+  /** A widget connected to a conversation's live updates. */
+  widgetConnected(id: string, cid: string) {
+    if (!this.connections.has(id)) this.connections.set(id, new Map());
+    this.connections.get(id)!.set(cid, this.connections.get(id)!.get(cid) ?? false);
+    this.presenceChanged(id);
+  }
+
+  widgetDisconnected(id: string, cid: string) {
+    const views = this.connections.get(id);
+    if (!views?.delete(cid)) return;
+    if (!views.size) this.connections.delete(id);
+    this.presenceChanged(id);
+  }
+
+  /** The widget says whether the chat is open in a visible tab. */
+  widgetViewing(id: string, cid: string, viewing: boolean) {
+    const views = this.connections.get(id);
+    if (!views?.has(cid) || views.get(cid) === viewing) return;
+    views.set(cid, viewing);
+    this.presenceChanged(id);
+  }
+
+  private lastPresence = new Map<string, Presence["state"]>();
+
+  private presenceChanged(id: string) {
+    this.db.update(schema.conversations).set({ lastSeenAt: new Date() }).where(eq(schema.conversations.id, id)).run();
+    const presence = this.presenceOf(id);
+    if (this.lastPresence.get(id) === presence.state) return;
+    if (presence.state === "offline") this.lastPresence.delete(id);
+    else this.lastPresence.set(id, presence.state);
+    this.events.emit(TEAM_EVENTS, { type: "presence", conversationId: id, presence } satisfies TeamEvent);
   }
 
   /** Someone on the team is typing in a conversation (in the dashboard, or in the relay's thread). */
