@@ -6,6 +6,7 @@ import { Agent, answerOnce } from "./agent/agent.js";
 import { ConversationService } from "./conversations.js";
 import { createServer } from "./server.js";
 import { reindex, readDoc, searchDocs } from "./knowledge/index.js";
+import { WebsiteSource } from "./adapters/knowledge/website.js";
 import { MarkdownRepoSource } from "./adapters/knowledge/markdownRepo.js";
 import { DiscordRelay } from "./adapters/relay/discord.js";
 import { setupGuild } from "./discord/setup.js";
@@ -33,8 +34,13 @@ if (config.DOCS_GITHUB_REPO) {
     }),
   );
 }
+if (config.DOCS_URL) sources.push(new WebsiteSource({ url: config.DOCS_URL }));
 for (const k of settings.knowledge) {
-  sources.push(new MarkdownRepoSource({ repo: k.github, ref: k.ref, baseUrl: k.baseUrl, include: k.include, exclude: k.exclude, token: config.DOCS_GITHUB_TOKEN }));
+  sources.push(
+    "url" in k
+      ? new WebsiteSource({ url: k.url, maxPages: k.maxPages })
+      : new MarkdownRepoSource({ repo: k.github, ref: k.ref, baseUrl: k.baseUrl, include: k.include, exclude: k.exclude, token: config.DOCS_GITHUB_TOKEN }),
+  );
 }
 
 // No key means no assistant: every conversation goes straight to the team.

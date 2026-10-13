@@ -32,6 +32,8 @@ const schema = z.object({
   DOCS_GITHUB_REF: z.string().default("HEAD"),
   DOCS_GITHUB_TOKEN: z.string().optional(),
   DOCS_BASE_URL: z.string().optional(), // public docs site, e.g. https://docs.example.com
+  // Or, with no repo: a hosted docs site, read from its sitemap or by following links
+  DOCS_URL: z.string().url().optional(), // docs home page (pages under its path) or a sitemap.xml
   DOCS_REINDEX_HOURS: z.coerce.number().default(24),
 
   // Relay: where conversations show up for the team
