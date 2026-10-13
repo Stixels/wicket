@@ -201,14 +201,7 @@ function Dashboard({ me, onSignOut }: { me: Member; onSignOut: () => void }) {
           ))}
         </nav>
         <div className="sidebar-foot">
-          <div className="me">
-            <Avatar name={me.name} url={me.avatarUrl} size={28} />
-            <span className="me-name">{me.name}</span>
-            <ThemeToggle />
-            <button className="icon-btn" title="Sign out" onClick={() => void api("/auth/logout", { json: {} }).then(onSignOut)}>
-              <Icon d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l5-5-5-5M15 12H3" />
-            </button>
-          </div>
+          <ProfileMenu me={me} onSignOut={onSignOut} />
         </div>
       </aside>
 
@@ -578,6 +571,18 @@ function Composer({ conversation, members, me, onSent }: { conversation: Convers
     });
   };
 
+  /** Puts text at the caret, e.g. an emoji from the picker. */
+  const insert = (value: string) => {
+    const el = ref.current;
+    const start = el?.selectionStart ?? text.length;
+    const end = el?.selectionEnd ?? text.length;
+    setText(text.slice(0, start) + value + text.slice(end));
+    requestAnimationFrame(() => {
+      el?.focus();
+      el?.setSelectionRange(start + value.length, start + value.length);
+    });
+  };
+
   const upload = async (list: FileList | File[]) => {
     for (const file of Array.from(list).slice(0, 10)) {
       const temp = { id: `tmp-${Math.random()}`, name: file.name, type: file.type, size: file.size, uploading: true };
@@ -715,6 +720,7 @@ function Composer({ conversation, members, me, onSent }: { conversation: Convers
               />
             </>
           )}
+          <EmojiPicker onPick={insert} />
           {error && <span className="composer-error">{error}</span>}
           <span className="spacer" />
           <button className={`btn btn-send ${note ? "btn-note" : ""}`} disabled={sending || (!text.trim() && (note || !files.length))} onClick={() => void send()}>
@@ -819,23 +825,83 @@ function AvatarStack({ people, max = 4, size = 22 }: { people: { name: string; a
   );
 }
 
-function ThemeToggle() {
+/** You, in the corner: one quiet row that opens a small menu for the theme and signing out. */
+function ProfileMenu({ me, onSignOut }: { me: Member; onSignOut: () => void }) {
+  const [open, setOpen] = useState(false);
   const [theme, setTheme] = useState(() => document.documentElement.dataset.theme ?? "dark");
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
+    const esc = (e: globalThis.KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    addEventListener("mousedown", close);
+    addEventListener("keydown", esc);
+    return () => {
+      removeEventListener("mousedown", close);
+      removeEventListener("keydown", esc);
+    };
+  }, [open]);
+  const toggleTheme = () => {
+    const next = theme === "dark" ? "light" : "dark";
+    document.documentElement.dataset.theme = next;
+    try {
+      localStorage.setItem("wicket-team-theme", next);
+    } catch {}
+    setTheme(next);
+  };
   return (
-    <button
-      className="icon-btn"
-      title={theme === "dark" ? "Light mode" : "Dark mode"}
-      onClick={() => {
-        const next = theme === "dark" ? "light" : "dark";
-        document.documentElement.dataset.theme = next;
-        try {
-          localStorage.setItem("wicket-team-theme", next);
-        } catch {}
-        setTheme(next);
-      }}
-    >
-      {theme === "dark" ? <Icon d="M12 3v2M12 19v2M5 5l1.5 1.5M17.5 17.5 19 19M3 12h2M19 12h2M5 19l1.5-1.5M17.5 6.5 19 5M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z" /> : <Icon d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5Z" />}
-    </button>
+    <div className="me-wrap" ref={ref}>
+      {open && (
+        <div className="menu" role="menu">
+          <div className="menu-who">
+            <b>{me.name}</b>
+            <span>{me.discordId ? "Signed in with Discord" : "Local sign-in"}</span>
+          </div>
+          <button role="menuitem" onClick={toggleTheme}>
+            {theme === "dark" ? <Icon d="M12 3v2M12 19v2M5 5l1.5 1.5M17.5 17.5 19 19M3 12h2M19 12h2M5 19l1.5-1.5M17.5 6.5 19 5M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z" /> : <Icon d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5Z" />}
+            {theme === "dark" ? "Light mode" : "Dark mode"}
+          </button>
+          <button role="menuitem" onClick={() => void api("/auth/logout", { json: {} }).then(onSignOut)}>
+            <Icon d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l5-5-5-5M15 12H3" />
+            Sign out
+          </button>
+        </div>
+      )}
+      <button className={`me ${open ? "on" : ""}`} onClick={() => setOpen(!open)} aria-haspopup="menu" aria-expanded={open} title={me.name}>
+        <Avatar name={me.name} url={me.avatarUrl} size={28} />
+        <span className="me-name">{me.name}</span>
+        <Icon d="M8 9l4-4 4 4M8 15l4 4 4-4" />
+      </button>
+    </div>
+  );
+}
+
+const EMOJI = "😀 😄 😊 🙂 😉 😍 🥳 😎 🤔 😅 😬 😢 🙏 👍 👎 👏 🙌 👋 💪 🤝 ❤️ 🔥 ✨ 🎉 ✅ ❌ ⚠️ 💡 🐛 🛠️ 🚀 ⏱️ 🔒 🔑 📎 📸 👀 💬 ⭐ 🧩".split(" ");
+
+function EmojiPicker({ onPick }: { onPick: (emoji: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
+    addEventListener("mousedown", close);
+    return () => removeEventListener("mousedown", close);
+  }, [open]);
+  return (
+    <div className="emoji-wrap" ref={ref}>
+      <button className={`icon-btn ${open ? "on" : ""}`} title="Emoji" aria-label="Emoji" onClick={() => setOpen(!open)}>
+        <Icon d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM8.5 14.5s1.2 1.8 3.5 1.8 3.5-1.8 3.5-1.8M9 9.5h.01M15 9.5h.01" />
+      </button>
+      {open && (
+        <div className="emoji-pop" role="dialog" aria-label="Pick an emoji">
+          {EMOJI.map((e) => (
+            <button key={e} onMouseDown={(ev) => ev.preventDefault()} onClick={() => (onPick(e), setOpen(false))}>
+              {e}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

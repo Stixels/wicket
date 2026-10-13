@@ -377,21 +377,111 @@ nav {
   gap: 8px;
   padding: 0 8px;
 }
+.me-wrap {
+  position: relative;
+}
 .me {
+  width: 100%;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px;
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  background: var(--panel);
+  gap: 10px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  text-align: left;
+}
+.me:hover,
+.me.on {
+  background: var(--hover);
+  color: var(--text);
 }
 .me-name {
   flex: 1;
+  color: var(--text);
   font-weight: 550;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.menu,
+.emoji-pop {
+  position: absolute;
+  z-index: 20;
+  padding: 4px;
+  border-radius: 12px;
+  background: var(--raised);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow);
+  animation: pop 0.12s ease-out;
+}
+.menu {
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 6px);
+  min-width: 200px;
+  display: grid;
+}
+.menu-who {
+  display: grid;
+  padding: 8px 10px 10px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.menu-who span {
+  font-size: 12px;
+  color: var(--muted);
+}
+.menu button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 34px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+.menu button:hover {
+  background: var(--hover);
+}
+.menu button .icon {
+  color: var(--muted);
+}
+.emoji-wrap {
+  position: relative;
+}
+.emoji-pop {
+  left: 0;
+  bottom: calc(100% + 8px);
+  width: min(316px, calc(100vw - 40px));
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 2px;
+}
+.emoji-pop button {
+  height: 32px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.emoji-pop button:hover {
+  background: var(--hover);
+}
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
 }
 
 /* --- List --- */
@@ -1211,8 +1301,11 @@ nav {
   .nav-item span,
   .team-row,
   .me-name,
-  .me .icon-btn:not(:last-child) {
+  .me > .icon {
     display: none;
+  }
+  .menu {
+    right: auto;
   }
   .nav-item {
     justify-content: center;
@@ -1236,10 +1329,8 @@ nav {
     padding: 6px 0 18px;
   }
   .me {
-    flex-direction: column;
+    justify-content: center;
     padding: 6px 0;
-    border: 0;
-    background: none;
   }
   .conv.with-details {
     grid-template-columns: 1fr;
