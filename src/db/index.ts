@@ -82,6 +82,14 @@ CREATE TABLE IF NOT EXISTS members (
   last_seen_at INTEGER
 );
 
+CREATE TABLE IF NOT EXISTS saved_replies (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL,
+  created_by TEXT,
+  updated_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS team_sessions (
   id TEXT PRIMARY KEY,
   member_id TEXT NOT NULL,

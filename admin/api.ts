@@ -56,8 +56,8 @@ export interface ConversationDetail extends InboxItem {
 export type View = "open" | "needs_reply" | "mentions" | "resolved" | "all";
 
 export type TeamEvent =
-  | { type: "message"; conversationId: string; message: Message }
-  | { type: "status"; conversationId: string; status: Status }
+  | { type: "message"; conversationId: string; message: Message; who?: string | null; status?: Status }
+  | { type: "status"; conversationId: string; status: Status; who?: string | null }
   | { type: "typing"; conversationId: string; memberId: string | null; name: string; source: string }
   | { type: "presence"; conversationId: string; presence: Presence };
 

@@ -35,8 +35,8 @@ export interface TeamMessage extends PublicMessage {
 export const TEAM_EVENTS = "team";
 
 export type TeamEvent =
-  | { type: "message"; conversationId: string; message: TeamMessage }
-  | { type: "status"; conversationId: string; status: Status }
+  | { type: "message"; conversationId: string; message: TeamMessage; who?: string | null; status?: Status }
+  | { type: "status"; conversationId: string; status: Status; who?: string | null }
   | { type: "typing"; conversationId: string; memberId: string | null; name: string; source: string }
   | { type: "presence"; conversationId: string; presence: Presence };
 
@@ -596,7 +596,9 @@ export class ConversationService {
     const msg = toTeam(row);
     // Notes stay with the team; the user's widget never hears about them.
     if (author !== "note") this.events.emit(id, { type: "message", message: toPublic(row) });
-    this.events.emit(TEAM_EVENTS, { type: "message", conversationId: id, message: msg } satisfies TeamEvent);
+    // Who and where it stands, so the dashboard can word a notification without a lookup.
+    const c = this.get(id);
+    this.events.emit(TEAM_EVENTS, { type: "message", conversationId: id, message: msg, who: c?.reporterName ?? c?.reporterEmail, status: c?.status } satisfies TeamEvent);
     return msg;
   }
 
@@ -607,7 +609,8 @@ export class ConversationService {
       .where(eq(schema.conversations.id, id))
       .run();
     this.events.emit(id, { type: "status", status });
-    this.events.emit(TEAM_EVENTS, { type: "status", conversationId: id, status } satisfies TeamEvent);
+    const c = this.get(id);
+    this.events.emit(TEAM_EVENTS, { type: "status", conversationId: id, status, who: c?.reporterName ?? c?.reporterEmail } satisfies TeamEvent);
   }
 
   private mergeContext(id: string, update: Record<string, unknown>) {

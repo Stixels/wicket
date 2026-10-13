@@ -233,6 +233,32 @@ describe("team dashboard", () => {
     expect(events.map((e) => (e as any).presence.state)).toEqual(["online", "viewing", "online", "offline"]);
   });
 
+  it("keeps saved replies for the whole team", async () => {
+    const { app } = setup();
+    const call = await teammate(app);
+    expect((await call("/api/replies", { json: { title: " ", body: "x" } })).status).toBe(400);
+    const made = (await (await call("/api/replies", { json: { title: "Clear cache", body: "Hi {name}, try a hard refresh." } })).json()) as any;
+    await call("/api/replies", { json: { title: "Billing", body: "Billing lives under Settings." } });
+    const list = async () => ((await (await call("/api/replies")).json()) as any).replies.map((r: any) => r.title);
+    expect(await list()).toEqual(["Billing", "Clear cache"]);
+    expect((await call(`/api/replies/${made.reply.id}`, { method: "PUT", json: { title: "Cache", body: "Refresh, {name}." } })).status).toBe(200);
+    expect(await list()).toEqual(["Billing", "Cache"]);
+    await call(`/api/replies/${made.reply.id}`, { method: "DELETE" });
+    expect(await list()).toEqual(["Billing"]);
+    // Writes need the same-origin check like everything else.
+    expect((await app.request("/admin/api/replies", { method: "POST", body: "{}" })).status).toBe(401);
+  });
+
+  it("tells the dashboard who wrote and where the conversation stands, for notifications", async () => {
+    const { app, service } = setup();
+    const events: TeamEvent[] = [];
+    service.events.on(TEAM_EVENTS, (e: TeamEvent) => events.push(e));
+    await userConversation(app, service);
+    const user = events.find((e) => e.type === "message" && e.message.author === "user") as any;
+    expect(user).toMatchObject({ who: "Sam" });
+    expect(events.some((e) => e.type === "status" && e.status === "needs_human" && (e as any).who === "Sam")).toBe(true);
+  });
+
   it("announces who is typing, from the dashboard or Discord", async () => {
     const { app, relay, service } = setup();
     const conv = await userConversation(app, service);

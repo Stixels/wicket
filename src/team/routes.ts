@@ -5,7 +5,7 @@ import { Hono, type Context } from "hono";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import { streamSSE } from "hono/streaming";
 import { bodyLimit } from "hono/body-limit";
-import { desc } from "drizzle-orm";
+import { asc, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { schema, type Db } from "../db/index.js";
 import { TEAM_EVENTS, type ConversationService, type Presence, type TeamEvent, type TeamMessage } from "../conversations.js";
@@ -50,6 +50,12 @@ const messageBody = z.object({
   note: z.boolean().default(false),
   mentions: z.array(z.string().max(64)).max(20).default([]),
 });
+
+const savedReplyBody = z.object({
+  title: z.string().trim().min(1).max(80),
+  body: z.string().trim().min(1).max(4000),
+});
+const publicReply = (r: typeof schema.savedReplies.$inferSelect) => ({ id: r.id, title: r.title, body: r.body, updatedAt: r.updatedAt.getTime() });
 
 export type InboxView = "open" | "needs_reply" | "mentions" | "resolved" | "all";
 
@@ -163,6 +169,35 @@ export function teamRoutes(db: Db, service: ConversationService, opts: TeamOptio
   app.get("/api/me", (c) => c.json({ member: toPublicMember(c.get("member")), productName: opts.productName }));
 
   app.get("/api/members", (c) => c.json({ members: service.members.list() }));
+
+  // Saved replies, shared by the team.
+  const listReplies = () => db.select().from(schema.savedReplies).orderBy(asc(schema.savedReplies.title)).all().map(publicReply);
+  app.get("/api/replies", (c) => c.json({ replies: listReplies() }));
+  app.post("/api/replies", async (c) => {
+    const parsed = savedReplyBody.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: "Give it a title and some text" }, 400);
+    const row = db
+      .insert(schema.savedReplies)
+      .values({ id: crypto.randomUUID(), ...parsed.data, createdBy: c.get("member").id, updatedAt: new Date() })
+      .returning()
+      .get();
+    return c.json({ reply: publicReply(row) }, 201);
+  });
+  app.put("/api/replies/:id", async (c) => {
+    const parsed = savedReplyBody.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: "Give it a title and some text" }, 400);
+    const row = db
+      .update(schema.savedReplies)
+      .set({ ...parsed.data, updatedAt: new Date() })
+      .where(eq(schema.savedReplies.id, c.req.param("id")))
+      .returning()
+      .get();
+    return row ? c.json({ reply: publicReply(row) }) : c.json({ error: "Not found" }, 404);
+  });
+  app.delete("/api/replies/:id", (c) => {
+    db.delete(schema.savedReplies).where(eq(schema.savedReplies.id, c.req.param("id"))).run();
+    return c.json({ ok: true });
+  });
 
   app.get("/api/conversations", (c) => {
     const view = (c.req.query("view") ?? "open") as InboxView;

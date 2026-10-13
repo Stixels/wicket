@@ -3,6 +3,8 @@ import { createRoot } from "react-dom/client";
 import { api, ApiError, fileUrl, type Attachment, type ConversationDetail, type InboxItem, type Member, type Message, type Presence, type TeamEvent, type View } from "./api.js";
 import { EMOJI, GROUPS, recentEmoji, rememberEmoji, searchEmoji } from "./emoji.js";
 import { RichText } from "./text.js";
+import * as notifications from "./notify.js";
+import { SavedReplies, fillReply, matchReplies, useSavedReplies, type SavedReply } from "./replies.js";
 import "./styles.css";
 
 declare global {
@@ -118,6 +120,7 @@ function Dashboard({ me, onSignOut }: { me: Member; onSignOut: () => void }) {
     const on = (e: MessageEvent) => {
       const event = JSON.parse(e.data) as TeamEvent;
       setLive(event);
+      notifications.notify(event, me, (id) => openRef.current(id));
       if (event.type === "typing") {
         if (event.memberId && event.memberId === me.id) return;
         setTyping((t) => {
@@ -167,6 +170,9 @@ function Dashboard({ me, onSignOut }: { me: Member; onSignOut: () => void }) {
     setSelected(id);
     history.pushState(null, "", id ? `/admin/c/${id}` : "/admin");
   };
+  const openRef = useRef(open);
+  openRef.current = open;
+  const [askNotify, setAskNotify] = useState(() => notifications.supported && !notifications.decided());
   useEffect(() => {
     const onPop = () => setSelected(/^\/admin\/c\/([\w-]+)/.exec(location.pathname)?.[1] ?? null);
     addEventListener("popstate", onPop);
@@ -229,6 +235,18 @@ function Dashboard({ me, onSignOut }: { me: Member; onSignOut: () => void }) {
             </button>
           ))}
         </div>
+        {askNotify && (
+          <div className="notify-ask">
+            <Icon d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+            <span>Get a desktop notification when someone needs the team.</span>
+            <button className="btn btn-sm" onClick={() => void notifications.setEnabled(true).then(() => setAskNotify(false))}>
+              Turn on
+            </button>
+            <button className="icon-btn" title="Not now" onClick={() => (notifications.dismiss(), setAskNotify(false))}>
+              <Icon d="M18 6 6 18M6 6l12 12" />
+            </button>
+          </div>
+        )}
         <div className="list-body">
           {items === null ? (
             <div className="empty">
@@ -568,6 +586,10 @@ function Composer({ conversation, members, me, onSent }: { conversation: Convers
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mention, setMention] = useState<{ query: string; start: number; index: number } | null>(null);
+  // "/" at the start of an empty reply searches saved replies.
+  const [slash, setSlash] = useState<{ query: string; index: number } | null>(null);
+  const saved = useSavedReplies();
+  const slashMatches = useMemo(() => (slash ? matchReplies(saved, slash.query).slice(0, 6) : []), [slash, saved]);
   const ref = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const lastPing = useRef(0);
@@ -593,6 +615,8 @@ function Composer({ conversation, members, me, onSent }: { conversation: Convers
     // "@al" right before the caret opens the teammate picker, and turns this into a note.
     const m = /(^|\s)@([\p{L}\d._-]*)$/u.exec(value.slice(0, caret));
     setMention(m ? { query: m[2]!, start: caret - m[2]!.length - 1, index: 0 } : null);
+    const s = /^\/([^\n]*)$/.exec(value);
+    setSlash(s ? { query: s[1]!, index: 0 } : null);
     if (Date.now() - lastPing.current > 3000 && value.trim()) {
       lastPing.current = Date.now();
       void api(`/api/conversations/${conversation.id}/typing`, { json: {} }).catch(() => {});
@@ -612,6 +636,19 @@ function Composer({ conversation, members, me, onSent }: { conversation: Convers
       el.focus();
       el.setSelectionRange(pos, pos);
     });
+  };
+
+  /** Uses a saved reply: it replaces a "/search", otherwise goes in at the caret. */
+  const applyReply = (r: SavedReply) => {
+    const body = fillReply(r.body, conversation.reporter.name);
+    setSlash(null);
+    if (!text.trim() || text.startsWith("/")) {
+      setText(body);
+      requestAnimationFrame(() => {
+        ref.current?.focus();
+        ref.current?.setSelectionRange(body.length, body.length);
+      });
+    } else insert(body);
   };
 
   /** Puts text at the caret, e.g. an emoji from the picker. */
@@ -666,6 +703,20 @@ function Composer({ conversation, members, me, onSent }: { conversation: Convers
   };
 
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (slash && slashMatches.length) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        const d = e.key === "ArrowDown" ? 1 : -1;
+        setSlash({ ...slash, index: (slash.index + d + slashMatches.length) % slashMatches.length });
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        applyReply(slashMatches[slash.index]!);
+        return;
+      }
+      if (e.key === "Escape") return setSlash(null);
+    }
     if (mention && candidates.length) {
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();
@@ -719,11 +770,25 @@ function Composer({ conversation, members, me, onSent }: { conversation: Convers
             ))}
           </div>
         )}
+        {slash && (
+          <div className="mentions-pop slash-pop">
+            {slashMatches.length ? (
+              slashMatches.map((r, i) => (
+                <button key={r.id} className={i === slash.index ? "on" : ""} onMouseDown={(e) => (e.preventDefault(), applyReply(r))}>
+                  <b>{r.title}</b>
+                  <span>{r.body}</span>
+                </button>
+              ))
+            ) : (
+              <div className="slash-none">{saved.length ? "No saved reply matches" : "No saved replies yet. Add one with the ⚡ button."}</div>
+            )}
+          </div>
+        )}
         <textarea
           ref={ref}
           rows={2}
           value={text}
-          placeholder={note ? "Write a note for the team…" : "Write a reply…"}
+          placeholder={note ? "Write a note for the team…" : "Write a reply… (/ for saved replies)"}
           onChange={(e) => onInput(e.target.value, e.target.selectionStart)}
           onKeyDown={onKey}
           onPaste={(e) => {
@@ -764,6 +829,7 @@ function Composer({ conversation, members, me, onSent }: { conversation: Convers
             </>
           )}
           <EmojiPicker onPick={insert} />
+          <SavedReplies draft={text} onPick={applyReply} Icon={Icon} />
           {error && <span className="composer-error">{error}</span>}
           <span className="spacer" />
           <button className={`btn btn-send ${note ? "btn-note" : ""}`} disabled={sending || (!text.trim() && (note || !files.length))} onClick={() => void send()}>
@@ -892,9 +958,11 @@ function AvatarStack({ people, max = 4, size = 22 }: { people: { name: string; a
 function ProfileMenu({ me, onSignOut }: { me: Member; onSignOut: () => void }) {
   const [open, setOpen] = useState(false);
   const [theme, setTheme] = useState(() => document.documentElement.dataset.theme ?? "dark");
+  const [notifyOn, setNotifyOn] = useState(notifications.enabled);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
+    setNotifyOn(notifications.enabled());
     const close = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
     const esc = (e: globalThis.KeyboardEvent) => e.key === "Escape" && setOpen(false);
     addEventListener("mousedown", close);
@@ -924,6 +992,13 @@ function ProfileMenu({ me, onSignOut }: { me: Member; onSignOut: () => void }) {
             {theme === "dark" ? <Icon d="M12 3v2M12 19v2M5 5l1.5 1.5M17.5 17.5 19 19M3 12h2M19 12h2M5 19l1.5-1.5M17.5 6.5 19 5M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z" /> : <Icon d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5Z" />}
             {theme === "dark" ? "Light mode" : "Dark mode"}
           </button>
+          {notifications.supported && (
+            <button role="menuitem" onClick={() => void notifications.setEnabled(!notifyOn).then(setNotifyOn)}>
+              <Icon d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+              Notifications
+              <span className={`menu-state ${notifyOn ? "on" : ""}`}>{notifyOn ? "On" : "Off"}</span>
+            </button>
+          )}
           <button role="menuitem" onClick={() => void api("/auth/logout", { json: {} }).then(onSignOut)}>
             <Icon d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l5-5-5-5M15 12H3" />
             Sign out

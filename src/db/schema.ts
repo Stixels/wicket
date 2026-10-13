@@ -124,6 +124,15 @@ export const members = sqliteTable("members", {
   lastSeenAt: integer("last_seen_at", { mode: "timestamp_ms" }),
 });
 
+/** Answers the team gives often, shared by everyone on it. */
+export const savedReplies = sqliteTable("saved_replies", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  createdBy: text("created_by"),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});
+
 /** Dashboard sign-ins. Only a hash of the cookie is stored. */
 export const teamSessions = sqliteTable("team_sessions", {
   id: text("id").primaryKey(),
