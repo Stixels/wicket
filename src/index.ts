@@ -17,6 +17,7 @@ import { COMMUNITY_ROOM_PREFIX, SUPPORT_ROOM_PREFIX } from "./discord/voiceRooms
 import type { KnowledgeSource, Relay } from "./adapters/types.js";
 import { loadSettings } from "./settings.js";
 import { FileStore } from "./files.js";
+import { ReplyEmails, ResendMailer } from "./email.js";
 import { priceFor } from "./usage.js";
 
 const config = loadConfig();
@@ -122,7 +123,22 @@ if (config.RELAY === "discord") {
   });
 }
 
-const service = new ConversationService(db, agent, relay, { settings, files: new FileStore(db, config.DATABASE_PATH), log: (msg, err) => console.error(msg, err ?? "") });
+const mailer = config.RESEND_API_KEY && config.EMAIL_FROM && config.PUBLIC_URL ? new ResendMailer(config.RESEND_API_KEY, config.EMAIL_FROM) : null;
+const service = new ConversationService(db, agent, relay, {
+  settings,
+  files: new FileStore(db, config.DATABASE_PATH),
+  log: (msg, err) => console.error(msg, err ?? ""),
+  emailReplies: Boolean(mailer),
+});
+const replyEmails = mailer
+  ? new ReplyEmails(db, service, mailer, { productName: config.PRODUCT_NAME, publicUrl: config.PUBLIC_URL!, replyDomain: config.EMAIL_REPLY_DOMAIN })
+  : null;
+if (replyEmails) {
+  setInterval(() => void replyEmails.sweep().catch((err) => console.error("email: sweep failed", err)), 60_000).unref();
+  console.log(`email: unread team replies are emailed${replyEmails.canReceive ? ", and replies to them come back" : ""}`);
+} else if (config.RESEND_API_KEY) {
+  console.log("email: needs you: set EMAIL_FROM and PUBLIC_URL as well as RESEND_API_KEY");
+}
 describeSettings();
 
 async function refreshDocs() {
@@ -136,12 +152,25 @@ async function refreshDocs() {
 }
 
 await refreshDocs();
+
+// Old attachments go after files.keepDays; uploads that were never sent go after a day.
+function sweepFiles() {
+  try {
+    const n = service.files.sweep(settings.files.keepDays);
+    if (n) console.log(`files: removed ${n} old or unsent attachments`);
+  } catch (err) {
+    console.error("files: cleanup failed", err);
+  }
+}
+sweepFiles();
+setInterval(sweepFiles, 6 * 3_600_000).unref();
 setInterval(refreshDocs, config.DOCS_REINDEX_HOURS * 3_600_000).unref();
 
 if (relay) {
   await relay.start(
-    ({ threadId, authorName, body, files }) => service.handleStaffReply(threadId, authorName, body, files),
+    ({ threadId, authorName, body, files, ...from }) => service.handleStaffReply(threadId, authorName, body, files, from),
     (threadId, deleted) => service.resolve(threadId, deleted),
+    ({ threadId, authorName, authorId }) => service.typingInThread(threadId, authorName, authorId),
   );
   console.log(`relay: ${relay.name} connected${tracker && anthropic ? `, tag the bot to file ${tracker.name === "github" ? "GitHub issues" : "Linear tickets"}` : ""}`);
 }
@@ -152,7 +181,27 @@ const app = createServer(service, {
   maxConversationsPerIpPerHour: config.MAX_CONVERSATIONS_PER_IP_PER_HOUR,
   playground: config.PLAYGROUND ? { title: `${config.PRODUCT_NAME} Support` } : undefined,
   identitySecret: config.IDENTITY_SECRET,
+  productName: config.PRODUCT_NAME,
+  email: replyEmails ? { replies: replyEmails, webhookSecret: config.RESEND_WEBHOOK_SECRET } : undefined,
+  team: {
+    db,
+    productName: config.PRODUCT_NAME,
+    discord:
+      config.DISCORD_CLIENT_ID && config.DISCORD_CLIENT_SECRET
+        ? {
+            clientId: config.DISCORD_CLIENT_ID,
+            clientSecret: config.DISCORD_CLIENT_SECRET,
+            guildId: config.DISCORD_GUILD_ID,
+            teamRoleId: config.DISCORD_TEAM_ROLE_ID,
+          }
+        : undefined,
+    allowIds: config.TEAM_DISCORD_IDS,
+    publicUrl: config.PUBLIC_URL,
+    devLogin: config.TEAM_DEV_LOGIN,
+    discordGuildId: config.DISCORD_GUILD_ID,
+  },
 });
+if (!config.DISCORD_CLIENT_ID && !config.TEAM_DEV_LOGIN) console.log("team: needs you: set DISCORD_CLIENT_ID and DISCORD_CLIENT_SECRET to sign in to the dashboard at /admin");
 const server = serve({ fetch: app.fetch, port: config.PORT }, (info) => {
   console.log(`wicket listening on http://localhost:${info.port} (agent: ${agent ? `${model}${gateway ? " via AI Gateway" : ""}` : "off"})`);
 });

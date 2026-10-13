@@ -68,9 +68,33 @@ CREATE TABLE IF NOT EXISTS files (
   name TEXT NOT NULL,
   type TEXT NOT NULL,
   size INTEGER NOT NULL,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  deleted_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS files_conversation ON files(conversation_id);
+
+CREATE TABLE IF NOT EXISTS members (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  discord_id TEXT UNIQUE,
+  avatar_url TEXT,
+  created_at INTEGER NOT NULL,
+  last_seen_at INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS saved_replies (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL,
+  created_by TEXT,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS team_sessions (
+  id TEXT PRIMARY KEY,
+  member_id TEXT NOT NULL,
+  expires_at INTEGER NOT NULL
+);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS docs USING fts5(
   title, heading, url UNINDEXED, body,
@@ -84,8 +108,18 @@ export function openDb(file: string): Db {
   sqlite.pragma("journal_mode = WAL");
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(BOOTSTRAP);
-  addMissingColumns(sqlite, "conversations", { user_id: "TEXT", plan: "TEXT", payer: "TEXT" });
-  addMissingColumns(sqlite, "messages", { attachments: "TEXT" });
+  addMissingColumns(sqlite, "conversations", {
+    user_id: "TEXT",
+    plan: "TEXT",
+    payer: "TEXT",
+    seen_message_id: "INTEGER",
+    emailed_message_id: "INTEGER",
+    emailed_at: "INTEGER",
+    email_opt_out: "INTEGER",
+    last_seen_at: "INTEGER",
+  });
+  addMissingColumns(sqlite, "messages", { attachments: "TEXT", member_id: "TEXT", mentions: "TEXT" });
+  addMissingColumns(sqlite, "files", { deleted_at: "INTEGER" });
   return drizzle(sqlite, { schema }) as Db;
 }
 

@@ -56,6 +56,27 @@ const schema = z.object({
   GITHUB_ISSUES_TOKEN: z.string().optional(), // fine-grained token with Issues: read and write
   GITHUB_ISSUES_LABEL: z.string().optional(), // added to each issue when the label exists, e.g. "triage"
 
+  // Team dashboard at /admin, with Discord sign-in. Create an OAuth2 app (the bot's own app works)
+  // and add <PUBLIC_URL>/admin/auth/callback as a redirect.
+  DISCORD_CLIENT_ID: z.string().optional(),
+  DISCORD_CLIENT_SECRET: z.string().optional(),
+  PUBLIC_URL: z.string().optional(), // e.g. https://wicket.example.com; defaults to the request's own origin
+  /** Discord user ids allowed into the dashboard, besides everyone with the team role. */
+  TEAM_DISCORD_IDS: csv,
+  /** Local development only: a one-click sign-in with no Discord. Never set this on a public server. */
+  TEAM_DEV_LOGIN: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => v === "true"),
+
+  // Email through Resend (free tier is enough): unread team replies go to the user. Needs PUBLIC_URL for links.
+  RESEND_API_KEY: z.string().optional(),
+  EMAIL_FROM: z.string().optional(), // e.g. "Escape Director <support@escapedirector.com>", on a domain verified in Resend
+  /** A domain that receives email in Resend. Replies to the email then land in the conversation. */
+  EMAIL_REPLY_DOMAIN: z.string().optional(),
+  /** Signing secret (whsec_...) of the Resend webhook that points at /email/inbound. */
+  RESEND_WEBHOOK_SECRET: z.string().optional(),
+
   // Signed-in users: the host app's backend signs a short-lived HS256 JWT with this secret
   // (claims: sub, name, email, plan). Only a valid token counts as signed in.
   IDENTITY_SECRET: z.string().min(32, "IDENTITY_SECRET should be at least 32 characters").optional(),

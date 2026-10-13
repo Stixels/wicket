@@ -92,4 +92,40 @@ describe("attachments", () => {
     expect(staff.attachments[0]).toMatchObject({ name: "fix.png", type: "image/png" });
     expect((await app.request(`/files/${staff.attachments[0]!.id}/fix.png`)).status).toBe(200);
   });
+
+  it("removes old attachments and unsent uploads, keeping the name on the message", async () => {
+    const { app, service } = setup([text("Got it.")]);
+    const conv = await start(app);
+    const sent = ((await (await upload(app, conv, PNG, "old.png", "image/png")).json()) as { file: { id: string; url: string } }).file;
+    const unsent = ((await (await upload(app, conv, PNG, "draft.png", "image/png")).json()) as { file: { id: string; url: string } }).file;
+    await send(app, conv, { body: "see", attachments: [sent.id] });
+    await service.idle(conv.id);
+
+    // Nothing is old enough yet.
+    expect(service.files.sweep(90)).toBe(0);
+    // A day later the unsent upload goes; the sent one stays.
+    expect(service.files.sweep(90, Date.now() + 25 * 3_600_000)).toBe(1);
+    expect((await app.request(unsent.url)).status).toBe(404);
+    expect((await app.request(sent.url)).status).toBe(200);
+    // keepDays 0 keeps sent files forever.
+    expect(service.files.sweep(0, Date.now() + 400 * 86_400_000)).toBe(0);
+    // After 90 days the sent one goes too, and the message says so.
+    expect(service.files.sweep(90, Date.now() + 91 * 86_400_000)).toBe(1);
+    expect((await app.request(sent.url)).status).toBe(404);
+    expect(service.list(conv.id)[0]!.attachments).toEqual([{ id: sent.id, name: "old.png", type: "image/png", size: PNG.length, expired: true }]);
+    expect(service.files.countFor(conv.id)).toBe(0);
+  });
+
+  it("lets the team delete one attachment", async () => {
+    const { app, service } = setup([text("Got it.")]);
+    const conv = await start(app);
+    const file = ((await (await upload(app, conv, PNG, "card.png", "image/png")).json()) as { file: { id: string; url: string } }).file;
+    await send(app, conv, { body: "", attachments: [file.id] });
+    await service.idle(conv.id);
+    expect(service.removeFile("someone-else", file.id)).toBeNull();
+    const msg = service.removeFile(conv.id, file.id)!;
+    expect(msg.attachments[0]).toMatchObject({ name: "card.png", expired: true });
+    expect((await app.request(file.url)).status).toBe(404);
+    expect(service.removeFile(conv.id, file.id)).toBeNull();
+  });
 });
