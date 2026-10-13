@@ -115,6 +115,7 @@ interface Attachment {
   name: string;
   type: string;
   size: number;
+  expired?: boolean;
 }
 
 interface Message {
@@ -334,6 +335,8 @@ button { font: inherit; color: inherit; }
 .att-file span { display: flex; flex-direction: column; min-width: 0; }
 .att-file b { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .att-file small { font-size: 11.5px; opacity: .7; }
+.att-file.expired { opacity: .55; background: none; border: 1px dashed color-mix(in srgb, currentColor 35%, transparent); }
+.att-file.expired b { text-decoration: line-through; font-weight: 500; }
 .tray { display: none; gap: 6px; flex-wrap: wrap; margin: 0 0 8px; }
 .tray.on { display: flex; }
 .tray.busy { opacity: .55; pointer-events: none; }
@@ -1252,6 +1255,7 @@ class Widget {
   }
 
   private attachmentHtml(a: Attachment): string {
+    if (a.expired) return `<span class="att-file expired">${ICONS.file}<span><b>${escapeHtml(a.name)}</b><small>No longer available</small></span></span>`;
     const url = `${this.opts.apiUrl}/files/${encodeURIComponent(a.id)}/${encodeURIComponent(a.name)}`;
     if (a.type.startsWith("image/")) {
       return `<a class="att-img" href="${escapeAttr(url)}" target="_blank" rel="noopener"><img alt="${escapeAttr(a.name)}" src="${escapeAttr(url)}" loading="lazy"></a>`;

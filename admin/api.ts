@@ -12,6 +12,7 @@ export interface Attachment {
   name: string;
   type: string;
   size: number;
+  expired?: boolean;
 }
 
 export type Author = "user" | "agent" | "staff" | "system" | "note";

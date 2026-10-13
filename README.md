@@ -110,6 +110,7 @@ A reply inbox at `/admin`, for teammates who'd rather not answer from Discord. I
 - **Typing hints.** While someone types in the dashboard or in the Discord post, the others see "Alex is typing" on the conversation, so two people don't write the same answer.
 - **Hand off with a note.** Switch the composer to **Note** (or type `@`) to leave a team-only note like "@Alex can you take this?". Notes never reach the user. In Discord the note pings Alex, and the dashboard lists it under **Mentions** until Alex writes in that conversation. In Discord, a message that starts with an @mention of a teammate or role is treated the same way: it stays with the team instead of going to the user, and gets a 📝 reaction.
 - **Views:** Open, Needs reply (the user is waiting on the team), Mentions, Resolved, All. **Resolve** works like closing the Discord post. Each conversation shows the person, their plan, the page and app version they wrote from, and recent console errors.
+- **Attachments** are up to 10 MB each (Discord's limit without server boosts), 30 per conversation, and stored on the server's volume. A teammate can delete one from the dashboard (hover it, then the bin); it's removed for everyone and the message keeps its name, marked removed. Files go automatically after `files.keepDays` (90 by default, 0 keeps them) and uploads that were never sent go after a day. Copies already posted to Discord stay there.
 
 Sign-in is with Discord, for everyone with the Team role:
 

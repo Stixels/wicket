@@ -241,6 +241,18 @@ export class ConversationService {
     return msg;
   }
 
+  /** Removes one attachment for good, from the dashboard. Its name stays on the message, marked expired. */
+  removeFile(id: string, fileId: string): TeamMessage | null {
+    const file = this.files.get(fileId);
+    if (!file || file.conversationId !== id) return null;
+    const { messageId } = this.files.remove(fileId)!;
+    const row = messageId == null ? undefined : this.db.select().from(schema.messages).where(eq(schema.messages.id, messageId)).get();
+    if (!row) return null;
+    const msg = toTeam(row);
+    this.events.emit(TEAM_EVENTS, { type: "message", conversationId: id, message: msg } satisfies TeamEvent);
+    return msg;
+  }
+
   /** A team-only note from the dashboard. `mentions` are member ids; they get pinged in the relay. */
   async teamNote(id: string, author: TeamAuthor, body: string, mentions: string[] = []): Promise<TeamMessage | null> {
     if (!this.get(id)) return null;

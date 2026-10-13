@@ -45,7 +45,7 @@ export const messages = sqliteTable(
     /** Teammates a note @mentions. */
     mentions: text("mentions", { mode: "json" }).$type<string[]>(),
     body: text("body").notNull(),
-    attachments: text("attachments", { mode: "json" }).$type<{ id: string; name: string; type: string; size: number }[]>(),
+    attachments: text("attachments", { mode: "json" }).$type<{ id: string; name: string; type: string; size: number; expired?: boolean }[]>(),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   },
   (t) => [index("messages_conversation").on(t.conversationId, t.id)],
@@ -96,6 +96,8 @@ export const files = sqliteTable(
     type: text("type").notNull(),
     size: integer("size").notNull(),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    /** Set when the bytes were removed (expired or deleted by the team). The row stays as a record. */
+    deletedAt: integer("deleted_at", { mode: "timestamp_ms" }),
   },
   (t) => [index("files_conversation").on(t.conversationId)],
 );

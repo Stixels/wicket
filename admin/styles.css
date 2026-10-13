@@ -460,22 +460,69 @@ nav {
 .emoji-pop {
   left: 0;
   bottom: calc(100% + 8px);
-  width: min(316px, calc(100vw - 40px));
+  width: min(320px, calc(100vw - 40px));
+  padding: 8px;
+}
+.emoji-search {
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+  outline: none;
+}
+@media (min-width: 641px) {
+  .emoji-search {
+    font-size: 13px;
+  }
+}
+.emoji-search:focus {
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+}
+.emoji-scroll {
+  max-height: 260px;
+  overflow-y: auto;
+  margin-top: 6px;
+  scrollbar-width: thin;
+}
+.emoji-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 6px 4px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: var(--raised);
+}
+.emoji-grid {
   display: grid;
   grid-template-columns: repeat(8, 1fr);
   gap: 2px;
 }
-.emoji-pop button {
-  height: 32px;
+.emoji-grid button {
+  height: 34px;
   border: 0;
   border-radius: 8px;
   background: transparent;
-  font-size: 18px;
+  font-size: 20px;
   line-height: 1;
   cursor: pointer;
 }
-.emoji-pop button:hover {
+.emoji-grid button:hover {
   background: var(--hover);
+}
+.emoji-none {
+  padding: 18px 4px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--muted);
 }
 @keyframes pop {
   from {
@@ -1083,6 +1130,58 @@ nav {
 .file small {
   font-size: 11.5px;
   opacity: 0.7;
+}
+.file-item {
+  position: relative;
+}
+.file-del {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s;
+  backdrop-filter: blur(6px);
+}
+.file-del .icon {
+  width: 14px;
+  height: 14px;
+}
+.file-item:hover .file-del,
+.file-del:focus-visible {
+  opacity: 1;
+}
+.file-del:hover {
+  background: #d9383a;
+}
+.file-item .file {
+  padding-right: 40px;
+}
+.file-item .file + .file-del {
+  top: 50%;
+  transform: translateY(-50%);
+}
+@media (hover: none) {
+  .file-del {
+    opacity: 0.85;
+  }
+}
+.file.expired {
+  opacity: 0.6;
+  border: 1px dashed var(--border-strong);
+  background: transparent;
+}
+.file.expired b {
+  text-decoration: line-through;
+  font-weight: 500;
 }
 
 /* --- Composer --- */

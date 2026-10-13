@@ -68,7 +68,8 @@ CREATE TABLE IF NOT EXISTS files (
   name TEXT NOT NULL,
   type TEXT NOT NULL,
   size INTEGER NOT NULL,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  deleted_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS files_conversation ON files(conversation_id);
 
@@ -101,6 +102,7 @@ export function openDb(file: string): Db {
   sqlite.exec(BOOTSTRAP);
   addMissingColumns(sqlite, "conversations", { user_id: "TEXT", plan: "TEXT", payer: "TEXT" });
   addMissingColumns(sqlite, "messages", { attachments: "TEXT", member_id: "TEXT", mentions: "TEXT" });
+  addMissingColumns(sqlite, "files", { deleted_at: "INTEGER" });
   return drizzle(sqlite, { schema }) as Db;
 }
 

@@ -225,6 +225,12 @@ export function teamRoutes(db: Db, service: ConversationService, opts: TeamOptio
     return c.json({ file: saved }, 201);
   });
 
+  app.delete("/api/conversations/:id/files/:fileId", (c) => {
+    const message = service.removeFile(c.req.param("id"), c.req.param("fileId"));
+    if (!message) return c.json({ error: "Not found" }, 404);
+    return c.json({ message });
+  });
+
   // Live updates for every conversation: new messages, status changes, who is typing.
   app.get("/api/events", (c) =>
     streamSSE(c, async (stream) => {

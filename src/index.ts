@@ -127,6 +127,18 @@ async function refreshDocs() {
 }
 
 await refreshDocs();
+
+// Old attachments go after files.keepDays; uploads that were never sent go after a day.
+function sweepFiles() {
+  try {
+    const n = service.files.sweep(settings.files.keepDays);
+    if (n) console.log(`files: removed ${n} old or unsent attachments`);
+  } catch (err) {
+    console.error("files: cleanup failed", err);
+  }
+}
+sweepFiles();
+setInterval(sweepFiles, 6 * 3_600_000).unref();
 setInterval(refreshDocs, config.DOCS_REINDEX_HOURS * 3_600_000).unref();
 
 if (relay) {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { api, ApiError, fileUrl, type Attachment, type ConversationDetail, type InboxItem, type Member, type Message, type TeamEvent, type View } from "./api.js";
+import { EMOJI, GROUPS, recentEmoji, rememberEmoji, searchEmoji } from "./emoji.js";
 import { RichText } from "./text.js";
 import "./styles.css";
 
@@ -349,7 +350,8 @@ function Conversation({
 
   useEffect(() => {
     if (!live || live.conversationId !== id) return;
-    if (live.type === "message") setMessages((m) => (m.some((x) => x.id === live.message.id) ? m : [...m, live.message]));
+    if (live.type === "message")
+      setMessages((m) => (m.some((x) => x.id === live.message.id) ? m.map((x) => (x.id === live.message.id ? live.message : x)) : [...m, live.message]));
     if (live.type === "status") setConv((c) => (c ? { ...c, status: live.status } : c));
     if (live.type !== "typing") {
       // Who has replied and whether someone is waiting come from the server.
@@ -431,7 +433,7 @@ function Conversation({
               Started {new Date(conv.createdAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}
             </div>
             {messages.map((m, i) => (
-              <Bubble key={m.id} m={m} prev={messages[i - 1]} me={me} memberNames={memberNames} reporter={who} />
+              <Bubble key={m.id} m={m} prev={messages[i - 1]} me={me} memberNames={memberNames} reporter={who} conversationId={conv.id} />
             ))}
             {typers.length > 0 && (
               <div className="row team">
@@ -451,7 +453,21 @@ function Conversation({
   );
 }
 
-function Bubble({ m, prev, me, memberNames, reporter }: { m: Message; prev?: Message; me: Member; memberNames: string[]; reporter: string }) {
+function Bubble({
+  m,
+  prev,
+  me,
+  memberNames,
+  reporter,
+  conversationId,
+}: {
+  m: Message;
+  prev?: Message;
+  me: Member;
+  memberNames: string[];
+  reporter: string;
+  conversationId: string;
+}) {
   if (m.author === "system") {
     const done = m.body === "Marked as resolved" || m.body.startsWith("The team marked this conversation as resolved");
     return done ? (
@@ -490,28 +506,47 @@ function Bubble({ m, prev, me, memberNames, reporter }: { m: Message; prev?: Mes
       )}
       <div className={`bubble ${m.author}`}>
         {m.body && <RichText text={m.body} />}
-        {m.attachments.length > 0 && <Files files={m.attachments} />}
+        {m.attachments.length > 0 && <Files files={m.attachments} conversationId={conversationId} />}
       </div>
     </div>
   );
 }
 
-function Files({ files }: { files: Attachment[] }) {
+function Files({ files, conversationId }: { files: Attachment[]; conversationId: string }) {
+  const remove = (f: Attachment) => {
+    if (!confirm(`Delete “${f.name}” for everyone? It's removed from Wicket and the user's chat. Copies already in Discord stay there.`)) return;
+    api(`/api/conversations/${conversationId}/files/${f.id}`, { method: "DELETE" }).catch((e) => alert(e.message));
+  };
   return (
     <div className="files">
       {files.map((f) =>
-        f.type.startsWith("image/") ? (
-          <a key={f.id} href={fileUrl(f)} target="_blank" rel="noreferrer" className="file-img">
-            <img src={fileUrl(f)} alt={f.name} loading="lazy" />
-          </a>
-        ) : (
-          <a key={f.id} href={fileUrl(f)} target="_blank" rel="noreferrer" className="file">
-            <Icon d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9l-6-6Zm0 0v6h6" />
+        f.expired ? (
+          <div key={f.id} className="file expired" title="This file was removed">
+            <Icon d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9l-6-6ZM9.5 12.5l5 5m0-5-5 5" />
             <span>
               <b>{f.name}</b>
-              <small>{size(f.size)}</small>
+              <small>Removed</small>
             </span>
-          </a>
+          </div>
+        ) : (
+          <div key={f.id} className="file-item">
+            {f.type.startsWith("image/") ? (
+              <a href={fileUrl(f)} target="_blank" rel="noreferrer" className="file-img">
+                <img src={fileUrl(f)} alt={f.name} loading="lazy" />
+              </a>
+            ) : (
+              <a href={fileUrl(f)} target="_blank" rel="noreferrer" className="file">
+                <Icon d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9l-6-6Zm0 0v6h6" />
+                <span>
+                  <b>{f.name}</b>
+                  <small>{size(f.size)}</small>
+                </span>
+              </a>
+            )}
+            <button className="file-del" title="Delete file" aria-label={`Delete ${f.name}`} onClick={() => remove(f)}>
+              <Icon d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
+            </button>
+          </div>
         ),
       )}
     </div>
@@ -876,10 +911,9 @@ function ProfileMenu({ me, onSignOut }: { me: Member; onSignOut: () => void }) {
   );
 }
 
-const EMOJI = "😀 😄 😊 🙂 😉 😍 🥳 😎 🤔 😅 😬 😢 🙏 👍 👎 👏 🙌 👋 💪 🤝 ❤️ 🔥 ✨ 🎉 ✅ ❌ ⚠️ 💡 🐛 🛠️ 🚀 ⏱️ 🔒 🔑 📎 📸 👀 💬 ⭐ 🧩".split(" ");
-
 function EmojiPicker({ onPick }: { onPick: (emoji: string) => void }) {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
@@ -887,6 +921,25 @@ function EmojiPicker({ onPick }: { onPick: (emoji: string) => void }) {
     addEventListener("mousedown", close);
     return () => removeEventListener("mousedown", close);
   }, [open]);
+  useEffect(() => setQuery(""), [open]);
+
+  const results = useMemo(() => (query.trim() ? searchEmoji(query) : []), [query]);
+  const recents = useMemo(() => (open ? recentEmoji() : []), [open]);
+  const pick = (char: string) => {
+    rememberEmoji(char);
+    onPick(char);
+    setOpen(false);
+  };
+  const grid = (list: string[]) => (
+    <div className="emoji-grid">
+      {list.map((e) => (
+        <button key={e} onMouseDown={(ev) => ev.preventDefault()} onClick={() => pick(e)}>
+          {e}
+        </button>
+      ))}
+    </div>
+  );
+
   return (
     <div className="emoji-wrap" ref={ref}>
       <button className={`icon-btn ${open ? "on" : ""}`} title="Emoji" aria-label="Emoji" onClick={() => setOpen(!open)}>
@@ -894,11 +947,44 @@ function EmojiPicker({ onPick }: { onPick: (emoji: string) => void }) {
       </button>
       {open && (
         <div className="emoji-pop" role="dialog" aria-label="Pick an emoji">
-          {EMOJI.map((e) => (
-            <button key={e} onMouseDown={(ev) => ev.preventDefault()} onClick={() => (onPick(e), setOpen(false))}>
-              {e}
-            </button>
-          ))}
+          <input
+            className="emoji-search"
+            autoFocus
+            placeholder="Search emoji"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setOpen(false);
+              if (e.key === "Enter") {
+                e.preventDefault();
+                if (results[0]) pick(results[0].char);
+              }
+            }}
+          />
+          <div className="emoji-scroll">
+            {query.trim() ? (
+              results.length ? (
+                grid(results.map((e) => e.char))
+              ) : (
+                <div className="emoji-none">No emoji for “{query.trim()}”</div>
+              )
+            ) : (
+              <>
+                {recents.length > 0 && (
+                  <>
+                    <div className="emoji-head">Recent</div>
+                    {grid(recents)}
+                  </>
+                )}
+                {GROUPS.map((g) => (
+                  <div key={g}>
+                    <div className="emoji-head">{g}</div>
+                    {grid(EMOJI.filter((e) => e.group === g).map((e) => e.char))}
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>

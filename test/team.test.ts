@@ -190,6 +190,20 @@ describe("team dashboard", () => {
     expect(list.find((c: any) => c.id === waiting.id).discordUrl).toBe(`https://discord.com/channels/g1/${service.get(waiting.id)!.relayThreadId}`);
   });
 
+  it("lets a teammate delete an attachment, leaving its name marked removed", async () => {
+    const { app, relay, service } = setup();
+    const conv = await userConversation(app, service);
+    const call = await teammate(app);
+    await relay.staffReply([...relay.threads.keys()][0]!, "", [{ name: "card.png", type: "image/png", data: Buffer.from("png") }]);
+    const file = service.list(conv.id).at(-1)!.attachments[0]!;
+
+    expect((await call(`/api/conversations/${conv.id}/files/${file.id}`, { method: "DELETE" })).status).toBe(200);
+    expect((await app.request(`/files/${file.id}/card.png`)).status).toBe(404);
+    const seen = await widgetMessages(app, conv);
+    expect((seen.messages.at(-1) as any).attachments).toEqual([{ ...file, expired: true }]);
+    expect((await call(`/api/conversations/${conv.id}/files/${file.id}`, { method: "DELETE" })).status).toBe(404);
+  });
+
   it("announces who is typing, from the dashboard or Discord", async () => {
     const { app, relay, service } = setup();
     const conv = await userConversation(app, service);
