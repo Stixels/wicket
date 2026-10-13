@@ -11,7 +11,6 @@ import { schema, type Db } from "../db/index.js";
 import { TEAM_EVENTS, type ConversationService, type TeamEvent, type TeamMessage } from "../conversations.js";
 import { MAX_FILES_PER_CONVERSATION, MAX_FILE_BYTES, allowedType } from "../files.js";
 import { toPublicMember, type Member } from "./members.js";
-import type { Mailer } from "../email.js";
 
 export interface TeamOptions {
   productName: string;
@@ -25,8 +24,6 @@ export interface TeamOptions {
   };
   /** Discord user ids allowed in regardless of roles. */
   allowIds?: string[];
-  /** Sign-in links by email. `allowed` entries are emails, or "email:discordId" to link the two. */
-  email?: { mailer: Mailer; allowed: string[] };
   /** Base URL for the OAuth redirect; defaults to the request's origin. */
   publicUrl?: string;
   /** Local development: sign in with one click as "Local teammate". */
@@ -64,8 +61,7 @@ export function teamRoutes(db: Db, service: ConversationService, opts: TeamOptio
   const app = new Hono<Env>();
   const doFetch = opts.fetch ?? fetch;
   const assets = opts.assetsDir ?? path.resolve("dist/admin");
-  const base = (c: Context) => opts.publicUrl?.replace(/\/$/, "") ?? origin(c);
-  const redirectUri = (c: Context) => `${base(c)}/admin/auth/callback`;
+  const redirectUri = (c: Context) => `${opts.publicUrl?.replace(/\/$/, "") ?? origin(c)}/admin/auth/callback`;
 
   // --- Sign-in -------------------------------------------------------------
 
@@ -133,58 +129,6 @@ export function teamRoutes(db: Db, service: ConversationService, opts: TeamOptio
     }
   });
 
-  // Email sign-in: a one-time link, for teams that aren't on Discord.
-  const allowedEmails = new Map(
-    (opts.email?.allowed ?? []).map((entry) => {
-      const [email, discordId] = entry.split(":");
-      return [email!.trim().toLowerCase(), discordId?.trim() || undefined] as const;
-    }),
-  );
-  const linkRequests = new Map<string, number[]>();
-
-  app.post("/auth/email", async (c) => {
-    if (!opts.email || !sameOrigin(c)) return c.json({ error: "Not available" }, 404);
-    const body = (await c.req.json().catch(() => ({}))) as { email?: unknown };
-    const email = typeof body.email === "string" ? body.email.trim().toLowerCase().slice(0, 320) : "";
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return c.json({ error: "That doesn't look like an email address" }, 400);
-    // Same answer either way, so the form doesn't reveal who is on the team.
-    const recent = (linkRequests.get(email) ?? []).filter((t) => Date.now() - t < 3_600_000);
-    if (allowedEmails.has(email) && recent.length < 5) {
-      linkRequests.set(email, [...recent, Date.now()]);
-      const url = `${base(c)}/admin/auth/email/${service.members.createLoginLink(email)}`;
-      const name = escapeHtml(opts.productName);
-      await opts.email.mailer
-        .send({
-          to: email,
-          subject: `Sign in to the ${opts.productName} team inbox`,
-          text: `Sign in to the ${opts.productName} team inbox: ${url}\n\nThe link works once, for 15 minutes. If you didn't ask for it, ignore this email.`,
-          html: `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:480px;margin:0 auto;padding:24px;color:#16161d">
-<p style="font-size:15px">Sign in to the ${name} team inbox.</p>
-<p><a href="${url}" style="display:inline-block;background:#16161d;color:#fff;text-decoration:none;font-weight:600;font-size:14px;padding:11px 18px;border-radius:10px">Sign in</a></p>
-<p style="font-size:13px;color:#6b6b78">The link works once, for 15 minutes. If you didn't ask for it, ignore this email.</p></div>`,
-        })
-        .catch((err) => console.error("team: sign-in email failed", err));
-    }
-    return c.json({ ok: true });
-  });
-
-  // Opening the link only shows a button: inbox link scanners open links too, and shouldn't use it up.
-  app.get("/auth/email/:token", (c) => {
-    c.header("Referrer-Policy", "no-referrer");
-    return c.html(`<!doctype html><html lang="en" data-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Sign in · ${escapeHtml(opts.productName)}</title><link rel="icon" href="data:image/svg+xml,${encodeURIComponent(FAVICON)}"></head>
-<body style="margin:0;min-height:100vh;display:grid;place-items:center;background:#09090b;color:#ececf1;font:15px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif">
-<form method="post" style="text-align:center"><p>Sign in to the ${escapeHtml(opts.productName)} team inbox</p>
-<button style="font:inherit;font-weight:600;padding:11px 22px;border-radius:10px;border:0;background:#ececf1;color:#09090b;cursor:pointer">Continue</button></form></body></html>`);
-  });
-
-  app.post("/auth/email/:token", (c) => {
-    const email = opts.email ? service.members.useLoginLink(c.req.param("token")) : null;
-    if (!email || !allowedEmails.has(email)) return c.redirect("/admin?error=link");
-    signIn(c, service.members.upsertEmail(email, allowedEmails.get(email)));
-    return c.redirect("/admin");
-  });
-
   app.post("/auth/dev", (c) => {
     if (!opts.devLogin || !sameOrigin(c)) return c.json({ error: "Not available" }, 404);
     signIn(c, service.members.upsertLocal("local-dev", "Local teammate"));
@@ -208,7 +152,7 @@ export function teamRoutes(db: Db, service: ConversationService, opts: TeamOptio
   app.use("/api/*", async (c, next) => {
     const member = service.members.fromSession(getCookie(c, COOKIE));
     if (!member) {
-      return c.json({ error: "Sign in", signIn: { discord: Boolean(opts.discord), email: Boolean(opts.email), dev: Boolean(opts.devLogin) } }, 401);
+      return c.json({ error: "Sign in", signIn: { discord: Boolean(opts.discord), dev: Boolean(opts.devLogin) } }, 401);
     }
     // Writes must come from the dashboard itself, not a form on another site.
     if (c.req.method !== "GET" && !sameOrigin(c)) return c.json({ error: "Forbidden" }, 403);

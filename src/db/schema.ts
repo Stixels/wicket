@@ -117,17 +117,9 @@ export const members = sqliteTable("members", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   discordId: text("discord_id").unique(),
-  email: text("email").unique(),
   avatarUrl: text("avatar_url"),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   lastSeenAt: integer("last_seen_at", { mode: "timestamp_ms" }),
-});
-
-/** One-time sign-in links sent by email. Only a hash of the link's token is stored. */
-export const loginLinks = sqliteTable("login_links", {
-  id: text("id").primaryKey(),
-  email: text("email").notNull(),
-  expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
 });
 
 /** Dashboard sign-ins. Only a hash of the cookie is stored. */

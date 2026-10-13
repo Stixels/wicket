@@ -54,48 +54,6 @@ export class Members {
       .get();
   }
 
-  byEmail(email: string): Member | undefined {
-    return this.db.select().from(schema.members).where(eq(schema.members.email, email.toLowerCase())).get();
-  }
-
-  /**
-   * The teammate who signs in with this email. With a Discord id, it's the same person as that
-   * Discord account, so their replies from either place line up.
-   */
-  upsertEmail(email: string, discordId?: string): Member {
-    const clean = email.trim().toLowerCase();
-    const existing = this.byEmail(clean);
-    if (existing) return existing;
-    const linked = discordId ? this.byDiscordId(discordId) : undefined;
-    if (linked) return this.db.update(schema.members).set({ email: clean }).where(eq(schema.members.id, linked.id)).returning().get()!;
-    const local = clean.split("@")[0]!.replace(/[._-]+/g, " ").trim();
-    const name = local.replace(/\b\w/g, (ch) => ch.toUpperCase()) || "Team";
-    return this.db
-      .insert(schema.members)
-      .values({ id: crypto.randomUUID(), name, email: clean, discordId: discordId ?? null, createdAt: new Date() })
-      .returning()
-      .get();
-  }
-
-  /** A one-time sign-in link token for an email, good for 15 minutes. */
-  createLoginLink(email: string): string {
-    const token = crypto.randomBytes(32).toString("base64url");
-    this.db.delete(schema.loginLinks).where(lt(schema.loginLinks.expiresAt, new Date())).run();
-    this.db
-      .insert(schema.loginLinks)
-      .values({ id: hashToken(token), email: email.trim().toLowerCase(), expiresAt: new Date(Date.now() + 15 * 60_000) })
-      .run();
-    return token;
-  }
-
-  /** Uses up a sign-in link and returns its email, if it's still good. */
-  useLoginLink(token: string): string | null {
-    const id = hashToken(token);
-    const link = this.db.select().from(schema.loginLinks).where(eq(schema.loginLinks.id, id)).get();
-    this.db.delete(schema.loginLinks).where(eq(schema.loginLinks.id, id)).run();
-    return link && link.expiresAt.getTime() > Date.now() ? link.email : null;
-  }
-
   /** A teammate with no linked tool, e.g. the local dev sign-in. */
   upsertLocal(id: string, name: string): Member {
     const existing = this.get(id);

@@ -6,7 +6,6 @@ import { ReplyEmails, replyText, sign, verifyWebhook, type InboundMail, type Mai
 import { createServer } from "../src/server.js";
 import { FakeRelay } from "./helpers.js";
 
-const ORIGIN = "http://localhost";
 const MIN = 60_000;
 
 class FakeMailer implements Mailer {
@@ -20,7 +19,7 @@ class FakeMailer implements Mailer {
   }
 }
 
-function setup({ replyDomain = "in.example.com" as string | undefined, teamEmails = [] as string[] } = {}) {
+function setup({ replyDomain = "in.example.com" as string | undefined } = {}) {
   const db = openDb(":memory:");
   const relay = new FakeRelay();
   const mailer = new FakeMailer();
@@ -33,7 +32,6 @@ function setup({ replyDomain = "in.example.com" as string | undefined, teamEmail
     maxMessagesPerConversationPerHour: 50,
     productName: "Escape Director",
     email: { replies, webhookSecret: "whsec_" + Buffer.from("secret-key").toString("base64") },
-    team: { db, productName: "Escape Director", email: teamEmails.length ? { mailer, allowed: teamEmails } : undefined },
   });
   return { db, relay, mailer, service, replies, app };
 }
@@ -167,7 +165,7 @@ describe("replies by email", () => {
   });
 });
 
-describe("chat page and email sign-in", () => {
+describe("chat page", () => {
   it("serves a page with just the chat for email links", async () => {
     const { app } = setup();
     const res = await app.request("/chat/abc");
@@ -175,36 +173,5 @@ describe("chat page and email sign-in", () => {
     const html = await res.text();
     expect(html).toContain("Escape Director support");
     expect(html).toContain("page: true");
-  });
-
-  it("signs a teammate in with a one-time link, linked to their Discord account", async () => {
-    const { app, mailer, service } = setup({ teamEmails: ["alex@ed.com:d-alex"] });
-    service.members.upsertDiscord("d-alex", "Alex Rivera");
-    const ask = (email: string) =>
-      app.request("/admin/auth/email", { method: "POST", headers: { Origin: ORIGIN, "Content-Type": "application/json" }, body: JSON.stringify({ email }) });
-
-    expect((await ask("stranger@ed.com")).status).toBe(200); // same answer, no email
-    expect(mailer.sent).toEqual([]);
-    expect((await ask("Alex@ED.com")).status).toBe(200);
-    const link = /https?:\/\/[^\s]+\/admin\/auth\/email\/([\w-]+)/.exec(mailer.sent[0]!.text)!;
-    const path = new URL(link[0]).pathname;
-
-    // Opening the link doesn't use it up; the button does.
-    expect((await app.request(path)).status).toBe(200);
-    const res = await app.request(path, { method: "POST", headers: { Origin: ORIGIN } });
-    expect(res.headers.get("location")).toBe("/admin");
-    const cookie = res.headers.get("set-cookie")!.split(";")[0]!;
-    const me = (await (await app.request("/admin/api/me", { headers: { Cookie: cookie } })).json()) as { member: { name: string; discordId: string } };
-    expect(me.member).toMatchObject({ name: "Alex Rivera", discordId: "d-alex" });
-
-    const again = await app.request(path, { method: "POST", headers: { Origin: ORIGIN } });
-    expect(again.headers.get("location")).toBe("/admin?error=link");
-  });
-
-  it("offers email sign-in only when it's set up", async () => {
-    const withEmail = setup({ teamEmails: ["alex@ed.com"] });
-    const res = await withEmail.app.request("/admin/api/me");
-    expect(((await res.json()) as any).signIn).toMatchObject({ email: true, discord: false });
-    expect((await setup().app.request("/admin/auth/email", { method: "POST", headers: { Origin: ORIGIN }, body: "{}" })).status).toBe(404);
   });
 });

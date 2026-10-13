@@ -64,16 +64,13 @@ const schema = z.object({
     .optional()
     .transform((v) => v === "true"),
 
-  // Email through Resend (free tier is enough): unread team replies go to the user, and the
-  // dashboard can sign in by email. Needs PUBLIC_URL for links.
+  // Email through Resend (free tier is enough): unread team replies go to the user. Needs PUBLIC_URL for links.
   RESEND_API_KEY: z.string().optional(),
   EMAIL_FROM: z.string().optional(), // e.g. "Escape Director <support@escapedirector.com>", on a domain verified in Resend
   /** A domain that receives email in Resend. Replies to the email then land in the conversation. */
   EMAIL_REPLY_DOMAIN: z.string().optional(),
   /** Signing secret (whsec_...) of the Resend webhook that points at /email/inbound. */
   RESEND_WEBHOOK_SECRET: z.string().optional(),
-  /** Emails allowed to sign in to the dashboard. "alex@x.com:123456789" links Alex to their Discord account. */
-  TEAM_EMAILS: csv,
 
   // Signed-in users: the host app's backend signs a short-lived HS256 JWT with this secret
   // (claims: sub, name, email, plan). Only a valid token counts as signed in.

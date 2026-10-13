@@ -187,15 +187,12 @@ const app = createServer(service, {
           }
         : undefined,
     allowIds: config.TEAM_DISCORD_IDS,
-    email: mailer && config.TEAM_EMAILS.length ? { mailer, allowed: config.TEAM_EMAILS } : undefined,
     publicUrl: config.PUBLIC_URL,
     devLogin: config.TEAM_DEV_LOGIN,
     discordGuildId: config.DISCORD_GUILD_ID,
   },
 });
-if (!config.DISCORD_CLIENT_ID && !config.TEAM_DEV_LOGIN && !(mailer && config.TEAM_EMAILS.length)) {
-  console.log("team: needs you: set DISCORD_CLIENT_ID and DISCORD_CLIENT_SECRET, or RESEND_API_KEY and TEAM_EMAILS, to sign in to the dashboard at /admin");
-}
+if (!config.DISCORD_CLIENT_ID && !config.TEAM_DEV_LOGIN) console.log("team: needs you: set DISCORD_CLIENT_ID and DISCORD_CLIENT_SECRET to sign in to the dashboard at /admin");
 const server = serve({ fetch: app.fetch, port: config.PORT }, (info) => {
   console.log(`wicket listening on http://localhost:${info.port} (agent: ${agent ? `${model}${gateway ? " via AI Gateway" : ""}` : "off"})`);
 });
