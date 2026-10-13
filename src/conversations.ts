@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { EventEmitter } from "node:events";
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import type Anthropic from "@anthropic-ai/sdk";
 import { schema, type Db } from "./db/index.js";
 import { ThreadGoneError, type Relay, type RelayFile } from "./adapters/types.js";
@@ -58,11 +58,14 @@ export interface ServiceOptions {
   /** Where attachments are kept. Defaults to a temporary folder (fine for tests). */
   files?: FileStore;
   log?: (msg: string, err?: unknown) => void;
+  /** Team replies are emailed when unread, so the waiting message can say so. */
+  emailReplies?: boolean;
 }
 
 export const MESSAGES = {
   waiting: (replyTime?: string) =>
     replyTime ? `Passed to the team. They usually reply within ${replyTime}.` : "Passed to the team. Someone will reply here.",
+  willEmail: "We'll email you when they do.",
   joined: (name: string) => `${name} joined the conversation`,
   /** The widget shows this as a "resolved" badge with a button to start a new conversation. */
   resolved: "Marked as resolved",
@@ -87,6 +90,7 @@ export class ConversationService {
   readonly files: FileStore;
   readonly members: Members;
   private log: (msg: string, err?: unknown) => void;
+  private emailReplies: boolean;
 
   constructor(
     private db: Db,
@@ -101,6 +105,7 @@ export class ConversationService {
     this.files = o.files ?? new FileStore(db, ":memory:");
     this.members = new Members(db);
     this.log = o.log ?? console.log;
+    this.emailReplies = Boolean(o.emailReplies);
   }
 
   /**
@@ -148,6 +153,15 @@ export class ConversationService {
     this.db.update(schema.conversations).set({ reporterEmail: clean, updatedAt: new Date() }).where(eq(schema.conversations.id, id)).run();
     await this.mirror(id, "system", `Email for follow-up: ${clean}`);
     return true;
+  }
+
+  /** The widget showed the user messages up to this id; replies after it count as unread. */
+  markSeen(id: string, messageId: number) {
+    this.db
+      .update(schema.conversations)
+      .set({ seenMessageId: sql`max(coalesce(${schema.conversations.seenMessageId}, 0), ${messageId})` })
+      .where(eq(schema.conversations.id, id))
+      .run();
   }
 
   get(id: string) {
@@ -354,7 +368,7 @@ export class ConversationService {
     const profile = this.profileFor(this.get(id) ?? c);
     if (!this.agent || !profile.ai) {
       await this.handoff(id, this.agent ? `New message (${profile.name}: assistant off).` : "New message (no assistant configured).");
-      this.addMessage(id, "system", this.waitingText(), null);
+      this.addMessage(id, "system", this.waitingText(id), null);
       return;
     }
 
@@ -398,7 +412,7 @@ export class ConversationService {
         this.addMessage(id, "agent", result.reply, null);
         await this.mirror(id, "agent", result.reply);
       }
-      if (this.get(id)?.status === "needs_human") this.addMessage(id, "system", this.waitingText(), null);
+      if (this.get(id)?.status === "needs_human") this.addMessage(id, "system", this.waitingText(id), null);
       if (limit !== null && limit > 0) {
         const warnAt = limit * this.settings.budgets.warnAt;
         if (spent < warnAt && spent + cost >= warnAt && spent + cost < limit) this.addMessage(id, "system", MESSAGES.nearBudget, null);
@@ -409,15 +423,17 @@ export class ConversationService {
       const msg = "Sorry, something went wrong on my end. I've asked someone from the team to reply here.";
       this.addMessage(id, "agent", msg, null);
       await this.mirror(id, "agent", msg);
-      if (this.get(id)?.status === "needs_human") this.addMessage(id, "system", this.waitingText(), null);
+      if (this.get(id)?.status === "needs_human") this.addMessage(id, "system", this.waitingText(id), null);
     } finally {
       stopTyping();
       this.events.emit(id, { type: "idle" });
     }
   }
 
-  private waitingText(): string {
-    return MESSAGES.waiting(this.settings.team.replyTime);
+  private waitingText(id: string): string {
+    const c = this.get(id);
+    const email = this.emailReplies && c?.reporterEmail && !c.emailOptOut;
+    return MESSAGES.waiting(this.settings.team.replyTime) + (email ? ` ${MESSAGES.willEmail}` : "");
   }
 
   /** Keeps the relay's typing indicator on while the assistant works (Discord's lasts about 10s). */

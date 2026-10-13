@@ -82,6 +82,12 @@ CREATE TABLE IF NOT EXISTS members (
   last_seen_at INTEGER
 );
 
+CREATE TABLE IF NOT EXISTS login_links (
+  id TEXT PRIMARY KEY,
+  email TEXT NOT NULL,
+  expires_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS team_sessions (
   id TEXT PRIMARY KEY,
   member_id TEXT NOT NULL,
@@ -100,9 +106,19 @@ export function openDb(file: string): Db {
   sqlite.pragma("journal_mode = WAL");
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(BOOTSTRAP);
-  addMissingColumns(sqlite, "conversations", { user_id: "TEXT", plan: "TEXT", payer: "TEXT" });
+  addMissingColumns(sqlite, "conversations", {
+    user_id: "TEXT",
+    plan: "TEXT",
+    payer: "TEXT",
+    seen_message_id: "INTEGER",
+    emailed_message_id: "INTEGER",
+    emailed_at: "INTEGER",
+    email_opt_out: "INTEGER",
+  });
   addMissingColumns(sqlite, "messages", { attachments: "TEXT", member_id: "TEXT", mentions: "TEXT" });
   addMissingColumns(sqlite, "files", { deleted_at: "INTEGER" });
+  addMissingColumns(sqlite, "members", { email: "TEXT" });
+  sqlite.exec("CREATE UNIQUE INDEX IF NOT EXISTS members_email ON members(email)");
   return drizzle(sqlite, { schema }) as Db;
 }
 

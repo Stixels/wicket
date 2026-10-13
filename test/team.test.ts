@@ -64,7 +64,7 @@ describe("team dashboard", () => {
     const { app } = setup();
     const res = await app.request("/admin/api/conversations");
     expect(res.status).toBe(401);
-    expect(((await res.json()) as any).signIn).toEqual({ discord: false, dev: true });
+    expect(((await res.json()) as any).signIn).toEqual({ discord: false, email: false, dev: true });
 
     const call = await teammate(app);
     expect((await call("/api/me")).status).toBe(200);

@@ -23,6 +23,13 @@ export const conversations = sqliteTable(
     payer: text("payer"),
     context: text("context", { mode: "json" }).$type<Record<string, unknown>>(),
     relayThreadId: text("relay_thread_id"),
+    /** The newest message the widget has shown the user. Replies past it are unread. */
+    seenMessageId: integer("seen_message_id"),
+    /** The newest team reply already sent by email, and when. */
+    emailedMessageId: integer("emailed_message_id"),
+    emailedAt: integer("emailed_at", { mode: "timestamp_ms" }),
+    /** The user asked for no more emails about this conversation. */
+    emailOptOut: integer("email_opt_out", { mode: "boolean" }),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
   },
@@ -110,9 +117,17 @@ export const members = sqliteTable("members", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   discordId: text("discord_id").unique(),
+  email: text("email").unique(),
   avatarUrl: text("avatar_url"),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   lastSeenAt: integer("last_seen_at", { mode: "timestamp_ms" }),
+});
+
+/** One-time sign-in links sent by email. Only a hash of the link's token is stored. */
+export const loginLinks = sqliteTable("login_links", {
+  id: text("id").primaryKey(),
+  email: text("email").notNull(),
+  expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
 });
 
 /** Dashboard sign-ins. Only a hash of the cookie is stored. */

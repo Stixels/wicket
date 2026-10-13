@@ -28,14 +28,14 @@ type Typing = { memberId: string | null; name: string; source: string; until: nu
 
 function App() {
   const [me, setMe] = useState<Member | null>(null);
-  const [signIn, setSignIn] = useState<{ discord: boolean; dev: boolean } | null>(null);
+  const [signIn, setSignIn] = useState<SignInOptions | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
     api<{ member: Member }>("/api/me")
       .then((d) => setMe(d.member))
       .catch((e) => {
-        if (e instanceof ApiError && e.status === 401) setSignIn(e.data.signIn ?? { discord: false, dev: false });
+        if (e instanceof ApiError && e.status === 401) setSignIn(e.data.signIn ?? { discord: false, email: false, dev: false });
         else setError(e.message);
       });
   }, []);
@@ -46,8 +46,26 @@ function App() {
   return <div className="splash">{error ?? <span className="spinner" />}</div>;
 }
 
-function SignIn({ options, onDone }: { options: { discord: boolean; dev: boolean }; onDone: () => void }) {
+type SignInOptions = { discord: boolean; email?: boolean; dev: boolean };
+
+function SignIn({ options, onDone }: { options: SignInOptions; onDone: () => void }) {
   const error = new URLSearchParams(location.search).get("error");
+  const [email, setEmail] = useState("");
+  const [sent, setSent] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const sendLink = async () => {
+    setBusy(true);
+    setProblem(null);
+    try {
+      await api("/auth/email", { json: { email } });
+      setSent(email.trim());
+    } catch (e) {
+      setProblem(e instanceof Error ? e.message : "That didn't work. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <div className="signin">
       <div className="signin-glow" />
@@ -57,17 +75,43 @@ function SignIn({ options, onDone }: { options: { discord: boolean; dev: boolean
         <p className="muted">Reply to conversations from the app, alongside Discord.</p>
         {error === "not-team" && <p className="alert">That Discord account isn't on the team. Ask for the Team role in the server.</p>}
         {error === "sign-in" && <p className="alert">Sign-in didn't go through. Try again.</p>}
+        {error === "link" && <p className="alert">That sign-in link has expired or was already used. Ask for a new one.</p>}
+        {problem && <p className="alert">{problem}</p>}
         {options.discord && (
           <a className="btn btn-discord" href="/admin/auth/discord">
             <DiscordIcon /> Sign in with Discord
           </a>
         )}
+        {options.email &&
+          (sent ? (
+            <p className="sent">
+              If <b>{sent}</b> is on the team, a sign-in link is on its way. It works once, for 15 minutes.
+            </p>
+          ) : (
+            <>
+              {options.discord && <div className="or">or</div>}
+              <form
+                className="email-signin"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (!busy && email.trim()) void sendLink();
+                }}
+              >
+                <input type="email" required placeholder="you@company.com" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+                <button className="btn" disabled={busy || !email.trim()}>
+                  {busy ? "Sending…" : "Email me a sign-in link"}
+                </button>
+              </form>
+            </>
+          ))}
         {options.dev && (
           <button className="btn btn-ghost" onClick={() => void api("/auth/dev", { json: {} }).then(onDone)}>
             Continue as local teammate
           </button>
         )}
-        {!options.discord && !options.dev && <p className="muted small">Sign-in isn't set up yet. Set DISCORD_CLIENT_ID and DISCORD_CLIENT_SECRET on the server.</p>}
+        {!options.discord && !options.email && !options.dev && (
+          <p className="muted small">Sign-in isn't set up yet. Set DISCORD_CLIENT_ID and DISCORD_CLIENT_SECRET, or RESEND_API_KEY and TEAM_EMAILS, on the server.</p>
+        )}
       </div>
     </div>
   );

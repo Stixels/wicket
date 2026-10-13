@@ -64,6 +64,10 @@ interface InitOptions {
   suggestions?: string[];
   /** Hide the floating button and open the panel yourself with Wicket.open(). */
   hideLauncher?: boolean;
+  /** Fill the page with the chat, always open: for a page that is only the chat. */
+  page?: boolean;
+  /** Open this conversation, e.g. from a link in an email. */
+  conversation?: { id: string; token: string };
   showBranding?: boolean;
   theme?: Theme;
   /** @deprecated use theme.accentColor */
@@ -473,10 +477,13 @@ textarea::placeholder { color: var(--wk-muted); }
 
 /* Phones: the chat takes the whole screen and follows the keyboard, so nothing hides behind it.
    Fields are 16px, below which iOS zooms the page in on focus. */
+.wk.page .launcher, .wk.page .x { display: none !important; }
+.wk.page .panel { inset: 0; margin: auto; width: min(460px, calc(100vw - 32px)); height: min(780px, calc(100dvh - 48px)); max-height: none; }
 @media (max-width: 640px) {
   .panel { inset: auto 0 auto 0; top: var(--wk-vtop, 0px); width: 100%; height: var(--wk-vh, 100dvh); max-height: none;
     border-radius: 0; border: 0; box-shadow: none; transform-origin: bottom center; }
   .left .panel { left: 0; }
+  .wk.page .panel { inset: auto 0 auto 0; top: var(--wk-vtop, 0px); margin: 0; width: 100%; height: var(--wk-vh, 100dvh); }
   .wk.open .launcher { display: none; }
   .head { padding-top: env(safe-area-inset-top); }
   .composer { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
@@ -552,8 +559,20 @@ class Widget {
     this.render();
     this.applyTheme();
     this.media?.addEventListener?.("change", () => this.applyTheme());
-    this.conv = this.loadStored();
+    if (options.conversation) {
+      this.conv = options.conversation;
+      this.store();
+      this.saveList([options.conversation, ...this.loadList()]);
+      // Opened from an email, so we already have their address.
+      try {
+        localStorage.setItem(`${this.storageKey()}:email:${options.conversation.id}`, "1");
+      } catch {}
+    } else this.conv = this.loadStored();
     if (this.conv) this.connect();
+    if (options.page) {
+      this.wrap.classList.add("page");
+      this.open();
+    }
     void this.refreshSession();
     setInterval(() => {
       for (const t of this.log.querySelectorAll<HTMLElement>("time[data-t]")) t.textContent = timeAgo(Number(t.dataset.t), true);
@@ -570,6 +589,7 @@ class Widget {
   }
 
   close() {
+    if (this.opts.page) return;
     this.wrap.classList.remove("open");
     this.fitToScreen(false);
     this.halftone.pause();

@@ -254,6 +254,50 @@ code {
 .signin-card .btn {
   width: 100%;
 }
+.or {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  color: var(--faint);
+  font-size: 12px;
+}
+.or::before,
+.or::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border-strong);
+}
+.email-signin {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+}
+.email-signin input {
+  height: 42px;
+  padding: 0 12px;
+  border-radius: 11px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+  outline: none;
+}
+.email-signin input:focus {
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+}
+.email-signin .btn {
+  height: 42px;
+}
+.sent {
+  font-size: 14px;
+  color: var(--muted);
+}
+.sent b {
+  color: var(--text);
+}
 .alert {
   width: 100%;
   padding: 10px 12px;

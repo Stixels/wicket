@@ -117,7 +117,18 @@ Sign-in is with Discord, for everyone with the Team role:
 1. In the same Discord application as the bot, open **OAuth2**, copy the **Client ID** and **Client Secret**, and add a redirect: `https://YOUR-SERVER/admin/auth/callback`.
 2. Set `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET` and `PUBLIC_URL` (your server's address). With `DISCORD_GUILD_ID` set, anyone with the Team role can sign in. To let in someone without the role, add their Discord user id to `TEAM_DISCORD_IDS`.
 
+Teams that aren't on Discord can sign in by email instead: set up email (below) and list who may sign in in `TEAM_EMAILS`. They get a one-time link that works for 15 minutes. Writing `alex@company.com:<discord user id>` makes Alex the same teammate whichever way they sign in.
+
 For local work, `TEAM_DEV_LOGIN=true` adds a one-click "local teammate" sign-in. Never set it on a public server.
+
+## Email
+
+Support is async, so nobody should have to keep a tab open waiting. With email set up, a team reply the user hasn't seen in the widget for 5 minutes is emailed to them (at most one email per conversation an hour, with every unread reply in it). The email links to a page with just that conversation, and replying to the email posts into the conversation, so it reaches the dashboard and Discord too. Each email has an unsubscribe link for that conversation. The address comes from the signed-in user's token, `user.email` in `Wicket.init`, or the email field in the widget (`askEmail` in a profile), and the "passed to the team" message adds "We'll email you when they do."
+
+It uses [Resend](https://resend.com); the free tier is plenty for a small team.
+
+1. In Resend, verify the domain you'll send from and create an API key. Set `RESEND_API_KEY`, `EMAIL_FROM` (e.g. `Escape Director <support@escapedirector.com>`) and `PUBLIC_URL`.
+2. For replies by email: add a receiving domain in Resend (e.g. `reply.escapedirector.com`) and set it as `EMAIL_REPLY_DOMAIN`. Add a webhook for `email.received` pointing at `https://YOUR-SERVER/email/inbound` and set its signing secret as `RESEND_WEBHOOK_SECRET`. A reply only counts if it comes from the address we emailed, to that conversation's own reply address.
 
 ## Deploy on Railway
 
@@ -172,6 +183,7 @@ See [`.env.example`](.env.example). The main settings:
 | `RELAY`, `DISCORD_*` | Where conversations show up for the team. |
 | `ALLOWED_ORIGINS` | Sites allowed to embed the widget. |
 | `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `PUBLIC_URL` | Discord sign-in for the team dashboard at `/admin`. `TEAM_DISCORD_IDS` lets in people without the Team role. |
+| `RESEND_API_KEY`, `EMAIL_FROM`, `EMAIL_REPLY_DOMAIN`, `RESEND_WEBHOOK_SECRET`, `TEAM_EMAILS` | Emailing unread replies to users, replies by email, and email sign-in to the dashboard. See [Email](#email). |
 | `IDENTITY_SECRET` | Shared with your backend to sign user tokens (at least 32 characters). |
 | `WICKET_CONFIG` | Profiles, rules, budgets and extra knowledge repos (`knowledge:`, e.g. an SDK with examples): a file path or the YAML itself. Defaults to `config/wicket.yaml`. |
 
