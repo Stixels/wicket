@@ -50,7 +50,7 @@ jwt.sign({ sub: user.id, name: user.name, email: user.email, plan: user.plan }, 
 Wicket.init({ userToken: () => fetch("/api/wicket-token").then((r) => r.json()).then((d) => d.token) });
 ```
 
-`userToken` takes the token or a function that returns one. Without a valid token, the person counts as a visitor.
+`userToken` takes the token or a function that returns one. Without a valid token, the person counts as a visitor. Tokens must have an expiry (`exp`) no more than 24 hours out; a few minutes is best.
 
 ### Customizing
 

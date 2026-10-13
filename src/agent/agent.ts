@@ -150,7 +150,7 @@ export class Agent {
         max_tokens: 16000,
         system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
         tools: TOOLS,
-        messages,
+        messages: withCacheBreakpoint(messages),
         output_config: { effort: turn.effort ?? this.opts.effort },
         // On a safety decline, retry on a fallback model chosen by refusal category.
         ...(this.opts.serverFallback ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" } : {}),
@@ -239,6 +239,20 @@ export async function answerOnce(agent: Agent, question: string, docs: Pick<Agen
     { ...docs, handoff: async () => void (needsHuman = true) },
   );
   return { reply: result.reply, needsHuman: needsHuman || result.handedOff };
+}
+
+/**
+ * Marks the newest block so the next call reads the conversation so far from the cache instead of
+ * paying full price for it again. Returns copies; the stored transcript is left unchanged.
+ */
+export function withCacheBreakpoint(messages: MessageParam[]): MessageParam[] {
+  const last = messages.at(-1);
+  if (!last) return messages;
+  const blocks = typeof last.content === "string" ? [{ type: "text" as const, text: last.content }] : last.content;
+  const end = blocks.at(-1);
+  if (!end || end.type === "thinking" || end.type === "redacted_thinking") return messages;
+  const marked = { ...last, content: [...blocks.slice(0, -1), { ...end, cache_control: { type: "ephemeral" } } as typeof end] };
+  return [...messages.slice(0, -1), marked];
 }
 
 function textOf(content: ContentBlock[]): string {

@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { openDb } from "../src/db/index.js";
 import { Agent } from "../src/agent/agent.js";
@@ -105,6 +106,19 @@ describe("user tokens", () => {
     const none = `${Buffer.from('{"alg":"none"}').toString("base64url")}.${Buffer.from('{"sub":"42"}').toString("base64url")}.`;
     expect(verifyUserToken(none, SECRET)).toBeNull();
     expect(verifyUserToken(token, undefined)).toBeNull();
+  });
+
+  it("rejects tokens with no expiry or one too far out", () => {
+    const sign = (claims: object) => {
+      const enc = (o: object) => Buffer.from(JSON.stringify(o)).toString("base64url");
+      const body = `${enc({ alg: "HS256", typ: "JWT" })}.${enc(claims)}`;
+      return `${body}.${crypto.createHmac("sha256", SECRET).update(body).digest("base64url")}`;
+    };
+    const now = Math.floor(Date.now() / 1000);
+    expect(verifyUserToken(sign({ sub: "42" }), SECRET)).toBeNull();
+    expect(verifyUserToken(sign({ sub: "42", exp: now + 30 * 86_400 }), SECRET)).toBeNull();
+    expect(verifyUserToken(sign({ sub: "42", exp: now + 3600 }), SECRET)?.id).toBe("42");
+    expect(verifyUserToken(signUserToken({ sub: "42" }, SECRET, 2 * 86_400), SECRET)).toBeNull();
   });
 });
 
