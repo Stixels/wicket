@@ -9,6 +9,7 @@ import { reindex, readDoc, searchDocs } from "./knowledge/index.js";
 import { MarkdownRepoSource } from "./adapters/knowledge/markdownRepo.js";
 import { DiscordRelay } from "./adapters/relay/discord.js";
 import { setupGuild } from "./discord/setup.js";
+import { GitHubIssuesTracker } from "./adapters/tracker/github.js";
 import { LinearTracker } from "./adapters/tracker/linear.js";
 import { draftTicket } from "./agent/tickets.js";
 import { COMMUNITY_ROOM_PREFIX, SUPPORT_ROOM_PREFIX } from "./discord/voiceRooms.js";
@@ -76,13 +77,15 @@ if (config.RELAY === "discord" && config.DISCORD_GUILD_ID) {
   config.DISCORD_TEAM_ROLE_ID ||= setup.teamRoleId;
 }
 
-const linear = config.LINEAR_API_KEY
+const tracker = config.LINEAR_API_KEY
   ? new LinearTracker({ apiKey: config.LINEAR_API_KEY, teamKey: config.LINEAR_TEAM_KEY!, sourceLabel: config.LINEAR_SOURCE_LABEL })
-  : null;
-if (linear) {
-  await linear.check().then(
-    (where) => console.log(`linear: ready (${where})`),
-    (err) => console.error(`linear: ${err.message}`),
+  : config.GITHUB_ISSUES_REPO
+    ? new GitHubIssuesTracker({ token: config.GITHUB_ISSUES_TOKEN!, repo: config.GITHUB_ISSUES_REPO, sourceLabel: config.GITHUB_ISSUES_LABEL })
+    : null;
+if (tracker) {
+  await tracker.check().then(
+    (where) => console.log(`${tracker.name}: ready (${where})`),
+    (err) => console.error(`${tracker.name}: ${err.message}`),
   );
 }
 
@@ -103,9 +106,9 @@ if (config.RELAY === "discord") {
     ],
     answerCommunityPost: agent ? (q) => answerOnce(agent, q, { searchDocs: (query) => searchDocs(db, query), readDoc: (url) => readDoc(db, url) }) : undefined,
     tickets:
-      anthropic && linear
+      anthropic && tracker
         ? {
-            tracker: linear!,
+            tracker,
             draft: (transcript, ask) => draftTicket(anthropic, model, config.PRODUCT_NAME, transcript, ask),
             teamRoleId: config.DISCORD_TEAM_ROLE_ID,
           }
@@ -134,7 +137,7 @@ if (relay) {
     ({ threadId, authorName, body, files }) => service.handleStaffReply(threadId, authorName, body, files),
     (threadId, deleted) => service.resolve(threadId, deleted),
   );
-  console.log(`relay: ${relay.name} connected${config.LINEAR_API_KEY && anthropic ? ", tag the bot to file Linear tickets" : ""}`);
+  console.log(`relay: ${relay.name} connected${tracker && anthropic ? `, tag the bot to file ${tracker.name === "github" ? "GitHub issues" : "Linear tickets"}` : ""}`);
 }
 
 const app = createServer(service, {
