@@ -114,6 +114,8 @@ interface Summary {
   updatedAt: number;
   /** Something they reported shipped, and they haven't seen it yet. */
   news?: boolean;
+  /** Where the latest thing they reported in it stands. */
+  report?: TicketCard | null;
 }
 
 interface Attachment {
@@ -422,8 +424,15 @@ button { font: inherit; color: inherit; }
   background: linear-gradient(90deg, color-mix(in srgb, var(--tk) 55%, transparent), var(--tk)); }
 .ticket.logged .tk-bar::after { animation: wk-tk 2.4s ease-in-out infinite; }
 @keyframes wk-tk { 50% { opacity: .55; } }
-.conv .new svg { width: 14px; height: 14px; padding: 2px; border-radius: 50%; background: #22c55e; color: #fff; box-sizing: border-box; }
-.conv .new { display: inline-flex; align-items: center; gap: 4px; font-style: normal; font-weight: 600; color: color-mix(in srgb, #22c55e 75%, var(--wk-text)); }
+.conv .rnew { display: inline-block; width: 7px; height: 7px; margin: 0 6px 1px 0; border-radius: 50%; background: #22c55e; box-shadow: 0 0 8px rgba(34,197,94,.6); }
+.conv .rep { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.conv .rep > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.rchip { --tk: var(--wk-accent); flex: none; display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px 1px 6px; border-radius: 999px; font-style: normal;
+  font-size: 11px; font-weight: 600; line-height: 16px; color: var(--tk); background: color-mix(in srgb, var(--tk) 13%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tk) 22%, transparent); }
+.rchip.done { --tk: #22c55e; }
+.rchip b { width: 6px; height: 6px; border-radius: 50%; background: var(--tk); }
+.rchip svg { width: 10px; height: 10px; stroke-width: 3.5; }
 .wk.dark .row.agent a, .wk.dark .row.staff a { color: color-mix(in srgb, var(--wk-accent) 60%, white); }
 .system { align-self: center; margin: 10px 0; font-size: 12px; color: var(--wk-muted); padding: 5px 12px; border-radius: 999px;
   background: color-mix(in srgb, var(--wk-text) 5%, transparent); animation: wk-in .25s ease; text-align: center; }
@@ -1035,8 +1044,12 @@ class Widget {
     el.type = "button";
     el.className = "conv";
     const who = !c.last ? "" : c.last.author === "user" ? "You" : c.last.author === "staff" ? c.last.authorName ?? "Team" : c.last.author === "agent" ? "Assistant" : "";
-    el.innerHTML = `<span class="ct">${escapeHtml(c.title || "Conversation")}</span><span class="cw">${c.news ? `<i class="new">${ICONS.check}Done</i>` : c.status === "resolved" ? "Resolved · " : ""}${c.news ? "" : timeAgo(c.updatedAt)}</span>
-      <span class="cl">${who ? `<b>${escapeHtml(who)}:</b> ` : ""}${escapeHtml(c.last?.body ?? "")}</span>`;
+    const when = `${c.news ? `<i class="rnew" title="New update"></i>` : c.status === "resolved" && !c.report ? "Resolved · " : ""}${timeAgo(c.updatedAt)}`;
+    // A conversation with a report shows where it stands instead of the last message.
+    const line = c.report
+      ? `<span class="cl rep">${reportChip(c.report)}<span>${escapeHtml(capitalize(c.report.summary.replace(/^"(.*)"$/, "$1")))}</span></span>`
+      : `<span class="cl">${who ? `<b>${escapeHtml(who)}:</b> ` : ""}${escapeHtml(c.last?.body ?? "")}</span>`;
+    el.innerHTML = `<span class="ct">${escapeHtml(c.title || "Conversation")}</span><span class="cw">${when}</span>${line}`;
     el.addEventListener("click", () => this.openConversation(c));
     return el;
   }
@@ -1509,6 +1522,16 @@ function ticketWords(kind: string | null) {
   if (kind === "bug") return { noun: "Bug report", start: "Reported", end: "Fixed", icon: ICONS.bug, thanks: "thanks for reporting it" };
   if (kind === "docs") return { noun: "Docs", start: "Reported", end: "Updated", icon: ICONS.book, thanks: "thanks for pointing it out" };
   return { noun: "Idea", start: "Suggested", end: "Shipped", icon: ICONS.idea, thanks: "thanks for the idea" };
+}
+
+/** A tiny status pill for a report: "Logged" while it's with the team, "Fixed" or "Shipped" when done. */
+function reportChip(c: TicketCard): string {
+  const done = c.stage === "done";
+  return `<i class="rchip${done ? " done" : ""}">${done ? ICONS.check : "<b></b>"}${done ? ticketWords(c.kind).end : "Logged"}</i>`;
+}
+
+function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 function ticketCardHtml(c: TicketCard): string {

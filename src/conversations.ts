@@ -251,6 +251,8 @@ export class ConversationService {
       updatedAt: last?.createdAt ?? c.createdAt.getTime(),
       /** Something they reported is done and they haven't seen the message yet. */
       news: messages.some((m) => isNews(m) && m.id > (c.seenMessageId ?? 0)),
+      /** Where the latest thing they reported here stands, for a status chip in their list. */
+      report: [...messages].reverse().find((m) => m.card)?.card ?? null,
     };
   }
 

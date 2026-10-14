@@ -148,6 +148,8 @@ describe("everyone hears back", () => {
     expect(s.service.list(alex.id).at(-1)!.body).toContain("the timer running fast after pausing is fixed");
     expect(samThread.posts.at(-1)).toBe("system: ✅ ED-1 is done, so I let them know.");
     expect(s.service.summary(sam.id)!.news).toBe(true);
+    // Their conversation list shows where the report stands.
+    expect(s.service.summary(sam.id)!.report).toMatchObject({ stage: "done", kind: "bug", summary: "the timer drifting after a pause" });
 
     // Each person hears once.
     expect(await s.desk.check()).toBe(0);
