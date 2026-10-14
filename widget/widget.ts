@@ -112,6 +112,10 @@ interface Summary {
   title: string;
   last: { author: string; authorName: string | null; body: string; createdAt: number } | null;
   updatedAt: number;
+  /** Something they reported moved (planned, done, declined), and they haven't seen it yet. */
+  news?: boolean;
+  /** Where the latest thing they reported in it stands. */
+  report?: TicketCard | null;
 }
 
 interface Attachment {
@@ -128,7 +132,24 @@ interface Message {
   authorName: string | null;
   body: string;
   attachments?: Attachment[];
+  /** "logged" when something they reported was logged; "planned", "fixed", "shipped" or "declined" as it moves. */
+  event?: string;
+  card?: TicketCard;
+  /** Set on news the user hasn't seen yet when the widget connects. */
+  unseen?: boolean;
   createdAt: number;
+}
+
+/** A report's progress: "logged" when it reaches the team, "done" when it ships. */
+interface TicketCard {
+  type: "ticket";
+  stage: "logged" | "planned" | "done" | "declined";
+  kind: string | null;
+  summary: string;
+  reportedAt: number;
+  doneAt?: number;
+  others?: number;
+  reason?: string;
 }
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
@@ -386,6 +407,38 @@ button { font: inherit; color: inherit; }
 .row.agent .msg, .row.staff .msg { background: var(--wk-bubble); border: 1px solid var(--wk-border);
   box-shadow: 0 1px 2px rgba(15,15,30,.04); }
 .row.agent a, .row.staff a { color: var(--wk-accent); }
+/* A report's progress: one slim row with a hairline track, accent while open, green when done. */
+.ticket { --tk: color-mix(in srgb, var(--wk-text) 70%, var(--wk-muted)); position: relative; overflow: hidden; align-self: flex-start; max-width: 85%; margin: 8px 0 2px;
+  display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 0 10px; padding: 9px 14px 11px 10px;
+  border-radius: calc(var(--wk-radius) * .7); background: var(--wk-bubble); border: 1px solid var(--wk-border);
+  animation: wk-pop .45s cubic-bezier(.2,.8,.2,1) both; }
+.ticket.done { --tk: #22c55e; }
+.ticket.planned { --tk: #60a5fa; }
+.ticket.declined { --tk: var(--wk-muted); }
+.tk-why { grid-column: 2; margin-top: 6px; padding-left: 9px; border-left: 2px solid var(--wk-border); font-size: 12.5px; line-height: 1.4; color: color-mix(in srgb, var(--wk-text) 82%, var(--wk-muted)); white-space: pre-wrap; }
+.ticket:has(.tk-why) .tk-ic { grid-row: span 3; align-self: start; margin-top: 2px; }
+.ticket.declined .tk-title { color: color-mix(in srgb, var(--wk-text) 72%, var(--wk-muted)); }
+.tk-ic { grid-row: span 2; display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%;
+  color: var(--tk); background: color-mix(in srgb, var(--tk) 14%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tk) 28%, transparent); }
+.tk-ic svg { width: 13px; height: 13px; }
+.ticket.done .tk-ic { color: #fff; background: var(--tk); box-shadow: 0 0 12px color-mix(in srgb, var(--tk) 35%, transparent); }
+.tk-title { min-width: 0; font-size: 13.5px; font-weight: 600; line-height: 1.3; color: var(--wk-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tk-sub { min-width: 0; margin-top: 1px; font-size: 11.5px; line-height: 1.3; color: var(--wk-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tk-sub b { font-weight: 600; color: var(--tk); }
+.tk-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: color-mix(in srgb, var(--tk) 12%, transparent); }
+.tk-bar::after { content: ""; position: absolute; inset: 0 auto 0 0; width: var(--tk-at, 66%); border-radius: 0 2px 2px 0;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--tk) 55%, transparent), var(--tk)); }
+.ticket.logged .tk-bar::after { animation: wk-tk 2.4s ease-in-out infinite; }
+@keyframes wk-tk { 50% { opacity: .55; } }
+.conv .rnew { display: inline-block; width: 7px; height: 7px; margin-right: 8px; border-radius: 50%; background: #ef4444; }
+.conv.unread .ct { font-weight: 700; }
+.conv .cw { display: flex; align-items: center; }
+.conv .pl { color: #60a5fa; font-weight: 600; }
+.conv.resolved .ct { color: color-mix(in srgb, var(--wk-text) 72%, var(--wk-muted)); font-weight: 550; }
+.conv .res { display: inline-flex; align-items: center; gap: 4px; font-style: normal; }
+.conv .res svg { width: 11px; height: 11px; stroke-width: 3; }
+.conv .ok { display: inline-flex; align-items: center; gap: 3px; color: #22c55e; font-weight: 600; }
+.conv .ok svg { width: 11px; height: 11px; stroke-width: 3.2; }
 .wk.dark .row.agent a, .wk.dark .row.staff a { color: color-mix(in srgb, var(--wk-accent) 60%, white); }
 .system { align-self: center; margin: 10px 0; font-size: 12px; color: var(--wk-muted); padding: 5px 12px; border-radius: 999px;
   background: color-mix(in srgb, var(--wk-text) 5%, transparent); animation: wk-in .25s ease; text-align: center; }
@@ -491,12 +544,15 @@ textarea::placeholder { color: var(--wk-muted); }
   .log { overscroll-behavior: contain; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .launcher, .panel, .row, .system, .chip, .send, .launcher svg, .glow, .hero { transition: none !important; animation: none !important; }
+  .launcher, .panel, .row, .system, .chip, .send, .launcher svg, .glow, .hero, .ticket, .tk-bar::after { transition: none !important; animation: none !important; }
   .typing i, .avatar, .avatar::after, .mini, .bot .orb::before, .bot .orb2::before, .bot .eyes, .bot .eyes i, .typing .think { animation: none !important; }
 }
 `;
 
 const ICONS = {
+  bug: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9a4 4 0 0 1 8 0v5a4 4 0 0 1-8 0z"/><path d="M12 9v9M4 13h4M16 13h4M5 7l3 2M19 7l-3 2M5 19l3-2M19 19l-3-2M10 5 9 3M14 5l1-2"/></svg>`,
+  idea: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.6 10.8c.6.5 1 1.2 1.1 2.2h5c.1-1 .5-1.7 1.1-2.2A6 6 0 0 0 12 3z"/></svg>`,
+  book: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 21V5M9 7h6"/></svg>`,
   chat: `<svg class="ic-chat" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>`,
   close: `<svg class="ic-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg>`,
   x: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>`,
@@ -570,6 +626,7 @@ class Widget {
       } catch {}
     } else this.conv = this.loadStored();
     if (this.conv) this.connect();
+    void this.checkNews();
     if (options.page) {
       this.wrap.classList.add("page");
       this.open();
@@ -993,8 +1050,27 @@ class Widget {
     el.type = "button";
     el.className = "conv";
     const who = !c.last ? "" : c.last.author === "user" ? "You" : c.last.author === "staff" ? c.last.authorName ?? "Team" : c.last.author === "agent" ? "Assistant" : "";
-    el.innerHTML = `<span class="ct">${escapeHtml(c.title || "Conversation")}</span><span class="cw">${c.status === "resolved" ? "Resolved · " : ""}${timeAgo(c.updatedAt)}</span>
-      <span class="cl">${who ? `<b>${escapeHtml(who)}:</b> ` : ""}${escapeHtml(c.last?.body ?? "")}</span>`;
+    const r = c.report;
+    if (r) {
+      // A report reads as the report: what it is, and one plain line on where it stands.
+      const w = ticketWords(r.kind);
+      const status =
+        r.stage === "done"
+          ? `<span class="ok">${ICONS.check}${w.end}</span> ${dayLabel(r.doneAt ?? c.updatedAt)}`
+          : r.stage === "planned"
+            ? `<span class="pl">Planned</span> · We'll let you know when it ships`
+            : r.stage === "declined"
+              ? `${w.no} ${dayLabel(r.doneAt ?? c.updatedAt)}`
+              : w.waiting;
+      if (c.news) el.classList.add("unread");
+      el.innerHTML = `<span class="ct">${escapeHtml(capitalize(r.summary.replace(/^"(.*)"$/, "$1")))}</span><span class="cw">${c.news ? `<i class="rnew" title="New update"></i>` : ""}${timeAgo(c.updatedAt)}</span>
+        <span class="cl">${status}</span>`;
+    } else {
+      // Resolved conversations step back so the open ones stand out.
+      if (c.status === "resolved") el.classList.add("resolved");
+      el.innerHTML = `<span class="ct">${escapeHtml(c.title || "Conversation")}</span><span class="cw">${c.status === "resolved" ? `<i class="res">${ICONS.check}Resolved</i>` : timeAgo(c.updatedAt)}</span>
+        <span class="cl">${who ? `<b>${escapeHtml(who)}:</b> ` : ""}${escapeHtml(c.last?.body ?? "")}</span>`;
+    }
     el.addEventListener("click", () => this.openConversation(c));
     return el;
   }
@@ -1021,20 +1097,30 @@ class Widget {
     this.input.focus();
   }
 
+  /** Badges the launcher for news in earlier conversations (the open one reports its own). */
+  private async checkNews() {
+    if (!this.opts.userToken && this.loadList().every((x) => x.id === this.conv?.id)) return;
+    const n = (await this.summaries()).filter((c) => c.news && c.id !== this.conv?.id).length;
+    if (n && !this.wrap.classList.contains("open")) this.setUnread(this.unread + n);
+  }
+
   private async summaries(): Promise<Summary[]> {
     const conversations = this.loadList();
-    if (!conversations.length) return [];
+    const userToken = await this.userToken().catch(() => undefined);
+    if (!conversations.length && !userToken) return [];
     try {
       const res = await fetch(`${this.opts.apiUrl}/api/conversations/summaries`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ conversations }),
+        body: JSON.stringify({ conversations, userToken }),
       });
       if (!res.ok) return [];
-      const list = ((await res.json()).conversations ?? []) as Summary[];
-      // Forget conversations the server no longer knows (e.g. after a database reset).
+      const list = ((await res.json()).conversations ?? []) as (Summary & { token?: string })[];
+      // Keep what the server knows: drops conversations it forgot (e.g. after a database reset),
+      // and adds a signed-in user's conversations from other devices.
       const known = new Set(list.map((x) => x.id));
-      this.saveList(conversations.filter((x) => known.has(x.id)));
+      const fromServer = list.flatMap((x) => (x.token ? [{ id: x.id, token: x.token }] : []));
+      this.saveList([...conversations.filter((x) => known.has(x.id)), ...fromServer]);
       return list;
     } catch {
       return [];
@@ -1164,7 +1250,7 @@ class Widget {
       const m = JSON.parse((e as MessageEvent).data).message as Message;
       const fresh = !this.seen.has(m.id);
       this.appendBubble(m);
-      if (fresh && m.author !== "user" && !this.wrap.classList.contains("open") && Date.now() - m.createdAt < 60_000) {
+      if (fresh && m.author !== "user" && !this.wrap.classList.contains("open") && (Date.now() - m.createdAt < 60_000 || m.unseen)) {
         this.setUnread(this.unread + 1);
       }
     });
@@ -1251,6 +1337,17 @@ class Widget {
     if (m.author !== "user") {
       this.typing.classList.remove("on");
       this.stopThinking();
+    }
+
+    if (m.card?.type === "ticket") {
+      const el = document.createElement("div");
+      el.className = `ticket ${m.card.stage}`;
+      el.setAttribute("role", "status");
+      el.innerHTML = ticketCardHtml(m.card);
+      this.log.insertBefore(el, this.typing);
+      this.lastAuthor = "card";
+      this.scrollDown();
+      return;
     }
 
     if (m.author === "system") {
@@ -1439,6 +1536,46 @@ function timeAgo(ms: number, capital = false): string {
   if (s < 86400) return `${Math.floor(s / 3600)}h`;
   if (s < 604800) return `${Math.floor(s / 86400)}d`;
   return new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+/** The words a report's card uses, by kind. */
+function ticketWords(kind: string | null) {
+  if (kind === "bug") return { noun: "Bug report", start: "Reported", end: "Fixed", no: "Closed", waiting: "We'll let you know when it's fixed", icon: ICONS.bug, thanks: "thanks for reporting it" };
+  if (kind === "docs") return { noun: "Docs", start: "Reported", end: "Updated", no: "Closed", waiting: "We'll let you know when it's updated", icon: ICONS.book, thanks: "thanks for pointing it out" };
+  return { noun: "Idea", start: "Suggested", end: "Shipped", no: "Not planned", waiting: "We'll let you know what the team decides", icon: ICONS.idea, thanks: "thanks for the idea" };
+}
+
+/** "today", or a short date like "Oct 20". */
+function dayLabel(ms: number): string {
+  const d = new Date(ms);
+  return d.toDateString() === new Date().toDateString() ? "today" : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function ticketCardHtml(c: TicketCard): string {
+  const w = ticketWords(c.kind);
+  const done = c.stage === "done";
+  const raw = c.summary.replace(/^"(.*)"$/, "$1");
+  const title = raw.charAt(0).toUpperCase() + raw.slice(1);
+  const day = dayLabel;
+  const others = c.others ? ` · ${c.others === 1 ? "1 other person" : `${c.others} others`} reported this too` : "";
+  const sub =
+    c.stage === "done"
+      ? `<b>${w.end}</b> ${day(c.doneAt ?? Date.now())}`
+      : c.stage === "planned"
+        ? `<b>Planned</b> · We'll let you know when it ships${others}`
+        : c.stage === "declined"
+          ? `<b>${w.no}</b> ${day(c.doneAt ?? Date.now())}`
+          : `${w.waiting}${others}`;
+  const at = { logged: "40%", planned: "72%", done: "100%", declined: "0%" }[c.stage];
+  return `<span class="tk-ic">${done ? ICONS.check : w.icon}</span>
+    <div class="tk-title" title="${escapeAttr(title)}">${escapeHtml(title)}</div>
+    <div class="tk-sub">${sub}</div>${c.reason ? `
+    <div class="tk-why">${escapeHtml(c.reason)}</div>` : ""}
+    <i class="tk-bar" style="--tk-at:${at}" aria-hidden="true"></i>`;
 }
 
 function escapeHtml(s: string): string {

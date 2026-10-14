@@ -1458,6 +1458,17 @@ nav {
   font-size: 11.5px;
   color: #f19999;
 }
+.tickets {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 10px;
+  font-size: 13px;
+}
+.tickets a {
+  font-weight: 600;
+}
 
 /* --- Smaller screens --- */
 @media (max-width: 1280px) {

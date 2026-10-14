@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { SearchHit } from "../knowledge/index.js";
 import type { TokenUsage } from "../usage.js";
+import type { TicketKind } from "../adapters/types.js";
 
 type MessageParam = Anthropic.Beta.Messages.BetaMessageParam;
 type ContentBlock = Anthropic.Beta.Messages.BetaContentBlock;
@@ -12,6 +13,15 @@ export interface AgentTools {
   readDoc(url: string): string | null;
   /** Marks the conversation as needing a person and alerts the team. */
   handoff(reason: string): Promise<void>;
+  /** Present when a tracker is set up: the assistant can file reports and add to existing ones. */
+  tickets?: TicketTools;
+}
+
+/** Each returns the text the model reads back. */
+export interface TicketTools {
+  find(query: string): Promise<string>;
+  file(input: { title: string; kind: TicketKind; description: string; user_summary: string }): Promise<string>;
+  add(input: { key: string; kind: TicketKind; note: string; user_summary: string }): Promise<string>;
 }
 
 export interface AgentOptions {
@@ -104,10 +114,69 @@ const TOOLS: Anthropic.Beta.Messages.BetaTool[] = [
   },
 ];
 
+const USER_SUMMARY = {
+  type: "string",
+  description: "How the user would describe it, as a short noun phrase in their words, e.g. \"the timer drifting after a pause\". Shown to them in updates about it.",
+} as const;
+
+const TICKET_TOOLS: Anthropic.Beta.Messages.BetaTool[] = [
+  {
+    name: "find_tickets",
+    description:
+      "Search the team's open tickets for one that already covers a bug or request. Always use it before file_ticket. Returns keys, titles and how many people reported each.",
+    strict: true,
+    input_schema: {
+      type: "object",
+      properties: { query: { type: "string", description: "A few keywords describing the problem or idea" } },
+      required: ["query"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "add_to_ticket",
+    description:
+      "Add this user's report to an existing ticket from find_tickets that describes the same problem or idea. The team sees it as another report, and the user hears back here as it moves.",
+    strict: true,
+    input_schema: {
+      type: "object",
+      properties: {
+        key: { type: "string", description: "The ticket key from find_tickets" },
+        kind: { type: "string", enum: ["bug", "feature", "improvement", "docs"] },
+        note: { type: "string", description: "One or two sentences on what this user adds: their case, page, version or anything new" },
+        user_summary: USER_SUMMARY,
+      },
+      required: ["key", "kind", "note", "user_summary"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "file_ticket",
+    description:
+      "File a new ticket for a bug, idea or docs gap when find_tickets found nothing that matches. The user hears back here as it moves.",
+    strict: true,
+    input_schema: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "Short and specific, in the user's terms. Under 80 characters, no trailing period." },
+        kind: { type: "string", enum: ["bug", "feature", "improvement", "docs"] },
+        description: {
+          type: "string",
+          description:
+            "Markdown for an engineer who wasn't in the chat. Start with a one or two sentence summary. For bugs add '## Steps to reproduce', '## Expected' and '## Actual' when you have them, and '## Context' with page or version. Only facts from the conversation.",
+        },
+        user_summary: USER_SUMMARY,
+      },
+      required: ["title", "kind", "description", "user_summary"],
+      additionalProperties: false,
+    },
+  },
+];
+
 export function systemPrompt(
   o: Pick<AgentOptions, "productName" | "productDescription" | "instructions" | "code">,
   instructions?: string,
   scope: Pick<TurnOptions, "topics" | "offTopic"> = {},
+  tickets = false,
 ): string {
   const also = scope.topics?.trim() ? ` and ${scope.topics.trim()}` : "";
   const stayOnTopic =
@@ -130,8 +199,16 @@ People reach you from a chat widget inside the app. Your job is to get them unst
 
 How to respond:
 - For how-to and troubleshooting questions, search the docs first and answer from what you find. Link the most relevant page as a markdown link. If the docs don't cover it, say so plainly instead of guessing.
-- For a bug report, ask at most two short questions to get what a developer needs (what they did, what they expected, what happened, which page or room). Then thank them and tell them the team will look at it. Hand off to a person if it blocks their work.
-- For an idea or feature request, restate it in one line to confirm you understood, and thank them.
+${
+    tickets
+      ? `- For a bug report, ask at most two short questions to get what a developer needs, and only what the app doesn't already send in <app_context> (it may include the page, app version and recent errors). Usually that's the steps they took, what they expected versus what happened, which room, device or prop, and whether it happens every time. Then log it: use find_tickets, and if a ticket describes the same problem use add_to_ticket, otherwise file_ticket. Hand off to a person as well if it blocks their work.
+- For an idea or feature request, restate it in one line to confirm you understood, then log it the same way. Don't promise it will be built.
+- When the docs are missing or wrong about something, log it as a docs ticket the same way.
+- You can log bugs, ideas and docs gaps yourself, so never tell someone to send it somewhere else. Whenever you file or add to a ticket, tell them it goes straight to the team and they'll hear back here: for a bug, when it's fixed; for an idea, once the team decides.
+- Don't log how-to questions the docs answer, and don't log the same thing twice in one conversation. Never mention ticket keys or the tracker to the user.`
+      : `- For a bug report, ask at most two short questions to get what a developer needs (what they did, what they expected, what happened, which page or room). Then thank them and tell them the team will look at it. Hand off to a person if it blocks their work.
+- For an idea or feature request, restate it in one line to confirm you understood, and thank them.`
+  }
 - Hand off to a person when they ask for one, are frustrated, or the topic is billing, account access or data loss.
 - Keep replies short: two to four sentences, plain language, no headings. Use the user's own words for things in the product.${stayOnTopic}${code}
 
@@ -154,14 +231,15 @@ export class Agent {
     const usage: TokenUsage[] = [];
     let handedOff = false;
     const model = turn.model ? (this.opts.modelId?.(turn.model) ?? turn.model) : this.opts.model;
-    const system = systemPrompt(this.opts, turn.instructions, turn);
+    const system = systemPrompt(this.opts, turn.instructions, turn, Boolean(tools.tickets));
+    const toolDefs = tools.tickets ? [...TOOLS, ...TICKET_TOOLS] : TOOLS;
 
     for (let step = 0; step < this.opts.maxSteps; step++) {
       const response = await this.client.beta.messages.create({
         model,
         max_tokens: 16000,
         system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
-        tools: TOOLS,
+        tools: toolDefs,
         messages: withCacheBreakpoint(messages),
         output_config: { effort: turn.effort ?? this.opts.effort },
         // On a safety decline, retry on a fallback model chosen by refusal category.
@@ -215,6 +293,18 @@ export class Agent {
           if (!handedOff) await tools.handoff(String(input.reason ?? ""));
           handedOff = true;
           results.push({ type: "tool_result", tool_use_id: use.id, content: "The team has been notified." });
+        } else if (tools.tickets && (use.name === "find_tickets" || use.name === "add_to_ticket" || use.name === "file_ticket")) {
+          try {
+            const content =
+              use.name === "find_tickets"
+                ? await tools.tickets.find(String(input.query ?? ""))
+                : use.name === "add_to_ticket"
+                  ? await tools.tickets.add(input as Parameters<TicketTools["add"]>[0])
+                  : await tools.tickets.file(input as Parameters<TicketTools["file"]>[0]);
+            results.push({ type: "tool_result", tool_use_id: use.id, content });
+          } catch (err) {
+            results.push({ type: "tool_result", tool_use_id: use.id, content: `The tracker didn't respond (${String((err as Error).message).slice(0, 200)}). Tell the user the team will look at it, and don't promise an update.`, is_error: true });
+          }
         } else {
           results.push({ type: "tool_result", tool_use_id: use.id, content: `Unknown tool ${use.name}`, is_error: true });
         }

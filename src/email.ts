@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
-import { and, asc, eq, gt, isNotNull, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNotNull, or, sql } from "drizzle-orm";
 import { schema, type Db } from "./db/index.js";
-import type { ConversationService } from "./conversations.js";
+import { NEWS, type ConversationService } from "./conversations.js";
 
 export interface Mail {
   to: string;
@@ -75,6 +75,9 @@ export interface ReplyEmailOptions {
 
 const REPLY_MARKER = "Reply above this line to answer.";
 
+/** What gets emailed when unread: team replies, and news like a reported bug being fixed. */
+const EMAILED = or(eq(schema.messages.author, "staff"), inArray(schema.messages.event, [...NEWS]));
+
 /**
  * Emails team replies the user hasn't seen in the widget, so nobody has to keep a tab open
  * waiting. A reply to the email lands back in the conversation.
@@ -105,7 +108,7 @@ export class ReplyEmails {
     const due = this.db
       .select({ id: schema.conversations.id, latest: latestStaff, latestAt: sql<number>`max(${schema.messages.createdAt})` })
       .from(schema.conversations)
-      .innerJoin(schema.messages, and(eq(schema.messages.conversationId, schema.conversations.id), eq(schema.messages.author, "staff")))
+      .innerJoin(schema.messages, and(eq(schema.messages.conversationId, schema.conversations.id), EMAILED))
       .where(and(isNotNull(schema.conversations.reporterEmail), sql`coalesce(${schema.conversations.emailOptOut}, 0) = 0`))
       .groupBy(schema.conversations.id)
       .having(
@@ -126,7 +129,7 @@ export class ReplyEmails {
       const replies = this.db
         .select()
         .from(schema.messages)
-        .where(and(eq(schema.messages.conversationId, c.id), eq(schema.messages.author, "staff"), gt(schema.messages.id, after)))
+        .where(and(eq(schema.messages.conversationId, c.id), EMAILED, gt(schema.messages.id, after)))
         .orderBy(asc(schema.messages.id))
         .all();
       if (!replies.length) continue;
@@ -147,8 +150,9 @@ export class ReplyEmails {
   }
 
   private compose(c: typeof schema.conversations.$inferSelect, replies: (typeof schema.messages.$inferSelect)[]): Mail {
-    const who = [...new Set(replies.map((r) => r.authorName || "The team"))];
     const name = this.opts.productName;
+    const from = (r: (typeof replies)[number]) => (r.event ? name : r.authorName || "Team");
+    const who = [...new Set(replies.filter((r) => !r.event).map((r) => r.authorName || "The team"))];
     const chat = this.chatUrl(c.id, c.token);
     const unsubscribe = `${this.base}/email/unsubscribe/${c.id}/${sign(c.token, "unsub")}`;
     const canReply = this.canReceive;
@@ -157,7 +161,7 @@ export class ReplyEmails {
     const text = [
       ...(canReply ? [`## ${REPLY_MARKER} ##`, ""] : []),
       ...replies.flatMap((r) => [
-        `${r.authorName || "Team"}:`,
+        `${from(r)}:`,
         r.body,
         ...files(r).map((a) => `Attachment: ${a.name} ${this.base}/files/${a.id}/${encodeURIComponent(a.name)}`),
         "",
@@ -174,7 +178,7 @@ ${canReply ? `<div style="color:#9a9aa6;font-size:12px;text-align:center;margin-
 ${replies
   .map(
     (r) => `<div style="margin-bottom:18px">
-<div style="font-weight:600;font-size:14px;margin-bottom:6px">${escapeHtml(r.authorName || "Team")}</div>
+<div style="font-weight:600;font-size:14px;margin-bottom:6px">${escapeHtml(from(r))}</div>
 <div style="font-size:15px;line-height:1.55;white-space:pre-wrap">${escapeHtml(r.body)}</div>
 ${files(r)
   .map((a) => `<div style="margin-top:8px"><a href="${this.base}/files/${a.id}/${encodeURIComponent(a.name)}" style="color:#6d5dfc;font-size:14px">📎 ${escapeHtml(a.name)}</a></div>`)
@@ -190,7 +194,7 @@ ${canReply ? `<div style="margin-top:14px;font-size:13px;color:#6b6b78">Or just 
 
     return {
       to: c.reporterEmail!,
-      subject: `${who.join(" and ")} replied · ${name}`,
+      subject: who.length ? `${who.join(" and ")} replied · ${name}` : `An update on something you reported · ${name}`,
       text,
       html,
       replyTo: canReply ? `reply+${c.id}.${sign(c.token, "reply")}@${this.opts.replyDomain}` : undefined,
