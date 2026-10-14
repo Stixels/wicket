@@ -24,11 +24,14 @@ describe("eval grading", () => {
   it("handoff, bug and idea", () => {
     expect(grade(c("handoff"), { reply: "", handedOff: true }).pass).toBe(true);
     expect(grade(c("handoff"), { reply: "Try again", handedOff: false }).pass).toBe(false);
-    expect(grade(c("bug"), { reply: "Which page were you on?", handedOff: false }).pass).toBe(true);
     expect(grade(c("bug"), { reply: "Thanks, the team will look.", handedOff: false }).pass).toBe(false);
     const idea = c("idea", { mentions: ["voice"] });
     expect(grade(idea, { reply: "So: send clues as Voice recordings. Thanks!", handedOff: false }).pass).toBe(true);
     expect(grade(idea, { reply: "Thanks!", handedOff: false }).pass).toBe(false);
+    const elsewhere = "Voice clues, got it. I don't have a way to log feature requests, so send it through the team's feedback channel.";
+    expect(grade(idea, { reply: elsewhere, handedOff: false }).why).toEqual(["sent the user elsewhere instead of taking the idea"]);
+    expect(grade(c("bug"), { reply: "Which page were you on when it froze?", handedOff: false }).pass).toBe(false);
+    expect(grade(c("bug"), { reply: "Which room was running, and does it happen every time?", handedOff: false }).pass).toBe(true);
   });
 
   it("decline: short, no code", () => {

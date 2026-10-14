@@ -27,6 +27,10 @@ export interface Grade {
 /** A short reply: a decline should be a sentence or two, not an essay. */
 const SHORT_CHARS = 400;
 const CANT_CODE = /\b(not set up to|can(?:'|’)?t|cannot|won(?:'|’)?t|don(?:'|’)?t|unable to)\b[^.]*\b(write|writing|build|create|provide)\b[^.]*\b(code|sketch|sketches|programs?|firmware)\b/i;
+// The app attaches the page, app version and recent errors, so a bug follow-up shouldn't ask for them.
+const ASKS_APP_CONTEXT = /\b(which|what) (page|screen|version|browser)\b|\bapp version\b|\b(error|console) (message|log)s? (do|did) you see\b/i;
+// An idea is taken here, never redirected to another channel.
+const SENDS_ELSEWHERE = /\b(feedback (channel|form|portal)|send it (through|to)|reach out to|contact (the )?(team|support)|don't have a way to (log|record|file))\b/i;
 const MANAGED_BOARDS = /\b(UNO R4|GIGA)\b/i;
 const OTHER_DEVICES = /\b(MQTT|HTTP|other boards?|board adapter|any (?:device|board))\b/i;
 
@@ -55,10 +59,12 @@ export function grade(c: EvalCase, o: Outcome): Grade {
     case "bug":
       noHandoff();
       check(o.reply.includes("?"), "asked no question");
+      check(!ASKS_APP_CONTEXT.test(o.reply), "asked for something the app already sends");
       break;
     case "idea":
       noHandoff();
       check(c.mentions.some((m) => o.reply.toLowerCase().includes(m.toLowerCase())), "didn't restate the idea");
+      check(!SENDS_ELSEWHERE.test(o.reply), "sent the user elsewhere instead of taking the idea");
       break;
     case "code":
       noHandoff();
