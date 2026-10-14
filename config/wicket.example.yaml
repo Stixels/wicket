@@ -19,6 +19,12 @@ team:
 # files:
 #   keepDays: 90
 
+# How the assistant behaves everywhere, in every profile and the community help forum.
+# assistant:
+#   code: decline        # decline (default): no code, links guides and examples. snippets: short snippets from examples.
+#   instructions: >      # facts and rules for every conversation, e.g. something the docs undersell
+#     Any device that speaks MQTT works, not just the boards in the quickstart.
+
 # A profile is a way of answering. Everything in it is optional.
 # Other repos or sites to search besides the main docs (DOCS_GITHUB_REPO or DOCS_URL), such as an SDK.
 # knowledge:

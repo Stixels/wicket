@@ -12,7 +12,10 @@ export interface Identity {
   plan: string | null;
 }
 
-/** Returns the identity in the token, or null when it is missing, malformed, expired or wrongly signed. */
+/** The furthest out a token's expiry may be. Hosts should sign tokens for minutes, not days. */
+export const MAX_TOKEN_LIFETIME_MS = 24 * 3_600_000;
+
+/** Returns the identity in the token, or null when it is missing, malformed, expired, has no expiry or is wrongly signed. */
 export function verifyUserToken(token: string | undefined | null, secret: string | undefined, now = Date.now()): Identity | null {
   if (!token || !secret) return null;
   const parts = token.split(".");
@@ -30,7 +33,8 @@ export function verifyUserToken(token: string | undefined | null, secret: string
   const expected = crypto.createHmac("sha256", secret).update(`${header}.${payload}`).digest();
   const given = Buffer.from(signature, "base64url");
   if (given.length !== expected.length || !crypto.timingSafeEqual(given, expected)) return null;
-  if (typeof claims.exp === "number" && claims.exp * 1000 < now) return null;
+  // A token must say when it expires, and not too far out, so a leaked one stops working.
+  if (typeof claims.exp !== "number" || claims.exp * 1000 < now || claims.exp * 1000 > now + MAX_TOKEN_LIFETIME_MS) return null;
   if (typeof claims.nbf === "number" && claims.nbf * 1000 > now + 60_000) return null;
 
   const id = str(claims.sub) ?? str(claims.userId) ?? str(claims.id);

@@ -50,7 +50,7 @@ jwt.sign({ sub: user.id, name: user.name, email: user.email, plan: user.plan }, 
 Wicket.init({ userToken: () => fetch("/api/wicket-token").then((r) => r.json()).then((d) => d.token) });
 ```
 
-`userToken` takes the token or a function that returns one. Without a valid token, the person counts as a visitor.
+`userToken` takes the token or a function that returns one. Without a valid token, the person counts as a visitor. Tokens must have an expiry (`exp`) no more than 24 hours out; a few minutes is best.
 
 ### Customizing
 
@@ -133,7 +133,7 @@ It uses [Resend](https://resend.com); the free tier is plenty for a small team.
 
 ## Deploy on Railway
 
-1. In Railway, choose **New → GitHub Repo** and pick this repo. It builds from the `Dockerfile` and redeploys on every push to `main`.
+1. In Railway, choose **New → GitHub Repo** and pick this repo. It builds from the `Dockerfile` and redeploys on every push to `main`. The build runs the typecheck and tests first, so a failing push never replaces the running version.
 2. Add a **Volume** mounted at `/data`. SQLite lives there.
 3. Copy `.env.example` into the service variables and fill them in.
 4. Generate a domain and use it in the script tag above.
@@ -166,7 +166,8 @@ budgets:
 ```
 
 - **Theme** (top level) sets the widget's look for everyone, with the same fields as `Wicket.init({ theme })`, so the embed snippet can stay bare.
-- **Profiles** set whether the assistant answers at all, extra instructions, whether it stays on topic (`offTopic: decline` by default, so it won't write code or do homework; `topics` widens what counts), the model and effort, a monthly budget per person, and what the widget shows (title, welcome text, placeholder, quick starts). Options passed to `Wicket.init()` still win.
+- **Assistant** (top level) applies everywhere, including the community help forum: `instructions` for facts every answer should know, and `code` (`decline` by default: no code, it links the closest guide or example; `snippets` allows short snippets adapted from examples it has read).
+- **Profiles** set whether the assistant answers at all, extra instructions, whether it stays on topic (`offTopic: decline` by default, so it won't do general coding or homework; `topics` widens what counts), the model and effort, a monthly budget per person, and what the widget shows (title, welcome text, placeholder, quick starts). Options passed to `Wicket.init()` still win.
 - **Rules** pick a profile from whether someone is signed in, their `plan`, and the page they're on. Signed in and plan come only from a verified token; the page comes from the widget.
 - **Budgets** count what each person's assistant answers cost this calendar month (UTC), from token usage and list prices. Signed-in people are counted by user id, visitors by IP. Each person has one total across all profiles; a profile's `budget` is the point where that profile stops answering, so giving every profile the same number makes it a single shared budget. Near the limit the widget says so; at the limit their messages go to the team instead. `monthlyTotal` does the same for everyone at once. Prices for current Claude models and GPT-6 Luna are built in; add others under `budgets.prices`.
 

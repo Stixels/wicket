@@ -63,6 +63,8 @@ const agent = anthropic
       // Haiku has no server-side fallback, and the gateway does not offer it.
       serverFallback: !gateway && !model.includes("haiku"),
       modelId: gateway ? gatewayModelId : undefined,
+      instructions: settings.assistant.instructions,
+      code: settings.assistant.code,
     })
   : null;
 
