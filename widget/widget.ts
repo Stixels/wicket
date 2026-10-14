@@ -407,7 +407,7 @@ button { font: inherit; color: inherit; }
   box-shadow: 0 1px 2px rgba(15,15,30,.04); }
 .row.agent a, .row.staff a { color: var(--wk-accent); }
 /* A report's progress: one slim row with a hairline track, accent while open, green when done. */
-.ticket { --tk: var(--wk-accent); position: relative; overflow: hidden; align-self: flex-start; max-width: 85%; margin: 8px 0 2px;
+.ticket { --tk: color-mix(in srgb, var(--wk-text) 70%, var(--wk-muted)); position: relative; overflow: hidden; align-self: flex-start; max-width: 85%; margin: 8px 0 2px;
   display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 0 10px; padding: 9px 14px 11px 10px;
   border-radius: calc(var(--wk-radius) * .7); background: var(--wk-bubble); border: 1px solid var(--wk-border);
   animation: wk-pop .45s cubic-bezier(.2,.8,.2,1) both; }
@@ -424,13 +424,14 @@ button { font: inherit; color: inherit; }
   background: linear-gradient(90deg, color-mix(in srgb, var(--tk) 55%, transparent), var(--tk)); }
 .ticket.logged .tk-bar::after { animation: wk-tk 2.4s ease-in-out infinite; }
 @keyframes wk-tk { 50% { opacity: .55; } }
-.conv .rnew { display: inline-block; width: 7px; height: 7px; margin: 0 7px 1px 0; border-radius: 50%; background: #22c55e; box-shadow: 0 0 8px rgba(34,197,94,.6); }
+.conv .rnew { display: inline-block; width: 7px; height: 7px; margin-right: 8px; border-radius: 50%; background: #ef4444; box-shadow: 0 0 0 3px rgba(239,68,68,.2); }
+.conv.unread .ct { font-weight: 700; }
 .conv.has-rep .cw { display: flex; align-items: center; }
-.rchip { --tk: var(--wk-accent); flex: none; display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px 1px 6px; border-radius: 999px; font-style: normal;
+.rchip { --tk: color-mix(in srgb, var(--wk-text) 70%, var(--wk-muted)); flex: none; display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px 1px 6px; border-radius: 999px; font-style: normal;
   font-size: 11px; font-weight: 600; line-height: 16px; color: var(--tk); background: color-mix(in srgb, var(--tk) 13%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tk) 22%, transparent); }
 .rchip.done { --tk: #22c55e; }
-.rchip b { width: 6px; height: 6px; border-radius: 50%; background: var(--tk); }
+.rchip b { width: 6px; height: 6px; border-radius: 50%; box-sizing: border-box; border: 1.5px solid var(--tk); }
 .rchip svg { width: 10px; height: 10px; stroke-width: 3.5; }
 .wk.dark .row.agent a, .wk.dark .row.staff a { color: color-mix(in srgb, var(--wk-accent) 60%, white); }
 .system { align-self: center; margin: 10px 0; font-size: 12px; color: var(--wk-muted); padding: 5px 12px; border-radius: 999px;
@@ -1050,8 +1051,9 @@ class Widget {
       const done = r.stage === "done";
       const status = done ? `${w.end.toLowerCase()} ${dayLabel(r.doneAt ?? c.updatedAt)}` : `logged ${dayLabel(r.reportedAt)} · we'll update you here`;
       el.classList.add("has-rep");
-      el.innerHTML = `<span class="ct">${escapeHtml(capitalize(r.summary.replace(/^"(.*)"$/, "$1")))}</span><span class="cw">${reportChip(r)}</span>
-        <span class="cl">${c.news ? `<i class="rnew" title="New update"></i>` : ""}${w.noun} · ${status}</span>`;
+      if (c.news) el.classList.add("unread");
+      el.innerHTML = `<span class="ct">${escapeHtml(capitalize(r.summary.replace(/^"(.*)"$/, "$1")))}</span><span class="cw">${c.news ? `<i class="rnew" title="New update"></i>` : ""}${reportChip(r)}</span>
+        <span class="cl">${w.noun} · ${status}</span>`;
     } else {
       el.innerHTML = `<span class="ct">${escapeHtml(c.title || "Conversation")}</span><span class="cw">${c.status === "resolved" ? "Resolved · " : ""}${timeAgo(c.updatedAt)}</span>
         <span class="cl">${who ? `<b>${escapeHtml(who)}:</b> ` : ""}${escapeHtml(c.last?.body ?? "")}</span>`;
