@@ -404,30 +404,24 @@ button { font: inherit; color: inherit; }
 .row.agent .msg, .row.staff .msg { background: var(--wk-bubble); border: 1px solid var(--wk-border);
   box-shadow: 0 1px 2px rgba(15,15,30,.04); }
 .row.agent a, .row.staff a { color: var(--wk-accent); }
-/* A report's progress card: logged (with the team) and done (fixed or shipped). */
-.ticket { --tk: var(--wk-accent); align-self: stretch; margin: 10px 0 4px; padding: 14px 16px 13px; border-radius: calc(var(--wk-radius) * .8);
-  background: linear-gradient(180deg, color-mix(in srgb, var(--tk) 10%, var(--wk-bubble)), var(--wk-bubble) 70%);
-  border: 1px solid color-mix(in srgb, var(--tk) 30%, var(--wk-border)); animation: wk-pop .45s cubic-bezier(.2,.8,.2,1) both; }
+/* A report's progress: one slim row with a hairline track, accent while open, green when done. */
+.ticket { --tk: var(--wk-accent); position: relative; overflow: hidden; align-self: flex-start; max-width: 85%; margin: 8px 0 2px;
+  display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 0 10px; padding: 9px 14px 11px 10px;
+  border-radius: calc(var(--wk-radius) * .7); background: var(--wk-bubble); border: 1px solid var(--wk-border);
+  animation: wk-pop .45s cubic-bezier(.2,.8,.2,1) both; }
 .ticket.done { --tk: #22c55e; }
-.tk-top { display: flex; align-items: center; gap: 8px; font-size: 11.5px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: var(--wk-muted); }
-.tk-ic { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 7px; background: color-mix(in srgb, var(--tk) 18%, transparent); color: var(--tk); }
+.tk-ic { grid-row: span 2; display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%;
+  color: var(--tk); background: color-mix(in srgb, var(--tk) 14%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tk) 28%, transparent); }
 .tk-ic svg { width: 13px; height: 13px; }
-.tk-pill { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; letter-spacing: .02em; text-transform: none;
-  font-size: 11.5px; color: var(--tk); background: color-mix(in srgb, var(--tk) 14%, transparent); }
-.tk-pill svg { width: 11px; height: 11px; }
-.tk-title { margin: 9px 0 12px; font-size: 15px; font-weight: 600; line-height: 1.35; color: var(--wk-text); }
-.tk-steps { display: grid; grid-template-columns: repeat(3, 1fr); margin: 0; padding: 0; list-style: none; }
-.tk-steps li { position: relative; display: flex; flex-direction: column; gap: 1px; font-size: 12px; color: var(--wk-muted); }
-.tk-steps li::before { content: ""; position: absolute; top: 5px; left: 12px; right: 0; height: 2px; border-radius: 2px; background: var(--wk-border); }
-.tk-steps li:last-child::before { display: none; }
-.tk-steps li.on::before { background: var(--tk); }
-.tk-steps i { position: relative; z-index: 1; width: 12px; height: 12px; margin-bottom: 6px; border-radius: 50%; box-sizing: border-box; border: 2px solid var(--wk-border); background: var(--wk-bubble); }
-.tk-steps li.on i { border-color: var(--tk); background: var(--tk); }
-.tk-steps li.now i { border-color: var(--tk); box-shadow: 0 0 0 4px color-mix(in srgb, var(--tk) 22%, transparent); animation: wk-tk 2s ease-in-out infinite; }
-.tk-steps li.on span, .tk-steps li.now span { color: var(--wk-text); font-weight: 600; }
-.tk-steps time { font-size: 11px; }
-@keyframes wk-tk { 50% { box-shadow: 0 0 0 7px color-mix(in srgb, var(--tk) 8%, transparent); } }
-.tk-foot { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--wk-border); font-size: 12.5px; line-height: 1.45; color: var(--wk-muted); }
+.ticket.done .tk-ic { color: #fff; background: var(--tk); box-shadow: 0 0 12px color-mix(in srgb, var(--tk) 35%, transparent); }
+.tk-title { min-width: 0; font-size: 13.5px; font-weight: 600; line-height: 1.3; color: var(--wk-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tk-sub { min-width: 0; margin-top: 1px; font-size: 11.5px; line-height: 1.3; color: var(--wk-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tk-sub b { font-weight: 600; color: var(--tk); }
+.tk-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: color-mix(in srgb, var(--tk) 12%, transparent); }
+.tk-bar::after { content: ""; position: absolute; inset: 0 auto 0 0; width: var(--tk-at, 66%); border-radius: 0 2px 2px 0;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--tk) 55%, transparent), var(--tk)); }
+.ticket.logged .tk-bar::after { animation: wk-tk 2.4s ease-in-out infinite; }
+@keyframes wk-tk { 50% { opacity: .55; } }
 .conv .new svg { width: 14px; height: 14px; padding: 2px; border-radius: 50%; background: #22c55e; color: #fff; box-sizing: border-box; }
 .conv .new { display: inline-flex; align-items: center; gap: 4px; font-style: normal; font-weight: 600; color: color-mix(in srgb, #22c55e 75%, var(--wk-text)); }
 .wk.dark .row.agent a, .wk.dark .row.staff a { color: color-mix(in srgb, var(--wk-accent) 60%, white); }
@@ -535,7 +529,7 @@ textarea::placeholder { color: var(--wk-muted); }
   .log { overscroll-behavior: contain; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .launcher, .panel, .row, .system, .chip, .send, .launcher svg, .glow, .hero, .ticket, .tk-steps i { transition: none !important; animation: none !important; }
+  .launcher, .panel, .row, .system, .chip, .send, .launcher svg, .glow, .hero, .ticket, .tk-bar::after { transition: none !important; animation: none !important; }
   .typing i, .avatar, .avatar::after, .mini, .bot .orb::before, .bot .orb2::before, .bot .eyes, .bot .eyes i, .typing .think { animation: none !important; }
 }
 `;
@@ -1509,28 +1503,28 @@ function timeAgo(ms: number, capital = false): string {
 
 /** The words a report's card uses, by kind. */
 function ticketWords(kind: string | null) {
-  if (kind === "bug") return { noun: "Bug report", start: "Reported", end: "Fixed", icon: ICONS.bug, thanks: "Thanks for reporting it. Tell us here if you still see it." };
-  if (kind === "docs") return { noun: "Docs", start: "Reported", end: "Updated", icon: ICONS.book, thanks: "Thanks for pointing it out." };
-  return { noun: "Idea", start: "Suggested", end: "Shipped", icon: ICONS.idea, thanks: "Thanks for the suggestion." };
+  if (kind === "bug") return { noun: "Bug report", start: "Reported", end: "Fixed", icon: ICONS.bug, thanks: "thanks for reporting it" };
+  if (kind === "docs") return { noun: "Docs", start: "Reported", end: "Updated", icon: ICONS.book, thanks: "thanks for pointing it out" };
+  return { noun: "Idea", start: "Suggested", end: "Shipped", icon: ICONS.idea, thanks: "thanks for the idea" };
 }
 
 function ticketCardHtml(c: TicketCard): string {
   const w = ticketWords(c.kind);
   const done = c.stage === "done";
-  const title = c.summary.replace(/^"(.*)"$/, "$1");
+  const raw = c.summary.replace(/^"(.*)"$/, "$1");
+  const title = raw.charAt(0).toUpperCase() + raw.slice(1);
   const day = (ms: number) => {
     const d = new Date(ms);
-    return d.toDateString() === new Date().toDateString() ? "Today" : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    return d.toDateString() === new Date().toDateString() ? "today" : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
   };
-  const others = c.others ? `${c.others === 1 ? "1 other person" : `${c.others} others`} reported this too. ` : "";
-  return `<div class="tk-top"><span class="tk-ic">${w.icon}</span><span>${w.noun}</span><span class="tk-pill">${done ? `${ICONS.check}${w.end}` : "Logged"}</span></div>
-    <div class="tk-title">${escapeHtml(title.charAt(0).toUpperCase() + title.slice(1))}</div>
-    <ol class="tk-steps">
-      <li class="on"><i></i><span>${w.start}</span><time>${day(c.reportedAt)}</time></li>
-      <li class="${done ? "on" : "now"}"><i></i><span>With the team</span></li>
-      <li class="${done ? "on" : ""}"><i></i><span>${w.end}</span>${done && c.doneAt ? `<time>${day(c.doneAt)}</time>` : ""}</li>
-    </ol>
-    <div class="tk-foot">${done ? w.thanks : `${others}We'll let you know here when it's ${w.end.toLowerCase()}.`}</div>`;
+  const others = c.others ? ` · ${c.others === 1 ? "1 other" : `${c.others} others`} too` : "";
+  const sub = done
+    ? `<b>${w.end}</b> ${day(c.doneAt ?? Date.now())} · ${w.thanks}`
+    : `<b>Logged</b> · ${w.noun}${others} · we'll update you here`;
+  return `<span class="tk-ic">${done ? ICONS.check : w.icon}</span>
+    <div class="tk-title" title="${escapeAttr(title)}">${escapeHtml(title)}</div>
+    <div class="tk-sub">${sub}</div>
+    <i class="tk-bar" style="--tk-at:${done ? "100%" : "62%"}" aria-hidden="true"></i>`;
 }
 
 function escapeHtml(s: string): string {
