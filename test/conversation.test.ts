@@ -68,7 +68,9 @@ describe("conversation flow", () => {
     const second = client.requests[2].messages;
     expect(second.map((m: any) => m.role)).toEqual(["user", "assistant", "user", "assistant", "user"]);
     expect(second[1].content[0]).toEqual({ type: "thinking", thinking: "", signature: "sig" });
-    expect(second[4].content).toEqual([{ type: "text", text: "Thanks, that worked" }]);
+    // Only the newest block carries the cache breakpoint; the stored turns stay unmarked.
+    expect(second[4].content).toEqual([{ type: "text", text: "Thanks, that worked", cache_control: { type: "ephemeral" } }]);
+    expect(JSON.stringify(second.slice(0, 4))).not.toContain("cache_control");
 
     const res = await app.request(`/api/conversations/${conv.id}/messages`, { headers: { Authorization: `Bearer ${conv.token}` } });
     const { messages, status } = (await res.json()) as any;

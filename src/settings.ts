@@ -79,7 +79,7 @@ const themeSchema = z
   .strict();
 
 /** A GitHub repo to search besides the main docs, e.g. an SDK with examples. */
-const knowledgeSchema = z
+const repoKnowledgeSchema = z
   .object({
     github: z.string().regex(/^[\w.-]+\/[\w.-]+$/, "use owner/repo"),
     ref: z.string().optional(),
@@ -90,6 +90,16 @@ const knowledgeSchema = z
     exclude: z.array(z.string()).optional(),
   })
   .strict();
+
+/** A hosted docs site with no repo: pages come from its sitemap, or by following links. */
+const siteKnowledgeSchema = z
+  .object({
+    url: z.string().url(),
+    maxPages: z.number().int().positive().optional(),
+  })
+  .strict();
+
+const knowledgeSchema = z.union([repoKnowledgeSchema, siteKnowledgeSchema]);
 
 const settingsSchema = z
   .object({
@@ -108,6 +118,18 @@ const settingsSchema = z
       })
       .strict()
       .default({ keepDays: 90 }),
+    /** How the assistant behaves everywhere: every profile and the community help forum. */
+    assistant: z
+      .object({
+        /** Facts and rules for every conversation, e.g. something the docs undersell. */
+        instructions: z.string().optional(),
+        /** decline: no code, point to guides and examples instead. snippets: short snippets adapted from examples it has read. */
+        code: z.enum(["decline", "snippets"]).default("decline"),
+        /** Answer new posts in the public Discord help forum. Off by default: those answers can't be tied to a person, so no budget applies. */
+        helpForum: z.boolean().default(false),
+      })
+      .strict()
+      .default({ code: "decline", helpForum: false }),
     /** Needs a tracker (LINEAR_API_KEY). */
     tickets: z
       .object({
@@ -118,7 +140,7 @@ const settingsSchema = z
       })
       .strict()
       .default({ assistant: true, checkMinutes: 15 }),
-    /** Extra repos to search. The main docs come from DOCS_GITHUB_REPO. */
+    /** Extra repos or sites to search. The main docs come from DOCS_GITHUB_REPO or DOCS_URL. */
     knowledge: z.array(knowledgeSchema).default([]),
     profiles: z.record(z.string(), profileSchema).default({}),
     rules: z.array(ruleSchema).default([]),

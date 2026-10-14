@@ -41,6 +41,17 @@ interface ChannelSpec {
   reaction?: string;
 }
 
+// The help forum says the assistant answers only when it does (settings assistant.helpForum).
+const HELP_TOPIC = {
+  assistant:
+    "One post per question, with a clear title. Add screenshots and what you already tried. " +
+    "The assistant answers from the docs right away, and the team and community follow up. " +
+    "Tag it Solved when you're sorted so others can find the answer.",
+  team:
+    "One post per question, with a clear title. Add screenshots and what you already tried. " +
+    "The team and community will help. Tag it Solved when you're sorted so others can find the answer.",
+};
+
 const LAYOUT: { category: string; channels: ChannelSpec[] }[] = [
   {
     category: "Start here",
@@ -57,10 +68,8 @@ const LAYOUT: { category: string; channels: ChannelSpec[] }[] = [
         emoji: "❓",
         kind: "forum",
         access: "public",
-        topic:
-          "One post per question, with a clear title. Add screenshots and what you already tried. " +
-          "The assistant answers from the docs right away, and the team and community follow up. " +
-          "Tag it Solved when you're sorted so others can find the answer.",
+        topic: HELP_TOPIC.team,
+        oldTopics: [HELP_TOPIC.assistant],
         tags: [
           { name: "Question", emoji: "❓" },
           { name: "Bug", emoji: "🐛" },
@@ -143,6 +152,8 @@ export interface SetupOptions {
   docsUrl?: string;
   /** Embed color for the welcome post. */
   color?: number;
+  /** The assistant answers new posts in #help, so the forum and welcome post say so. */
+  assistantAnswersHelp?: boolean;
 }
 
 export async function setupGuild(token: string, guildId: string, opts: SetupOptions = {}): Promise<SetupResult> {
@@ -200,7 +211,8 @@ export async function setupGuild(token: string, guildId: string, opts: SetupOpti
       }
       previous = category;
 
-      for (const spec of group.channels) {
+      for (const layoutSpec of group.channels) {
+        const spec = opts.assistantAnswersHelp && layoutSpec.name === "help" ? { ...layoutSpec, topic: HELP_TOPIC.assistant, oldTopics: [HELP_TOPIC.team] } : layoutSpec;
         const type =
           spec.kind === "voice"
             ? ChannelType.GuildVoice
@@ -422,7 +434,7 @@ function welcomeEmbed(o: SetupOptions & { ids: Record<string, string> }) {
     .addFields(
       {
         name: "❓ Get help",
-        value: `Post in ${ch("help")}. The assistant answers from the docs right away, and the team follows up when it can't.${o.docsUrl ? ` You can also browse the [docs](${o.docsUrl}).` : ""}`,
+        value: `Post in ${ch("help")}. ${o.assistantAnswersHelp ? "The assistant answers from the docs right away, and the team follows up when it can't." : "The team and community will help."}${o.docsUrl ? ` You can also browse the [docs](${o.docsUrl}).` : ""}`,
       },
       { name: "🎧 Talk to us", value: `Join ${ch(SUPPORT_VOICE_HUB_NAME)} for a private call, and the team gets a ping.` },
       { name: "💡 Shape the product", value: `Suggest features in ${ch("ideas")} and 👍 the ones you want most.` },

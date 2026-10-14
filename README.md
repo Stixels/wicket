@@ -3,8 +3,8 @@
 A drop-in help and feedback chat for any web app, plus a Discord community and support inbox behind it. Users write one message. An assistant answers from your docs, and every conversation shows up in your team's Discord, where a reply goes straight back to the user in the app.
 
 - **One script tag** adds a chat button to your app. It captures the page, app version and recent console errors, so reports arrive with context.
-- **Answers from your docs.** It indexes any GitHub repo of Markdown (GitBook Git Sync, Docusaurus, Mintlify, ...) and links the exact section.
-- **Discord as the inbox and community.** Each in-app conversation becomes a private forum post that your team answers from Discord. The same assistant also answers new questions in your public `#help` forum.
+- **Answers from your docs.** It indexes any GitHub repo of Markdown (GitBook Git Sync, Docusaurus, Mintlify, ...), or any hosted docs site by its sitemap, and links the exact section.
+- **Discord as the inbox and community.** Each in-app conversation becomes a private forum post that your team answers from Discord. The same assistant can also answer new questions in your public `#help` forum.
 - **Hands off to a person** when the user asks, is frustrated, or the docs don't cover it, and pings a role you choose.
 - **Cheap to run.** One Node process with SQLite. The assistant runs through the Vercel AI Gateway or Anthropic directly, and it's optional: without a key, every chat goes straight to the team.
 
@@ -50,7 +50,7 @@ jwt.sign({ sub: user.id, name: user.name, email: user.email, plan: user.plan }, 
 Wicket.init({ userToken: () => fetch("/api/wicket-token").then((r) => r.json()).then((d) => d.token) });
 ```
 
-`userToken` takes the token or a function that returns one. Without a valid token, the person counts as a visitor.
+`userToken` takes the token or a function that returns one. Without a valid token, the person counts as a visitor. Tokens must have an expiry (`exp`) no more than 24 hours out; a few minutes is best.
 
 ### Customizing
 
@@ -98,12 +98,12 @@ Earlier conversations show under **Recent** on the start screen, and the clock b
 How it behaves:
 - **In-app conversations** become posts in `#support-inbox`. The user's messages show as blue cards and the assistant's as gray cards, so your own replies (plain messages) stand out. While the assistant is working the bot shows as typing. Reply in a post to answer the user in the app. The assistant stops replying once someone from the team does. When the assistant asks for a person, it pings the Team role and tags the post **Needs a person**. Only a reply that fails to reach the app gets a ⚠️ reaction.
 - **When you're done**, close the post (or tag it **Resolved**; deleting it works too, though the transcript is then gone from Discord). The user sees "resolved" in the widget, the post is tagged Resolved, and if they write again the post reopens and the assistant takes the new question first. Posts Discord archives on its own after inactivity aren't treated as resolved.
-- **Tickets:** with `LINEAR_API_KEY` and `LINEAR_TEAM_KEY` set, anyone with the Team role can tag the bot anywhere in the server, e.g. `@Wicket file this as a bug` in a support-inbox post. It reads the conversation, writes the ticket (summary, steps, context, who reported it), files it in Linear (Triage if the team has it on, otherwise Backlog) with the matching Bug/Feature/Improvement label, and replies with the link. Messages that tag the bot are never sent to the user. The tracker is an adapter, so GitHub Issues or Jira can plug in the same way.
+- **Tickets:** with `LINEAR_API_KEY` and `LINEAR_TEAM_KEY` set, anyone with the Team role can tag the bot anywhere in the server, e.g. `@Wicket file this as a bug` in a support-inbox post. It reads the conversation, writes the ticket (summary, steps, context, who reported it), files it in Linear (Triage if the team has it on, otherwise Backlog) with the matching Bug/Feature/Improvement label, and replies with the link. Messages that tag the bot are never sent to the user. To file GitHub issues instead, set `GITHUB_ISSUES_REPO` and `GITHUB_ISSUES_TOKEN` (a fine-grained token with Issues: read and write); issues get the repo's `bug`, `enhancement`, `documentation` or `question` label when it exists, plus `GITHUB_ISSUES_LABEL` if you set one. The tracker is an adapter, so Jira can plug in the same way.
   - Tag the bot with a ticket key or link (`@Wicket +1 ED-123`, `@Wicket same as <link>`) to add the conversation to that ticket instead of filing a new one.
   - Tickets filed or added from a support-inbox post are linked to that app conversation, so its reporter hears back too.
-- **Hearing back:** Wicket asks the tracker every 15 minutes (`tickets.checkMinutes`) about tickets someone is waiting on. When the assistant logs a report, the person sees a slim status row in their own words. Bugs go from Logged to Fixed. Ideas go from Logged to Planned (the team moved it out of Triage) to Shipped, or to Not planned when the team cancels it. To tell people why, comment on the issue starting with `Reply:` (for example `Reply: It would distract players mid-game.`); Wicket waits an hour after a cancel so there's time to write it, and sends the newest one. A bug canceled with a `Reply:` comment tells its reporters too; one canceled without a word sends nothing. A ticket closed as a duplicate passes its reporters to the one it duplicates. The check is plain tracker API calls, with no model calls. The dashboard lists each conversation's tickets. Turn off assistant filing with `tickets.assistant: false`.
+- **Hearing back:** Wicket asks the tracker every 15 minutes (`tickets.checkMinutes`) about tickets someone is waiting on. When the assistant logs a report, the person sees a slim status row in their own words. Bugs go from Logged to Fixed. Ideas go from Logged to Planned (the team moved it out of Triage) to Shipped, or to Not planned when the team cancels it. To tell people why, comment on the issue starting with `Reply:` (for example `Reply: It would distract players mid-game.`); Wicket waits an hour after a cancel so there's time to write it, and sends the newest one. A bug canceled with a `Reply:` comment tells its reporters too; one canceled without a word sends nothing. A ticket closed as a duplicate passes its reporters to the one it duplicates. With GitHub Issues there's no Triage, so ideas skip Planned; closing as completed counts as done and closing as not planned as declined. The check is plain tracker API calls, with no model calls. The dashboard lists each conversation's tickets. Turn off assistant filing with `tickets.assistant: false`.
 - **Voice:** joining `➕ Start a call` creates a voice room named after you and moves you in. It's deleted when the last person leaves. `🎧 Talk to support` works the same way, but the room is visible only to the caller and the Team role, and it pings the team. The bot needs the **Move Members** permission for both.
-- **Community questions:** when someone opens a post in `#help`, the assistant answers once from the docs. If it can't, it pings the team. Everyone else can keep the thread going.
+- **Community questions:** with `assistant.helpForum: true`, when someone opens a post in `#help`, the assistant answers once from the docs. If it can't, it pings the team. Everyone else can keep the thread going. It's off by default, because Discord members aren't signed in to your app, so those answers can't count toward anyone's budget.
 
 ## Team dashboard
 
@@ -136,7 +136,7 @@ It uses [Resend](https://resend.com); the free tier is plenty for a small team.
 
 ## Deploy on Railway
 
-1. In Railway, choose **New → GitHub Repo** and pick this repo. It builds from the `Dockerfile` and redeploys on every push to `main`.
+1. In Railway, choose **New → GitHub Repo** and pick this repo. It builds from the `Dockerfile` and redeploys on every push to `main`. The build runs the typecheck and tests first, so a failing push never replaces the running version.
 2. Add a **Volume** mounted at `/data`. SQLite lives there.
 3. Copy `.env.example` into the service variables and fill them in.
 4. Generate a domain and use it in the script tag above.
@@ -169,7 +169,8 @@ budgets:
 ```
 
 - **Theme** (top level) sets the widget's look for everyone, with the same fields as `Wicket.init({ theme })`, so the embed snippet can stay bare.
-- **Profiles** set whether the assistant answers at all, extra instructions, whether it stays on topic (`offTopic: decline` by default, so it won't write code or do homework; `topics` widens what counts), the model and effort, a monthly budget per person, and what the widget shows (title, welcome text, placeholder, quick starts). Options passed to `Wicket.init()` still win.
+- **Assistant** (top level) applies everywhere, including the community help forum: `instructions` for facts every answer should know, `code` (`decline` by default: no code, it links the closest guide or example; `snippets` allows short snippets adapted from examples it has read), and `helpForum` (`false` by default; `true` answers new `#help` posts, which no per-person budget covers).
+- **Profiles** set whether the assistant answers at all, extra instructions, whether it stays on topic (`offTopic: decline` by default, so it won't do general coding or homework; `topics` widens what counts), the model and effort, a monthly budget per person, and what the widget shows (title, welcome text, placeholder, quick starts). Options passed to `Wicket.init()` still win.
 - **Rules** pick a profile from whether someone is signed in, their `plan`, and the page they're on. Signed in and plan come only from a verified token; the page comes from the widget.
 - **Budgets** count what each person's assistant answers cost this calendar month (UTC), from token usage and list prices. Signed-in people are counted by user id, visitors by IP. Each person has one total across all profiles; a profile's `budget` is the point where that profile stops answering, so giving every profile the same number makes it a single shared budget. Near the limit the widget says so; at the limit their messages go to the team instead. `monthlyTotal` does the same for everyone at once. Prices for current Claude models and GPT-6 Luna are built in; add others under `budgets.prices`.
 
@@ -184,6 +185,7 @@ See [`.env.example`](.env.example). The main settings:
 | `AI_GATEWAY_API_KEY` or `ANTHROPIC_API_KEY` | Turns on the assistant, through the Vercel AI Gateway or Anthropic directly. Leave both empty to send every chat to the team. |
 | `AGENT_MODEL`, `AGENT_EFFORT` | Model and effort for the assistant (defaults: `claude-haiku-5-5`, `low`). |
 | `DOCS_GITHUB_REPO`, `DOCS_BASE_URL` | Markdown docs repo to index, and the public site its links should point to. Reindexed every `DOCS_REINDEX_HOURS`. |
+| `DOCS_URL` | No docs repo? A hosted docs site to index instead: its home page (pages under that path are read) or its `sitemap.xml`. Pages come from the sitemap when there is one, otherwise by following links, up to 500. |
 | `RELAY`, `DISCORD_*` | Where conversations show up for the team. |
 | `ALLOWED_ORIGINS` | Sites allowed to embed the widget. |
 | `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `PUBLIC_URL` | Discord sign-in for the team dashboard at `/admin`. `TEAM_DISCORD_IDS` lets in people without the Team role. |

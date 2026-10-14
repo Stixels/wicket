@@ -1,6 +1,7 @@
+import crypto from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { openDb } from "../src/db/index.js";
-import { Agent } from "../src/agent/agent.js";
+import { Agent, systemPrompt } from "../src/agent/agent.js";
 import { ConversationService, MESSAGES } from "../src/conversations.js";
 import { createServer } from "../src/server.js";
 import { signUserToken, verifyUserToken } from "../src/identity.js";
@@ -87,6 +88,12 @@ describe("settings", () => {
     expect(p).toMatchObject({ name: "default", ai: true });
   });
 
+  it("leaves the public help forum to people unless turned on", () => {
+    expect(parseSettings("").assistant.helpForum).toBe(false);
+    expect(parseSettings("assistant:\n  code: decline").assistant.helpForum).toBe(false);
+    expect(parseSettings("assistant:\n  helpForum: true").assistant.helpForum).toBe(true);
+  });
+
   it("explains mistakes", () => {
     expect(() => parseSettings("rules:\n  - profile: nope")).toThrow(/profile "nope"/);
     expect(() => parseSettings("profiles:\n  a:\n    budjet: 2")).toThrow(/profiles\.a/);
@@ -105,6 +112,19 @@ describe("user tokens", () => {
     const none = `${Buffer.from('{"alg":"none"}').toString("base64url")}.${Buffer.from('{"sub":"42"}').toString("base64url")}.`;
     expect(verifyUserToken(none, SECRET)).toBeNull();
     expect(verifyUserToken(token, undefined)).toBeNull();
+  });
+
+  it("rejects tokens with no expiry or one too far out", () => {
+    const sign = (claims: object) => {
+      const enc = (o: object) => Buffer.from(JSON.stringify(o)).toString("base64url");
+      const body = `${enc({ alg: "HS256", typ: "JWT" })}.${enc(claims)}`;
+      return `${body}.${crypto.createHmac("sha256", SECRET).update(body).digest("base64url")}`;
+    };
+    const now = Math.floor(Date.now() / 1000);
+    expect(verifyUserToken(sign({ sub: "42" }), SECRET)).toBeNull();
+    expect(verifyUserToken(sign({ sub: "42", exp: now + 30 * 86_400 }), SECRET)).toBeNull();
+    expect(verifyUserToken(sign({ sub: "42", exp: now + 3600 }), SECRET)?.id).toBe("42");
+    expect(verifyUserToken(signUserToken({ sub: "42" }, SECRET, 2 * 86_400), SECRET)).toBeNull();
   });
 });
 
@@ -223,5 +243,24 @@ describe("staying on topic", () => {
     expect(def).toContain("Only help with Escape Director.");
     expect(open).not.toContain("Only help with");
     expect(wider).toContain("Only help with Escape Director and running an escape room business.");
+  });
+});
+
+describe("code and team notes", () => {
+  const base = { productName: "Escape Director", productDescription: "" };
+
+  it("declines to write code by default, and allows snippets when configured", () => {
+    expect(systemPrompt(base)).toContain("you're not set up to write code here");
+    const snippets = systemPrompt({ ...base, code: "snippets" });
+    expect(snippets).toContain("Keep it to a short snippet");
+    expect(snippets).not.toContain("not set up to write code");
+    expect(parseSettings("profiles: {}").assistant.code).toBe("decline");
+  });
+
+  it("adds the team's notes to every conversation", () => {
+    const settings = parseSettings("assistant:\n  instructions: Any MQTT device works through Connect Existing Devices.\n");
+    const prompt = systemPrompt({ ...base, instructions: settings.assistant.instructions }, "On the Analytics page.");
+    expect(prompt).toContain("Notes from the Escape Director team:\nAny MQTT device works through Connect Existing Devices.");
+    expect(prompt.indexOf("Notes from")).toBeLessThan(prompt.indexOf("On the Analytics page."));
   });
 });

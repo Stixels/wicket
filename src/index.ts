@@ -6,9 +6,11 @@ import { Agent, answerOnce } from "./agent/agent.js";
 import { ConversationService } from "./conversations.js";
 import { createServer } from "./server.js";
 import { reindex, readDoc, searchDocs } from "./knowledge/index.js";
+import { WebsiteSource } from "./adapters/knowledge/website.js";
 import { MarkdownRepoSource } from "./adapters/knowledge/markdownRepo.js";
 import { DiscordRelay } from "./adapters/relay/discord.js";
 import { setupGuild } from "./discord/setup.js";
+import { GitHubIssuesTracker } from "./adapters/tracker/github.js";
 import { LinearTracker } from "./adapters/tracker/linear.js";
 import { draftTicket } from "./agent/tickets.js";
 import { COMMUNITY_ROOM_PREFIX, SUPPORT_ROOM_PREFIX } from "./discord/voiceRooms.js";
@@ -34,8 +36,13 @@ if (config.DOCS_GITHUB_REPO) {
     }),
   );
 }
+if (config.DOCS_URL) sources.push(new WebsiteSource({ url: config.DOCS_URL }));
 for (const k of settings.knowledge) {
-  sources.push(new MarkdownRepoSource({ repo: k.github, ref: k.ref, baseUrl: k.baseUrl, include: k.include, exclude: k.exclude, token: config.DOCS_GITHUB_TOKEN }));
+  sources.push(
+    "url" in k
+      ? new WebsiteSource({ url: k.url, maxPages: k.maxPages })
+      : new MarkdownRepoSource({ repo: k.github, ref: k.ref, baseUrl: k.baseUrl, include: k.include, exclude: k.exclude, token: config.DOCS_GITHUB_TOKEN }),
+  );
 }
 
 // No key means no assistant: every conversation goes straight to the team.
@@ -57,6 +64,8 @@ const agent = anthropic
       // Haiku has no server-side fallback, and the gateway does not offer it.
       serverFallback: !gateway && !model.includes("haiku"),
       modelId: gateway ? gatewayModelId : undefined,
+      instructions: settings.assistant.instructions,
+      code: settings.assistant.code,
     })
   : null;
 
@@ -67,6 +76,7 @@ if (config.RELAY === "discord" && config.DISCORD_GUILD_ID) {
     teamRoleName: config.DISCORD_TEAM_ROLE,
     productName: config.PRODUCT_NAME,
     docsUrl: config.DOCS_BASE_URL,
+    assistantAnswersHelp: settings.assistant.helpForum,
   });
   console.log(`discord: server ready${setup.created.length ? `: ${setup.created.join(", ")}` : ""}`);
   for (const step of setup.manual) console.log(`discord: needs you: ${step}`);
@@ -78,18 +88,20 @@ if (config.RELAY === "discord" && config.DISCORD_GUILD_ID) {
   config.DISCORD_TEAM_ROLE_ID ||= setup.teamRoleId;
 }
 
-const linear = config.LINEAR_API_KEY
+const tracker = config.LINEAR_API_KEY
   ? new LinearTracker({ apiKey: config.LINEAR_API_KEY, teamKey: config.LINEAR_TEAM_KEY!, sourceLabel: config.LINEAR_SOURCE_LABEL })
-  : null;
-if (linear) {
-  await linear.check().then(
-    (where) => console.log(`linear: ready (${where})`),
-    (err) => console.error(`linear: ${err.message}`),
+  : config.GITHUB_ISSUES_REPO
+    ? new GitHubIssuesTracker({ token: config.GITHUB_ISSUES_TOKEN!, repo: config.GITHUB_ISSUES_REPO, sourceLabel: config.GITHUB_ISSUES_LABEL })
+    : null;
+if (tracker) {
+  await tracker.check().then(
+    (where) => console.log(`${tracker.name}: ready (${where})`),
+    (err) => console.error(`${tracker.name}: ${err.message}`),
   );
 }
 
 // Remembers which conversations each ticket came from, and tells them when it's done.
-const desk = linear ? new TicketDesk(db, linear, { notify: (n) => service.ticketNews(n), log: (msg, err) => console.error(msg, err ?? "") }) : null;
+const desk = tracker ? new TicketDesk(db, tracker, { notify: (n) => service.ticketNews(n), log: (msg, err) => console.error(msg, err ?? "") }) : null;
 
 let relay: Relay | null = null;
 if (config.RELAY === "discord") {
@@ -106,7 +118,7 @@ if (config.RELAY === "discord") {
         ? [{ channelId: config.DISCORD_SUPPORT_VOICE_HUB_CHANNEL_ID, prefix: SUPPORT_ROOM_PREFIX, teamRoleId: config.DISCORD_TEAM_ROLE_ID }]
         : []),
     ],
-    answerCommunityPost: agent ? (q) => answerOnce(agent, q, { searchDocs: (query) => searchDocs(db, query), readDoc: (url) => readDoc(db, url) }) : undefined,
+    answerCommunityPost: agent && settings.assistant.helpForum ? (q) => answerOnce(agent, q, { searchDocs: (query) => searchDocs(db, query), readDoc: (url) => readDoc(db, url) }) : undefined,
     tickets:
       anthropic && desk
         ? {
@@ -183,7 +195,7 @@ if (relay) {
     (threadId, deleted) => service.resolve(threadId, deleted),
     ({ threadId, authorName, authorId }) => service.typingInThread(threadId, authorName, authorId),
   );
-  console.log(`relay: ${relay.name} connected${config.LINEAR_API_KEY && anthropic ? ", tag the bot to file Linear tickets" : ""}`);
+  console.log(`relay: ${relay.name} connected${tracker && anthropic ? `, tag the bot to file ${tracker.name === "github" ? "GitHub issues" : "Linear tickets"}` : ""}`);
 }
 
 const app = createServer(service, {

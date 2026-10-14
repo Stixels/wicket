@@ -19,19 +19,29 @@ team:
 # files:
 #   keepDays: 90
 
-# With a tracker (LINEAR_API_KEY): the assistant logs bugs, ideas and docs gaps, adding repeat
+# How the assistant behaves everywhere, in every profile and the community help forum.
+# assistant:
+#   code: decline        # decline (default): no code, links guides and examples. snippets: short snippets from examples.
+#   helpForum: false     # true: also answer new posts in the public Discord help forum. Off by default, since
+#                        # those answers aren't tied to a person and no budget limits them.
+#   instructions: >      # facts and rules for every conversation, e.g. something the docs undersell
+#     Any device that speaks MQTT works, not just the boards in the quickstart.
+
+# With a tracker (Linear or GitHub Issues): the assistant logs bugs, ideas and docs gaps, adding repeat
 # reports to the ticket that exists, and reporters hear back in the chat when a ticket is done.
 # tickets:
 #   assistant: true     # false: only the team files tickets (by tagging the bot)
 #   checkMinutes: 15    # how often to ask the tracker what's done; 0 turns hearing back off
 
 # A profile is a way of answering. Everything in it is optional.
-# Other GitHub repos to search besides the main docs (DOCS_GITHUB_REPO), such as an SDK.
+# Other repos or sites to search besides the main docs (DOCS_GITHUB_REPO or DOCS_URL), such as an SDK.
 # knowledge:
 #   - github: acme/acme-sdk
 #     include: ["*.md", "examples/**"]   # globs; markdown only when left out. Code files are read whole.
 #     exclude: [CHANGELOG.md]
 #     baseUrl: https://sdk.acme.com      # optional; links go to GitHub otherwise
+#   - url: https://help.acme.com          # a hosted site, read from its sitemap or by following links
+#     maxPages: 200                       # optional; 500 when left out
 
 profiles:
   # Applies when no rule matches.
