@@ -12,6 +12,7 @@ import { teamRoutes, type TeamOptions } from "./team/routes.js";
 import type { Db } from "./db/index.js";
 import { INLINE_TYPES, MAX_FILES_PER_CONVERSATION, MAX_FILE_BYTES, allowedType } from "./files.js";
 import { verifyWebhook, type ReplyEmails } from "./email.js";
+import { playgroundPage } from "./playground.js";
 
 export interface ServerOptions {
   allowedOrigins: string[];
@@ -80,7 +81,7 @@ export function createServer(service: ConversationService, opts: ServerOptions) 
   });
 
   if (opts.playground) {
-    const title = JSON.stringify(opts.playground.title);
+    const { title } = opts.playground;
     app.get("/", (c) => {
       // With an identity secret, the page signs in as a test user, like a host app's backend would.
       const as = c.req.query("as");
@@ -89,19 +90,9 @@ export function createServer(service: ConversationService, opts: ServerOptions) 
         opts.identitySecret && as !== "visitor"
           ? signUserToken({ sub: "local-test", name: "Local test", ...(plan ? { plan } : {}) }, opts.identitySecret, 3600)
           : null;
-      const user = token ? `userToken: ${JSON.stringify(token)},` : as === "visitor" ? "" : `user: { id: "local-test", name: "Local test" },`;
-      return c.html(`<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Wicket playground</title>
-<style>body{font:16px/1.5 system-ui,sans-serif;max-width:640px;margin:64px auto;padding:0 16px;color:#222}code{background:#f2f2f2;padding:2px 5px;border-radius:4px}</style>
-</head><body>
-<h1>Wicket playground</h1>
-<p>This page stands in for your app. Open the chat button in the corner and send a message. With Discord set up, it shows up as a post in <code>#support-inbox</code>, and replying there sends the reply back here.</p>
-<p>${token ? `Signed in as a test user${plan ? ` on the <code>${escapeHtml(plan)}</code> plan` : ""}.` : as === "visitor" ? "Not signed in." : "Set <code>IDENTITY_SECRET</code> to try signed-in profiles."} Try it as: <a href="/">signed in</a> · <a href="/?plan=pro">pro plan</a> · <a href="/?as=visitor">visitor</a></p>
-<p>Turn this page off with <code>PLAYGROUND=false</code>.</p>
-<script src="/widget.js"></script>
-<script>Wicket.init({ title: ${title}, ${user} context: { area: "playground" } });</script>
-</body></html>`);
+      const initUser = token ? `userToken: ${JSON.stringify(token)},` : as === "visitor" ? "" : `user: { id: "local-test", name: "Local test" },`;
+      const mode = as === "visitor" ? "visitor" : token ? "signed-in" : "unsigned";
+      return c.html(playgroundPage({ title, mode, plan, initUser }));
     });
   }
 
