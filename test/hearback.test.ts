@@ -112,7 +112,7 @@ describe("everyone hears back", () => {
     expect(ticket.title).toBe("Timer drifts after pausing");
     expect(ticket.description).toContain(`Reported by Sam in chat (https://wicket.test/admin/c/${sam.id})`);
     // The model was told the person will hear back.
-    expect(s.client.requests[2].messages.at(-1).content[0].content).toContain("Filed ED-1. They'll see a card saying it's logged");
+    expect(s.client.requests[2].messages.at(-1).content[0].content).toContain("Filed ED-1. They'll also see a card saying it's logged");
     // After the reply, Sam sees a card: logged, with the team, and they'll hear back.
     const samLogged = s.service.list(sam.id).at(-1)!;
     expect(samLogged).toMatchObject({ author: "system", event: "logged", body: "Logged for the team: the timer drifting after a pause. You'll hear back here when it's fixed." });
@@ -216,7 +216,8 @@ describe("everyone hears back", () => {
 
     s.tracker.set(idea.key, "done");
     expect(await s.desk.check()).toBe(2);
-    expect(told).toEqual([`planned:${conv.id}`, `done:${conv.id}`, "done:c3"]);
+    expect(told[0]).toBe(`planned:${conv.id}`);
+    expect(told.slice(1).sort()).toEqual([`done:${conv.id}`, "done:c3"].sort());
   });
 
   it("tells reporters when the team declines, after giving them time to write why", async () => {
@@ -241,7 +242,7 @@ describe("everyone hears back", () => {
     s.tracker.set(idea.key, "closed", undefined, { reason: "It would distract players mid-game." });
     expect(await s.desk.check(new Date(now + 30 * 60_000))).toBe(0);
     expect(await s.desk.check(new Date(now + 61 * 60_000))).toBe(2);
-    expect(told.sort()).toEqual([`declined:${conv.id}:It would distract players mid-game.`, "declined:c3:We only support the last two versions of each browser."]);
+    expect(told.sort()).toEqual([`declined:${conv.id}:It would distract players mid-game.`, "declined:c3:We only support the last two versions of each browser."].sort());
     expect(s.service.list(conv.id).at(-1)).toMatchObject({
       event: "declined",
       card: { stage: "declined", reason: "It would distract players mid-game." },

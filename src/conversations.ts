@@ -474,7 +474,7 @@ export class ConversationService {
       return `${who} in chat${link ? ` (${link})` : ""}`;
     };
     // The user sees a card saying it's logged and that they'll hear back, so the reply needn't repeat it.
-    const hearBack = desk.canFollow ? " They'll see a card saying it's logged and that they'll hear back here if it's done, so just thank them briefly." : "";
+    const hearBack = desk.canFollow ? " They'll also see a card saying it's logged. Thank them briefly and say it went straight to the team and they'll hear back here." : "";
     const logged = (kind: TicketCard["kind"], summary: string, others = 0, planned = false) => {
       if (desk.canFollow) cards.push({ type: "ticket", stage: planned ? "planned" : "logged", kind, summary: summary.trim().slice(0, 300), reportedAt: Date.now(), ...(planned ? { doneAt: Date.now() } : {}), ...(others ? { others } : {}) });
     };
