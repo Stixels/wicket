@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { openDb } from "../src/db/index.js";
-import { Agent } from "../src/agent/agent.js";
+import { Agent, systemPrompt } from "../src/agent/agent.js";
 import { ConversationService, MESSAGES } from "../src/conversations.js";
 import { createServer } from "../src/server.js";
 import { signUserToken, verifyUserToken } from "../src/identity.js";
@@ -237,5 +237,24 @@ describe("staying on topic", () => {
     expect(def).toContain("Only help with Escape Director.");
     expect(open).not.toContain("Only help with");
     expect(wider).toContain("Only help with Escape Director and running an escape room business.");
+  });
+});
+
+describe("code and team notes", () => {
+  const base = { productName: "Escape Director", productDescription: "" };
+
+  it("declines to write code by default, and allows snippets when configured", () => {
+    expect(systemPrompt(base)).toContain("you're not set up to write code here");
+    const snippets = systemPrompt({ ...base, code: "snippets" });
+    expect(snippets).toContain("Keep it to a short snippet");
+    expect(snippets).not.toContain("not set up to write code");
+    expect(parseSettings("profiles: {}").assistant.code).toBe("decline");
+  });
+
+  it("adds the team's notes to every conversation", () => {
+    const settings = parseSettings("assistant:\n  instructions: Any MQTT device works through Connect Existing Devices.\n");
+    const prompt = systemPrompt({ ...base, instructions: settings.assistant.instructions }, "On the Analytics page.");
+    expect(prompt).toContain("Notes from the Escape Director team:\nAny MQTT device works through Connect Existing Devices.");
+    expect(prompt.indexOf("Notes from")).toBeLessThan(prompt.indexOf("On the Analytics page."));
   });
 });

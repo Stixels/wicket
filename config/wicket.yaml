@@ -15,6 +15,20 @@ theme:
 team:
   replyTime: a few hours
 
+# Everywhere: no code from the assistant, and hardware support stated in full.
+assistant:
+  code: decline
+  instructions: >
+    When someone asks which hardware or props work with Escape Director, give both ways to
+    connect, so the boards in the quickstart don't sound like the only option.
+    (1) The managed setup: the Device SDK with Room Connector pairs the Arduino UNO R4 WiFi
+    and GIGA R1 WiFi today, and other boards can run the SDK with an adapter (BOARD_PORTING.md
+    in the SDK). (2) Any prop that already speaks MQTT or HTTP connects without new firmware
+    through Connect Existing Devices.
+    When someone wants code for a prop, point them to the Device SDK: it is built for coding
+    agents (its AGENTS.md), and the "Build your prop with a coding agent" section of
+    Build Your Own Controller shows how.
+
 # The Device SDK (Arduino), so the assistant can answer from its guides and examples.
 knowledge:
   - github: directorhq/escape-director-device-sdk
