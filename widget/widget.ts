@@ -424,18 +424,15 @@ button { font: inherit; color: inherit; }
   background: linear-gradient(90deg, color-mix(in srgb, var(--tk) 55%, transparent), var(--tk)); }
 .ticket.logged .tk-bar::after { animation: wk-tk 2.4s ease-in-out infinite; }
 @keyframes wk-tk { 50% { opacity: .55; } }
-.conv .rnew { display: inline-block; width: 7px; height: 7px; margin-right: 8px; border-radius: 50%; background: #ef4444; box-shadow: 0 0 0 3px rgba(239,68,68,.2); }
+.conv .rnew { display: inline-block; width: 7px; height: 7px; margin-right: 8px; border-radius: 50%; background: #ef4444; }
 .conv.unread .ct { font-weight: 700; }
 .conv.has-rep .cw { display: flex; align-items: center; }
 .conv.resolved .ct { color: color-mix(in srgb, var(--wk-text) 72%, var(--wk-muted)); font-weight: 550; }
 .conv .res { display: inline-flex; align-items: center; gap: 4px; font-style: normal; }
 .conv .res svg { width: 11px; height: 11px; stroke-width: 3; }
-.rchip { --tk: color-mix(in srgb, var(--wk-text) 70%, var(--wk-muted)); flex: none; display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px 1px 6px; border-radius: 999px; font-style: normal;
-  font-size: 11px; font-weight: 600; line-height: 16px; color: var(--tk); background: color-mix(in srgb, var(--tk) 13%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tk) 22%, transparent); }
-.rchip.done { --tk: #22c55e; }
-.rchip b { width: 6px; height: 6px; border-radius: 50%; box-sizing: border-box; border: 1.5px solid var(--tk); }
-.rchip svg { width: 10px; height: 10px; stroke-width: 3.5; }
+.rchip { display: inline-flex; align-items: center; gap: 3px; font-style: normal; font-size: 12px; color: var(--wk-muted); }
+.rchip.done { color: #22c55e; font-weight: 600; }
+.rchip svg { width: 11px; height: 11px; stroke-width: 3.2; }
 .wk.dark .row.agent a, .wk.dark .row.staff a { color: color-mix(in srgb, var(--wk-accent) 60%, white); }
 .system { align-self: center; margin: 10px 0; font-size: 12px; color: var(--wk-muted); padding: 5px 12px; border-radius: 999px;
   background: color-mix(in srgb, var(--wk-text) 5%, transparent); animation: wk-in .25s ease; text-align: center; }
@@ -1052,7 +1049,7 @@ class Widget {
       // A report reads as the report: its name, where it stands, and when that last changed.
       const w = ticketWords(r.kind);
       const done = r.stage === "done";
-      const status = done ? `${w.end.toLowerCase()} ${dayLabel(r.doneAt ?? c.updatedAt)}` : `logged ${dayLabel(r.reportedAt)} · we'll update you here`;
+      const status = capitalize(dayLabel(done ? (r.doneAt ?? c.updatedAt) : r.reportedAt));
       el.classList.add("has-rep");
       if (c.news) el.classList.add("unread");
       el.innerHTML = `<span class="ct">${escapeHtml(capitalize(r.summary.replace(/^"(.*)"$/, "$1")))}</span><span class="cw">${c.news ? `<i class="rnew" title="New update"></i>` : ""}${reportChip(r)}</span>
@@ -1537,10 +1534,10 @@ function ticketWords(kind: string | null) {
   return { noun: "Idea", start: "Suggested", end: "Shipped", icon: ICONS.idea, thanks: "thanks for the idea" };
 }
 
-/** A tiny status pill for a report: "Logged" while it's with the team, "Fixed" or "Shipped" when done. */
+/** A report's status as quiet text: "Logged" in grey, "✓ Fixed" or "✓ Shipped" in green. */
 function reportChip(c: TicketCard): string {
   const done = c.stage === "done";
-  return `<i class="rchip${done ? " done" : ""}">${done ? ICONS.check : "<b></b>"}${done ? ticketWords(c.kind).end : "Logged"}</i>`;
+  return `<i class="rchip${done ? " done" : ""}">${done ? ICONS.check : ""}${done ? ticketWords(c.kind).end : "Logged"}</i>`;
 }
 
 /** "today", or a short date like "Oct 20". */
