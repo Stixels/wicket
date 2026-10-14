@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { EventEmitter } from "node:events";
-import { asc, eq, sql } from "drizzle-orm";
+import { asc, desc, eq, sql } from "drizzle-orm";
 import type Anthropic from "@anthropic-ai/sdk";
 import { schema, type Db } from "./db/index.js";
 import type { TicketCard } from "./db/schema.js";
@@ -223,6 +223,17 @@ export class ConversationService {
 
   private rows(id: string) {
     return this.db.select().from(schema.messages).where(eq(schema.messages.conversationId, id)).orderBy(asc(schema.messages.id)).all();
+  }
+
+  /** A signed-in user's conversations, newest first, for their history on any device. */
+  forUser(userId: string, limit = 50): { id: string; token: string }[] {
+    return this.db
+      .select({ id: schema.conversations.id, token: schema.conversations.token })
+      .from(schema.conversations)
+      .where(eq(schema.conversations.userId, userId))
+      .orderBy(desc(schema.conversations.updatedAt))
+      .limit(limit)
+      .all();
   }
 
   /** What the widget's conversation list shows: the opening message and the latest one. */

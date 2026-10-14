@@ -49,6 +49,8 @@ const messageBody = z.object({
 
 const summariesBody = z.object({
   conversations: z.array(z.object({ id: z.string().max(64), token: z.string().max(128) })).max(50),
+  /** A signed-in user's other conversations come back too, so their history follows them across devices. */
+  userToken: z.string().max(4000).optional(),
 });
 
 export function createServer(service: ConversationService, opts: ServerOptions) {
@@ -137,10 +139,13 @@ export function createServer(service: ConversationService, opts: ServerOptions) 
   app.post("/api/conversations/summaries", async (c) => {
     const parsed = summariesBody.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: "Invalid request" }, 400);
-    const conversations = parsed.data.conversations
-      .filter((x) => service.authorize(x.id, x.token))
-      .map((x) => service.summary(x.id)!)
-      .sort((a, b) => b.updatedAt - a.updatedAt);
+    const identity = verifyUserToken(parsed.data.userToken, opts.identitySecret);
+    const mine = identity ? service.forUser(identity.id) : [];
+    const local = parsed.data.conversations.filter((x) => service.authorize(x.id, x.token) && !mine.some((m) => m.id === x.id));
+    // The token goes back only for the user's own conversations found by their verified id.
+    const conversations = [...mine.map((m) => ({ ...service.summary(m.id)!, token: m.token })), ...local.map((x) => service.summary(x.id)!)].sort(
+      (a, b) => b.updatedAt - a.updatedAt,
+    );
     return c.json({ conversations });
   });
 

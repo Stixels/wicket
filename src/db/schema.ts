@@ -48,7 +48,7 @@ export const conversations = sqliteTable(
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
   },
-  (t) => [index("conversations_relay_thread").on(t.relayThreadId)],
+  (t) => [index("conversations_relay_thread").on(t.relayThreadId), index("conversations_user").on(t.userId, t.updatedAt)],
 );
 
 /**

@@ -1065,25 +1065,28 @@ class Widget {
 
   /** Badges the launcher for news in earlier conversations (the open one reports its own). */
   private async checkNews() {
-    if (this.loadList().every((x) => x.id === this.conv?.id)) return;
+    if (!this.opts.userToken && this.loadList().every((x) => x.id === this.conv?.id)) return;
     const n = (await this.summaries()).filter((c) => c.news && c.id !== this.conv?.id).length;
     if (n && !this.wrap.classList.contains("open")) this.setUnread(this.unread + n);
   }
 
   private async summaries(): Promise<Summary[]> {
     const conversations = this.loadList();
-    if (!conversations.length) return [];
+    const userToken = await this.userToken().catch(() => undefined);
+    if (!conversations.length && !userToken) return [];
     try {
       const res = await fetch(`${this.opts.apiUrl}/api/conversations/summaries`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ conversations }),
+        body: JSON.stringify({ conversations, userToken }),
       });
       if (!res.ok) return [];
-      const list = ((await res.json()).conversations ?? []) as Summary[];
-      // Forget conversations the server no longer knows (e.g. after a database reset).
+      const list = ((await res.json()).conversations ?? []) as (Summary & { token?: string })[];
+      // Keep what the server knows: drops conversations it forgot (e.g. after a database reset),
+      // and adds a signed-in user's conversations from other devices.
       const known = new Set(list.map((x) => x.id));
-      this.saveList(conversations.filter((x) => known.has(x.id)));
+      const fromServer = list.flatMap((x) => (x.token ? [{ id: x.id, token: x.token }] : []));
+      this.saveList([...conversations.filter((x) => known.has(x.id)), ...fromServer]);
       return list;
     } catch {
       return [];

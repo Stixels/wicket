@@ -76,7 +76,7 @@ Wicket.init({ userToken: () => fetch("/api/wicket-token").then((r) => r.json()).
 
 The widget renders in a shadow DOM, so your app's CSS can't break it and its CSS can't leak into your app. On phones it opens full screen.
 
-Earlier conversations show under **Recent** on the start screen, and the clock button in the header lists all of them. The list lives in the browser (each conversation's access token is kept in `localStorage`, up to 50), so it doesn't follow someone to another device or browser yet.
+Earlier conversations show under **Recent** on the start screen, and the clock button in the header lists all of them. The browser keeps each conversation's access token in `localStorage` (up to 50). For signed-in users (a verified `userToken`), the server also returns their conversations by user id, so their history, including reports and their progress, follows them to any device or browser. Visitors' history stays in the browser they used.
 
 ## Set up Discord (community + support inbox)
 
