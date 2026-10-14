@@ -133,7 +133,7 @@ It uses [Resend](https://resend.com); the free tier is plenty for a small team.
 
 ## Deploy on Railway
 
-1. In Railway, choose **New → GitHub Repo** and pick this repo. It builds from the `Dockerfile` and redeploys on every push to `main`.
+1. In Railway, choose **New → GitHub Repo** and pick this repo. It builds from the `Dockerfile` and redeploys on every push to `main`. The build runs the typecheck and tests first, so a failing push never replaces the running version.
 2. Add a **Volume** mounted at `/data`. SQLite lives there.
 3. Copy `.env.example` into the service variables and fill them in.
 4. Generate a domain and use it in the script tag above.
