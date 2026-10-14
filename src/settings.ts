@@ -108,6 +108,16 @@ const settingsSchema = z
       })
       .strict()
       .default({ keepDays: 90 }),
+    /** How the assistant behaves everywhere: every profile and the community help forum. */
+    assistant: z
+      .object({
+        /** Facts and rules for every conversation, e.g. something the docs undersell. */
+        instructions: z.string().optional(),
+        /** decline: no code, point to guides and examples instead. snippets: short snippets adapted from examples it has read. */
+        code: z.enum(["decline", "snippets"]).default("decline"),
+      })
+      .strict()
+      .default({ code: "decline" }),
     /** Extra repos to search. The main docs come from DOCS_GITHUB_REPO. */
     knowledge: z.array(knowledgeSchema).default([]),
     profiles: z.record(z.string(), profileSchema).default({}),

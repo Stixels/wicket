@@ -5,6 +5,8 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 COPY . .
+# A failing check fails the build, so Railway keeps serving the last good deploy.
+RUN npm run typecheck && npm test
 RUN npm run build && npm prune --omit=dev
 
 FROM node:22-slim

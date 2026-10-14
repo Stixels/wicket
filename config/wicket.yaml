@@ -15,6 +15,10 @@ theme:
 team:
   replyTime: a few hours
 
+# Everywhere: the assistant doesn't write code; it links the closest guide or example.
+assistant:
+  code: decline
+
 # The Device SDK (Arduino), so the assistant can answer from its guides and examples.
 knowledge:
   - github: directorhq/escape-director-device-sdk
