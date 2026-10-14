@@ -17,6 +17,7 @@ import { loadSettings } from "./settings.js";
 import { FileStore } from "./files.js";
 import { ReplyEmails, ResendMailer } from "./email.js";
 import { priceFor } from "./usage.js";
+import { gatewayModelId } from "./gateway.js";
 
 const config = loadConfig();
 const settings = loadSettings(config.WICKET_CONFIG);
@@ -224,9 +225,4 @@ function describeSettings() {
   if (usesSignIn && !config.IDENTITY_SECRET) {
     console.log("profiles: needs you: rules check sign-in or plan, but IDENTITY_SECRET isn't set, so nobody counts as signed in");
   }
-}
-
-/** "claude-sonnet-5-5" -> "anthropic/claude-sonnet-5.5", the gateway's naming. Full gateway ids pass through. */
-function gatewayModelId(id: string): string {
-  return id.includes("/") ? id : `anthropic/${id.replace(/-(\d+)-(\d+)$/, "-$1.$2")}`;
 }
