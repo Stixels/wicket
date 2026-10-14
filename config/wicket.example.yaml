@@ -28,12 +28,14 @@ team:
 #     Any device that speaks MQTT works, not just the boards in the quickstart.
 
 # A profile is a way of answering. Everything in it is optional.
-# Other GitHub repos to search besides the main docs (DOCS_GITHUB_REPO), such as an SDK.
+# Other repos or sites to search besides the main docs (DOCS_GITHUB_REPO or DOCS_URL), such as an SDK.
 # knowledge:
 #   - github: acme/acme-sdk
 #     include: ["*.md", "examples/**"]   # globs; markdown only when left out. Code files are read whole.
 #     exclude: [CHANGELOG.md]
 #     baseUrl: https://sdk.acme.com      # optional; links go to GitHub otherwise
+#   - url: https://help.acme.com          # a hosted site, read from its sitemap or by following links
+#     maxPages: 200                       # optional; 500 when left out
 
 profiles:
   # Applies when no rule matches.

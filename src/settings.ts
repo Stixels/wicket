@@ -79,7 +79,7 @@ const themeSchema = z
   .strict();
 
 /** A GitHub repo to search besides the main docs, e.g. an SDK with examples. */
-const knowledgeSchema = z
+const repoKnowledgeSchema = z
   .object({
     github: z.string().regex(/^[\w.-]+\/[\w.-]+$/, "use owner/repo"),
     ref: z.string().optional(),
@@ -90,6 +90,16 @@ const knowledgeSchema = z
     exclude: z.array(z.string()).optional(),
   })
   .strict();
+
+/** A hosted docs site with no repo: pages come from its sitemap, or by following links. */
+const siteKnowledgeSchema = z
+  .object({
+    url: z.string().url(),
+    maxPages: z.number().int().positive().optional(),
+  })
+  .strict();
+
+const knowledgeSchema = z.union([repoKnowledgeSchema, siteKnowledgeSchema]);
 
 const settingsSchema = z
   .object({
@@ -120,7 +130,7 @@ const settingsSchema = z
       })
       .strict()
       .default({ code: "decline", helpForum: false }),
-    /** Extra repos to search. The main docs come from DOCS_GITHUB_REPO. */
+    /** Extra repos or sites to search. The main docs come from DOCS_GITHUB_REPO or DOCS_URL. */
     knowledge: z.array(knowledgeSchema).default([]),
     profiles: z.record(z.string(), profileSchema).default({}),
     rules: z.array(ruleSchema).default([]),
