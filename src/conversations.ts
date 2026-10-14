@@ -94,7 +94,7 @@ export const MESSAGES = {
   overTotal: "The assistant is unavailable right now, so I've passed your message to the team. Someone will reply here.",
   nearBudget: "Heads up: you've used most of this month's assistant allowance. After that, your messages go straight to the team.",
   logged: (what: string, kind: string | null) =>
-    `Logged for the team: ${what}. You'll hear back here when it's ${kind === "bug" ? "fixed" : kind === "docs" ? "updated" : "shipped"}.`,
+    `Logged for the team: ${what}. You'll hear back here ${kind === "bug" ? "when it's fixed" : kind === "docs" ? "when it's updated" : "if it ships"}.`,
   shipped: (what: string, kind: string | null) =>
     kind === "bug"
       ? `Good news: ${what} is fixed. Thanks for reporting it, and let me know if you still see it.`
@@ -462,7 +462,7 @@ export class ConversationService {
       return `${who} in chat${link ? ` (${link})` : ""}`;
     };
     // The user sees a card saying it's logged and that they'll hear back, so the reply needn't repeat it.
-    const hearBack = desk.canFollow ? " They'll see a card saying it's logged and that they'll hear back here when it's done, so just thank them briefly." : "";
+    const hearBack = desk.canFollow ? " They'll see a card saying it's logged and that they'll hear back here if it's done, so just thank them briefly." : "";
     const logged = (kind: TicketCard["kind"], summary: string, others = 0) => {
       if (desk.canFollow) cards.push({ type: "ticket", stage: "logged", kind, summary: summary.trim().slice(0, 300), reportedAt: Date.now(), ...(others ? { others } : {}) });
     };

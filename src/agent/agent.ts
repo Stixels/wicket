@@ -112,7 +112,7 @@ const TOOLS: Anthropic.Beta.Messages.BetaTool[] = [
 
 const USER_SUMMARY = {
   type: "string",
-  description: "How the user would describe it, as a short noun phrase in their words, e.g. \"the timer drifting after a pause\". Shown to them when it ships.",
+  description: "How the user would describe it, as a short noun phrase in their words, e.g. \"the timer drifting after a pause\". Shown to them if it ships.",
 } as const;
 
 const TICKET_TOOLS: Anthropic.Beta.Messages.BetaTool[] = [
@@ -131,7 +131,7 @@ const TICKET_TOOLS: Anthropic.Beta.Messages.BetaTool[] = [
   {
     name: "add_to_ticket",
     description:
-      "Add this user's report to an existing ticket from find_tickets that describes the same problem or idea. The team sees it as another report, and the user hears back here when it ships.",
+      "Add this user's report to an existing ticket from find_tickets that describes the same problem or idea. The team sees it as another report, and the user hears back here if it ships.",
     strict: true,
     input_schema: {
       type: "object",
@@ -148,7 +148,7 @@ const TICKET_TOOLS: Anthropic.Beta.Messages.BetaTool[] = [
   {
     name: "file_ticket",
     description:
-      "File a new ticket for a bug, idea or docs gap when find_tickets found nothing that matches. The user hears back here when it ships.",
+      "File a new ticket for a bug, idea or docs gap when find_tickets found nothing that matches. The user hears back here if it ships.",
     strict: true,
     input_schema: {
       type: "object",
@@ -190,7 +190,7 @@ How to respond:
 ${
     tickets
       ? `- For a bug report, ask at most two short questions to get what a developer needs (what they did, what they expected, what happened, which page or room). Then log it: use find_tickets, and if a ticket describes the same problem use add_to_ticket, otherwise file_ticket. Thank them and say you'll message them here when it's fixed. Hand off to a person as well if it blocks their work.
-- For an idea or feature request, restate it in one line to confirm you understood, then log it the same way and say you'll let them know here when it ships.
+- For an idea or feature request, restate it in one line to confirm you understood, then log it the same way and say you'll let them know here if it ships. Don't promise it will be built.
 - When the docs are missing or wrong about something, log it as a docs ticket the same way.
 - Don't log how-to questions the docs answer, and don't log the same thing twice in one conversation. Never mention ticket keys or the tracker to the user.`
       : `- For a bug report, ask at most two short questions to get what a developer needs (what they did, what they expected, what happened, which page or room). Then thank them and tell them the team will look at it. Hand off to a person if it blocks their work.

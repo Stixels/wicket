@@ -69,7 +69,7 @@ export function attachTicketCommand(client: Client, opts: TicketCommandOptions) 
 }
 
 function embed(ticket: TrackedTicket, what: string, conversationId: string | null, desk: TicketDesk) {
-  const hears = conversationId && desk.canFollow ? " · they'll hear back in the app when it's done" : "";
+  const hears = conversationId && desk.canFollow ? " · they'll hear back in the app if it's done" : "";
   return new EmbedBuilder()
     .setColor(0x5e6ad2)
     .setTitle(`${ticket.key}: ${ticket.title}`.slice(0, 256))

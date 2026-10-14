@@ -1050,7 +1050,7 @@ class Widget {
       const status =
         r.stage === "done"
           ? `<span class="ok">${ICONS.check}${w.end}</span> ${dayLabel(r.doneAt ?? c.updatedAt)}`
-          : `We'll let you know when it's ${w.end.toLowerCase()}`;
+          : w.waiting;
       if (c.news) el.classList.add("unread");
       el.innerHTML = `<span class="ct">${escapeHtml(capitalize(r.summary.replace(/^"(.*)"$/, "$1")))}</span><span class="cw">${c.news ? `<i class="rnew" title="New update"></i>` : ""}${timeAgo(c.updatedAt)}</span>
         <span class="cl">${status}</span>`;
@@ -1529,9 +1529,9 @@ function timeAgo(ms: number, capital = false): string {
 
 /** The words a report's card uses, by kind. */
 function ticketWords(kind: string | null) {
-  if (kind === "bug") return { noun: "Bug report", start: "Reported", end: "Fixed", icon: ICONS.bug, thanks: "thanks for reporting it" };
-  if (kind === "docs") return { noun: "Docs", start: "Reported", end: "Updated", icon: ICONS.book, thanks: "thanks for pointing it out" };
-  return { noun: "Idea", start: "Suggested", end: "Shipped", icon: ICONS.idea, thanks: "thanks for the idea" };
+  if (kind === "bug") return { noun: "Bug report", start: "Reported", end: "Fixed", waiting: "We'll let you know when it's fixed", icon: ICONS.bug, thanks: "thanks for reporting it" };
+  if (kind === "docs") return { noun: "Docs", start: "Reported", end: "Updated", waiting: "We'll let you know when it's updated", icon: ICONS.book, thanks: "thanks for pointing it out" };
+  return { noun: "Idea", start: "Suggested", end: "Shipped", waiting: "We'll let you know if it ships", icon: ICONS.idea, thanks: "thanks for the idea" };
 }
 
 /** "today", or a short date like "Oct 20". */
@@ -1551,7 +1551,7 @@ function ticketCardHtml(c: TicketCard): string {
   const title = raw.charAt(0).toUpperCase() + raw.slice(1);
   const day = dayLabel;
   const others = c.others ? ` · ${c.others === 1 ? "1 other person" : `${c.others} others`} reported this too` : "";
-  const sub = done ? `<b>${w.end}</b> ${day(c.doneAt ?? Date.now())}` : `We'll let you know when it's ${w.end.toLowerCase()}${others}`;
+  const sub = done ? `<b>${w.end}</b> ${day(c.doneAt ?? Date.now())}` : `${w.waiting}${others}`;
   return `<span class="tk-ic">${done ? ICONS.check : w.icon}</span>
     <div class="tk-title" title="${escapeAttr(title)}">${escapeHtml(title)}</div>
     <div class="tk-sub">${sub}</div>
