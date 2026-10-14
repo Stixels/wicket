@@ -1,16 +1,22 @@
 import { sqliteTable, text, integer, index, uniqueIndex } from "drizzle-orm/sqlite-core";
 
-/** A report's progress, shown to the person who made it: "logged" when filed or added, "done" when it ships. */
+/**
+ * A report's progress, shown to the person who made it: "logged" when filed or added, "planned"
+ * when the team accepts an idea, "done" when it ships, "declined" when the team won't do it.
+ */
 export interface TicketCard {
   type: "ticket";
-  stage: "logged" | "done";
+  stage: "logged" | "planned" | "done" | "declined";
   kind: "bug" | "feature" | "improvement" | "docs" | "question" | null;
   /** In the reporter's words, e.g. "the timer drifting after a pause". */
   summary: string;
   reportedAt: number;
+  /** When it reached this stage (planned, done or declined). */
   doneAt?: number;
   /** Other people who reported the same thing. */
   others?: number;
+  /** For "declined": what the team said. */
+  reason?: string;
 }
 
 /**
@@ -172,12 +178,14 @@ export const tickets = sqliteTable("tickets", {
   state: text("state", { enum: ["open", "done", "closed"] }).notNull().default("open"),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   checkedAt: integer("checked_at", { mode: "timestamp_ms" }),
+  /** When Wicket first saw the team accept it. */
+  plannedAt: integer("planned_at", { mode: "timestamp_ms" }),
   closedAt: integer("closed_at", { mode: "timestamp_ms" }),
 });
 
 /**
  * Which conversations a ticket came from. "filed" opened it; "added" was a repeat report folded
- * into it. Each person hears back once, when the ticket is done.
+ * into it. Each person hears back when the ticket is done or declined, and for ideas, when it's planned.
  */
 export const ticketLinks = sqliteTable(
   "ticket_links",
@@ -189,7 +197,10 @@ export const ticketLinks = sqliteTable(
     /** How the reporter would describe it ("the timer drifting after a pause"), for the notice. */
     summary: text("summary"),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    /** Told it's done or declined: nothing more to say. */
     notifiedAt: integer("notified_at", { mode: "timestamp_ms" }),
+    /** Told an idea is planned. */
+    plannedAt: integer("planned_at", { mode: "timestamp_ms" }),
   },
   (t) => [uniqueIndex("ticket_links_pair").on(t.ticketId, t.conversationId), index("ticket_links_conversation").on(t.conversationId)],
 );

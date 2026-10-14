@@ -2,8 +2,12 @@ import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Db } from "./db/index.js";
 import type { TicketDraft, TicketKind, TrackedTicket, Tracker } from "./adapters/types.js";
 
-/** A ticket someone reported is done; tell them in their conversation. */
-export interface ShippedNotice {
+/**
+ * News about a ticket someone reported, for their conversation: an idea the team "planned",
+ * a ticket "done", or one the team "declined" (with their "Reply:" comment as the reason).
+ */
+export interface TicketNotice {
+  stage: "planned" | "done" | "declined";
   conversationId: string;
   key: string;
   title: string;
@@ -12,7 +16,17 @@ export interface ShippedNotice {
   summary: string | null;
   /** When they reported it. */
   reportedAt: number;
+  /** For "declined": what the team wants them told, when they wrote something. */
+  reason?: string | null;
 }
+
+/** Ideas (anything but bugs and docs) hear when they're planned, and hear back when declined. */
+export function isIdea(kind: string | null | undefined): boolean {
+  return kind !== "bug" && kind !== "docs";
+}
+
+/** How long a canceled ticket waits before reporters hear, so the team can add a "Reply:" comment. */
+export const DECLINE_GRACE_MS = 60 * 60 * 1000;
 
 export interface DeskTicket extends TrackedTicket {
   /** How many conversations are linked to it. */
@@ -30,8 +44,8 @@ export interface LinkedTicket {
 }
 
 export interface DeskOptions {
-  /** Delivers a "shipped" notice. Throwing leaves it to be retried on the next check. */
-  notify: (notice: ShippedNotice) => Promise<void>;
+  /** Delivers a notice. Throwing leaves it to be retried on the next check. */
+  notify: (notice: TicketNotice) => Promise<void>;
   log?: (msg: string, err?: unknown) => void;
 }
 
@@ -92,10 +106,12 @@ export class TicketDesk {
   async add(
     keyOrUrl: string,
     from: { conversationId?: string | null; summary?: string | null; comment: string; kind?: TicketKind | null },
-  ): Promise<{ ticket: TrackedTicket; already: boolean; reports: number } | null> {
+  ): Promise<{ ticket: TrackedTicket; already: boolean; reports: number; planned: boolean } | null> {
     const ticket = await this.lookup(keyOrUrl);
     if (!ticket) return null;
     const id = this.idFor(ticket.id);
+    const row = this.db.select().from(schema.tickets).where(eq(schema.tickets.id, id)).get();
+    const planned = ticket.state === "open" && Boolean(row?.plannedAt) && isIdea(from.kind ?? row?.kind);
     const already = Boolean(
       from.conversationId &&
         this.db
@@ -104,11 +120,11 @@ export class TicketDesk {
           .where(and(eq(schema.ticketLinks.ticketId, id), eq(schema.ticketLinks.conversationId, from.conversationId)))
           .get(),
     );
-    if (already) return { ticket, already, reports: this.reportCount(id) };
+    if (already) return { ticket, already, reports: this.reportCount(id), planned };
     if (this.tracker.comment) await this.tracker.comment(ticket.id, from.comment).catch((err) => this.log(`tickets: couldn't comment on ${ticket.key}`, err));
     this.remember(ticket, from.kind);
-    if (from.conversationId) this.link(ticket.id, from.conversationId, "added", from.summary ?? null, ticket.state !== "open");
-    return { ticket, already, reports: this.reportCount(id) };
+    if (from.conversationId) this.link(ticket.id, from.conversationId, "added", from.summary ?? null, ticket.state !== "open", planned);
+    return { ticket, already, reports: this.reportCount(id), planned };
   }
 
   /** How many conversations are linked to a ticket. */
@@ -128,13 +144,14 @@ export class TicketDesk {
   }
 
   /**
-   * Asks the tracker about every open ticket someone is waiting on. Done ones notify their
-   * reporters; duplicates pass their reporters to the ticket they duplicate. Returns how many
-   * people were told.
+   * Asks the tracker about every ticket someone is waiting on. Ideas the team accepted tell their
+   * reporters it's planned; done tickets tell everyone; duplicates pass their reporters to the
+   * ticket they duplicate. Canceled tickets wait out DECLINE_GRACE_MS, then ideas (and anything
+   * with a "Reply:" comment) tell their reporters it's declined. Returns how many notices went out.
    */
   async check(now = new Date()): Promise<number> {
     if (!this.tracker.states) return 0;
-    const unheard = (state: "open" | "done") =>
+    const unheard = (state: "open" | "done" | "closed") =>
       this.db
         .selectDistinct({ t: schema.tickets })
         .from(schema.tickets)
@@ -144,8 +161,11 @@ export class TicketDesk {
         .map((r) => r.t);
     let told = 0;
     // Done already, but a notice didn't go through last time.
-    for (const row of unheard("done")) told += await this.tell(row.id);
-    const waiting = unheard("open");
+    for (const row of unheard("done")) told += await this.tell(row.id, "done");
+    const waiting = [
+      ...unheard("open"),
+      ...unheard("closed").filter((t) => !t.closedAt || now.getTime() - t.closedAt.getTime() >= DECLINE_GRACE_MS),
+    ];
     if (!waiting.length) return told;
 
     const current = new Map((await this.tracker.states(waiting.map((t) => t.ref))).map((t) => [t.id, t]));
@@ -163,41 +183,66 @@ export class TicketDesk {
         .run();
       if (fresh.state === "done") {
         this.close(row.id, "done", now);
-        told += await this.tell(row.id);
-      } else if (fresh.state === "closed") {
+        told += await this.tell(row.id, "done");
+      } else if (fresh.state === "closed" && fresh.duplicateOf) {
         this.close(row.id, "closed", now);
-        if (fresh.duplicateOf) {
-          const target = fresh.duplicateOf;
-          this.remember(target, row.kind as TicketKind | null);
-          this.moveLinks(row.id, this.idFor(target.id));
-          if (target.state === "done") told += await this.tell(this.idFor(target.id));
+        const target = fresh.duplicateOf;
+        this.remember(target, row.kind as TicketKind | null);
+        this.moveLinks(row.id, this.idFor(target.id));
+        if (target.state === "done") told += await this.tell(this.idFor(target.id), "done");
+      } else if (fresh.state === "closed") {
+        // Just canceled: give the team time to write a "Reply:" comment first.
+        if (row.state === "open") this.close(row.id, "closed", now);
+        else if (isIdea(row.kind) || fresh.reason) told += await this.tell(row.id, "declined", fresh.reason);
+        else this.quiet(row.id);
+      } else {
+        if (row.state === "closed") this.db.update(schema.tickets).set({ state: "open", closedAt: null }).where(eq(schema.tickets.id, row.id)).run();
+        if (fresh.planned && isIdea(row.kind)) {
+          if (!row.plannedAt) this.db.update(schema.tickets).set({ plannedAt: now }).where(eq(schema.tickets.id, row.id)).run();
+          told += await this.tell(row.id, "planned");
         }
       }
     }
     return told;
   }
 
-  /** Sends the notice to everyone linked to a done ticket who hasn't heard yet. */
-  private async tell(ticketId: string): Promise<number> {
+  /** Sends a notice to everyone linked to the ticket who hasn't heard it yet. */
+  private async tell(ticketId: string, stage: TicketNotice["stage"], reason?: string | null): Promise<number> {
     const t = this.db.select().from(schema.tickets).where(eq(schema.tickets.id, ticketId)).get();
     if (!t) return 0;
-    if (t.state !== "done") this.close(ticketId, "done", new Date());
+    if (stage === "done" && t.state !== "done") this.close(ticketId, "done", new Date());
+    const L = schema.ticketLinks;
     const links = this.db
       .select()
-      .from(schema.ticketLinks)
-      .where(and(eq(schema.ticketLinks.ticketId, ticketId), isNull(schema.ticketLinks.notifiedAt)))
+      .from(L)
+      .where(and(eq(L.ticketId, ticketId), isNull(L.notifiedAt), ...(stage === "planned" ? [isNull(L.plannedAt)] : [])))
       .all();
     let told = 0;
     for (const l of links) {
       try {
-        await this.opts.notify({ conversationId: l.conversationId, key: t.key, title: t.title, kind: (t.kind as TicketKind | null) ?? null, summary: l.summary, reportedAt: l.createdAt.getTime() });
-        this.db.update(schema.ticketLinks).set({ notifiedAt: new Date() }).where(eq(schema.ticketLinks.id, l.id)).run();
+        await this.opts.notify({
+          stage,
+          conversationId: l.conversationId,
+          key: t.key,
+          title: t.title,
+          kind: (t.kind as TicketKind | null) ?? null,
+          summary: l.summary,
+          reportedAt: l.createdAt.getTime(),
+          ...(reason ? { reason } : {}),
+        });
+        this.db.update(L).set(stage === "planned" ? { plannedAt: new Date() } : { notifiedAt: new Date() }).where(eq(L.id, l.id)).run();
         told++;
       } catch (err) {
-        this.log(`tickets: couldn't tell ${l.conversationId} that ${t.key} is done`, err);
+        this.log(`tickets: couldn't tell ${l.conversationId} that ${t.key} is ${stage}`, err);
       }
     }
     return told;
+  }
+
+  /** Closed with nothing to say: stop waiting on it. */
+  private quiet(ticketId: string) {
+    const L = schema.ticketLinks;
+    this.db.update(L).set({ notifiedAt: new Date() }).where(and(eq(L.ticketId, ticketId), isNull(L.notifiedAt))).run();
   }
 
   private async lookup(keyOrUrl: string): Promise<TrackedTicket | null> {
@@ -245,11 +290,12 @@ export class TicketDesk {
       .run();
   }
 
-  /** `notified` marks the link as already told, e.g. when the ticket was done before they reported it. */
-  private link(ref: string, conversationId: string, relation: "filed" | "added", summary: string | null, notified = false) {
+  /** `notified` marks the link as already told, e.g. when the ticket was done before they reported it; `planned` likewise. */
+  private link(ref: string, conversationId: string, relation: "filed" | "added", summary: string | null, notified = false, planned = false) {
+    const now = new Date();
     this.db
       .insert(schema.ticketLinks)
-      .values({ ticketId: this.idFor(ref), conversationId, relation, summary: summary?.slice(0, 300) ?? null, createdAt: new Date(), notifiedAt: notified ? new Date() : null })
+      .values({ ticketId: this.idFor(ref), conversationId, relation, summary: summary?.slice(0, 300) ?? null, createdAt: now, notifiedAt: notified ? now : null, plannedAt: planned ? now : null })
       .onConflictDoNothing()
       .run();
   }

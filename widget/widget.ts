@@ -112,7 +112,7 @@ interface Summary {
   title: string;
   last: { author: string; authorName: string | null; body: string; createdAt: number } | null;
   updatedAt: number;
-  /** Something they reported shipped, and they haven't seen it yet. */
+  /** Something they reported moved (planned, done, declined), and they haven't seen it yet. */
   news?: boolean;
   /** Where the latest thing they reported in it stands. */
   report?: TicketCard | null;
@@ -132,7 +132,7 @@ interface Message {
   authorName: string | null;
   body: string;
   attachments?: Attachment[];
-  /** "logged" when something they reported was logged; "fixed" or "shipped" when it's done. */
+  /** "logged" when something they reported was logged; "planned", "fixed", "shipped" or "declined" as it moves. */
   event?: string;
   card?: TicketCard;
   /** Set on news the user hasn't seen yet when the widget connects. */
@@ -143,12 +143,13 @@ interface Message {
 /** A report's progress: "logged" when it reaches the team, "done" when it ships. */
 interface TicketCard {
   type: "ticket";
-  stage: "logged" | "done";
+  stage: "logged" | "planned" | "done" | "declined";
   kind: string | null;
   summary: string;
   reportedAt: number;
   doneAt?: number;
   others?: number;
+  reason?: string;
 }
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
@@ -412,6 +413,11 @@ button { font: inherit; color: inherit; }
   border-radius: calc(var(--wk-radius) * .7); background: var(--wk-bubble); border: 1px solid var(--wk-border);
   animation: wk-pop .45s cubic-bezier(.2,.8,.2,1) both; }
 .ticket.done { --tk: #22c55e; }
+.ticket.planned { --tk: #60a5fa; }
+.ticket.declined { --tk: var(--wk-muted); }
+.tk-why { grid-column: 2; margin-top: 6px; padding-left: 9px; border-left: 2px solid var(--wk-border); font-size: 12.5px; line-height: 1.4; color: color-mix(in srgb, var(--wk-text) 82%, var(--wk-muted)); white-space: pre-wrap; }
+.ticket:has(.tk-why) .tk-ic { grid-row: span 3; align-self: start; margin-top: 2px; }
+.ticket.declined .tk-title { color: color-mix(in srgb, var(--wk-text) 72%, var(--wk-muted)); }
 .tk-ic { grid-row: span 2; display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%;
   color: var(--tk); background: color-mix(in srgb, var(--tk) 14%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tk) 28%, transparent); }
 .tk-ic svg { width: 13px; height: 13px; }
@@ -427,6 +433,7 @@ button { font: inherit; color: inherit; }
 .conv .rnew { display: inline-block; width: 7px; height: 7px; margin-right: 8px; border-radius: 50%; background: #ef4444; }
 .conv.unread .ct { font-weight: 700; }
 .conv .cw { display: flex; align-items: center; }
+.conv .pl { color: #60a5fa; font-weight: 600; }
 .conv.resolved .ct { color: color-mix(in srgb, var(--wk-text) 72%, var(--wk-muted)); font-weight: 550; }
 .conv .res { display: inline-flex; align-items: center; gap: 4px; font-style: normal; }
 .conv .res svg { width: 11px; height: 11px; stroke-width: 3; }
@@ -1050,7 +1057,11 @@ class Widget {
       const status =
         r.stage === "done"
           ? `<span class="ok">${ICONS.check}${w.end}</span> ${dayLabel(r.doneAt ?? c.updatedAt)}`
-          : w.waiting;
+          : r.stage === "planned"
+            ? `<span class="pl">Planned</span> · We'll let you know when it ships`
+            : r.stage === "declined"
+              ? `${w.no} ${dayLabel(r.doneAt ?? c.updatedAt)}`
+              : w.waiting;
       if (c.news) el.classList.add("unread");
       el.innerHTML = `<span class="ct">${escapeHtml(capitalize(r.summary.replace(/^"(.*)"$/, "$1")))}</span><span class="cw">${c.news ? `<i class="rnew" title="New update"></i>` : ""}${timeAgo(c.updatedAt)}</span>
         <span class="cl">${status}</span>`;
@@ -1529,9 +1540,9 @@ function timeAgo(ms: number, capital = false): string {
 
 /** The words a report's card uses, by kind. */
 function ticketWords(kind: string | null) {
-  if (kind === "bug") return { noun: "Bug report", start: "Reported", end: "Fixed", waiting: "We'll let you know when it's fixed", icon: ICONS.bug, thanks: "thanks for reporting it" };
-  if (kind === "docs") return { noun: "Docs", start: "Reported", end: "Updated", waiting: "We'll let you know when it's updated", icon: ICONS.book, thanks: "thanks for pointing it out" };
-  return { noun: "Idea", start: "Suggested", end: "Shipped", waiting: "We'll let you know if it ships", icon: ICONS.idea, thanks: "thanks for the idea" };
+  if (kind === "bug") return { noun: "Bug report", start: "Reported", end: "Fixed", no: "Closed", waiting: "We'll let you know when it's fixed", icon: ICONS.bug, thanks: "thanks for reporting it" };
+  if (kind === "docs") return { noun: "Docs", start: "Reported", end: "Updated", no: "Closed", waiting: "We'll let you know when it's updated", icon: ICONS.book, thanks: "thanks for pointing it out" };
+  return { noun: "Idea", start: "Suggested", end: "Shipped", no: "Not planned", waiting: "We'll let you know what the team decides", icon: ICONS.idea, thanks: "thanks for the idea" };
 }
 
 /** "today", or a short date like "Oct 20". */
@@ -1551,11 +1562,20 @@ function ticketCardHtml(c: TicketCard): string {
   const title = raw.charAt(0).toUpperCase() + raw.slice(1);
   const day = dayLabel;
   const others = c.others ? ` · ${c.others === 1 ? "1 other person" : `${c.others} others`} reported this too` : "";
-  const sub = done ? `<b>${w.end}</b> ${day(c.doneAt ?? Date.now())}` : `${w.waiting}${others}`;
+  const sub =
+    c.stage === "done"
+      ? `<b>${w.end}</b> ${day(c.doneAt ?? Date.now())}`
+      : c.stage === "planned"
+        ? `<b>Planned</b> · We'll let you know when it ships${others}`
+        : c.stage === "declined"
+          ? `<b>${w.no}</b> ${day(c.doneAt ?? Date.now())}`
+          : `${w.waiting}${others}`;
+  const at = { logged: "40%", planned: "72%", done: "100%", declined: "0%" }[c.stage];
   return `<span class="tk-ic">${done ? ICONS.check : w.icon}</span>
     <div class="tk-title" title="${escapeAttr(title)}">${escapeHtml(title)}</div>
-    <div class="tk-sub">${sub}</div>
-    <i class="tk-bar" style="--tk-at:${done ? "100%" : "62%"}" aria-hidden="true"></i>`;
+    <div class="tk-sub">${sub}</div>${c.reason ? `
+    <div class="tk-why">${escapeHtml(c.reason)}</div>` : ""}
+    <i class="tk-bar" style="--tk-at:${at}" aria-hidden="true"></i>`;
 }
 
 function escapeHtml(s: string): string {

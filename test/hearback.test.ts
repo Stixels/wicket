@@ -40,12 +40,14 @@ class FakeTracker implements Tracker {
       const t = this.tickets.get(id);
       if (!t) return [];
       const dup = (t as any).dupOf ? this.tickets.get((t as any).dupOf) : undefined;
-      return [{ ...plain(t), ...(dup ? { duplicateOf: plain(dup) } : {}) }];
+      const extra = { ...(t.planned ? { planned: true } : {}), ...(t.reason ? { reason: t.reason } : {}) };
+      return [{ ...plain(t), ...extra, ...(dup ? { duplicateOf: plain(dup) } : {}) }];
     });
   }
-  set(key: string, state: TrackedTicket["state"], dupOfKey?: string) {
+  set(key: string, state: TrackedTicket["state"], dupOfKey?: string, extra: { planned?: boolean; reason?: string } = {}) {
     const t = [...this.tickets.values()].find((x) => x.key === key)!;
     t.state = state;
+    Object.assign(t, extra);
     if (dupOfKey) (t as any).dupOf = [...this.tickets.values()].find((x) => x.key === dupOfKey)!.id;
   }
 }
@@ -62,7 +64,7 @@ function setup(responses: ConstructorParameters<typeof FakeClient>[0], yaml = ""
   const mail: Mail[] = [];
   // eslint-disable-next-line prefer-const
   let service: ConversationService;
-  const desk = new TicketDesk(db, tracker, { notify: (n) => service.shipped(n), log: () => {} });
+  const desk = new TicketDesk(db, tracker, { notify: (n) => service.ticketNews(n), log: () => {} });
   service = new ConversationService(db, new Agent(client, agentOpts), relay, {
     log: () => {},
     tickets: desk,
@@ -157,7 +159,7 @@ describe("everyone hears back", () => {
 
     // And by email, when they haven't seen it in the app.
     await s.emails.sweep(Date.now() + 10 * 60_000);
-    expect(s.mail.map((m) => m.subject)).toEqual(["Something you reported is done · Escape Director", "Something you reported is done · Escape Director"]);
+    expect(s.mail.map((m) => m.subject)).toEqual(["An update on something you reported · Escape Director", "An update on something you reported · Escape Director"]);
     expect(s.mail[0]!.text).toContain("Escape Director:\nGood news");
 
     // Reading the conversation clears the news.
@@ -182,6 +184,72 @@ describe("everyone hears back", () => {
     s.tracker.set(a.key, "done");
     expect(await s.desk.check()).toBe(2);
     expect(told.sort()).toEqual([`c1:${a.key}:the missing hint button`, `c2:${a.key}:Hint button missing`]);
+  });
+
+  it("tells ideas when the team plans them, and doesn't tell anyone twice", async () => {
+    const s = setup([]);
+    const conv = s.service.create({ name: "Sam" }, undefined);
+    const idea = await s.desk.file({ title: "Public leaderboard", kind: "feature", description: "" }, { conversationId: conv.id, summary: "a public leaderboard" });
+    const bug = await s.desk.file({ title: "Timer drift", kind: "bug", description: "" }, { conversationId: "c2" });
+    const told: string[] = [];
+    const deliver = (s.desk as any).opts.notify;
+    (s.desk as any).opts.notify = async (n: any) => {
+      told.push(`${n.stage}:${n.conversationId}`);
+      await deliver(n);
+    };
+
+    // Still in triage: nothing to say.
+    expect(await s.desk.check()).toBe(0);
+    s.tracker.set(idea.key, "open", undefined, { planned: true });
+    s.tracker.set(bug.key, "open", undefined, { planned: true }); // bugs just hear when it's fixed
+    expect(await s.desk.check()).toBe(1);
+    expect(await s.desk.check()).toBe(0);
+    const news = s.service.list(conv.id).at(-1)!;
+    expect(news).toMatchObject({ author: "agent", event: "planned", card: { stage: "planned", summary: "a public leaderboard" } });
+    expect(news.body).toBe("Good news: the team is planning to build a public leaderboard. You'll hear back here when it ships.");
+    expect(s.service.summary(conv.id)!.news).toBe(true);
+
+    // Someone asking for it now hears it's already planned, rather than a second notice later.
+    const added = await s.desk.add(idea.key, { conversationId: "c3", comment: "+1", kind: "feature" });
+    expect(added).toMatchObject({ planned: true, reports: 2 });
+    expect(await s.desk.check()).toBe(0);
+
+    s.tracker.set(idea.key, "done");
+    expect(await s.desk.check()).toBe(2);
+    expect(told).toEqual([`planned:${conv.id}`, `done:${conv.id}`, "done:c3"]);
+  });
+
+  it("tells reporters when the team declines, after giving them time to write why", async () => {
+    const s = setup([]);
+    const conv = s.service.create({ name: "Sam" }, undefined);
+    const idea = await s.desk.file({ title: "Confetti", kind: "feature", description: "" }, { conversationId: conv.id, summary: "confetti on escape" });
+    const quiet = await s.desk.file({ title: "Can't reproduce", kind: "bug", description: "" }, { conversationId: "c2" });
+    const wontFix = await s.desk.file({ title: "Old browser", kind: "bug", description: "" }, { conversationId: "c3" });
+    const told: string[] = [];
+    const deliver = (s.desk as any).opts.notify;
+    (s.desk as any).opts.notify = async (n: any) => {
+      told.push(`${n.stage}:${n.conversationId}:${n.reason ?? ""}`);
+      if (n.conversationId === conv.id) await deliver(n);
+    };
+
+    s.tracker.set(idea.key, "closed");
+    s.tracker.set(quiet.key, "closed");
+    s.tracker.set(wontFix.key, "closed", undefined, { reason: "We only support the last two versions of each browser." });
+    const now = Date.now();
+    expect(await s.desk.check(new Date(now))).toBe(0);
+    // The team adds their reason after canceling, within the grace period.
+    s.tracker.set(idea.key, "closed", undefined, { reason: "It would distract players mid-game." });
+    expect(await s.desk.check(new Date(now + 30 * 60_000))).toBe(0);
+    expect(await s.desk.check(new Date(now + 61 * 60_000))).toBe(2);
+    expect(told.sort()).toEqual([`declined:${conv.id}:It would distract players mid-game.`, "declined:c3:We only support the last two versions of each browser."]);
+    expect(s.service.list(conv.id).at(-1)).toMatchObject({
+      event: "declined",
+      card: { stage: "declined", reason: "It would distract players mid-game." },
+      body: `The team looked at confetti on escape and decided not to build it for now. Here's what they said: "It would distract players mid-game." Thanks for suggesting it.`,
+    });
+    // Nobody hears twice, and the bug closed without a word stays quiet.
+    expect(await s.desk.check(new Date(now + 120 * 60_000))).toBe(0);
+    expect(told).toHaveLength(2);
   });
 
   it("retries a notice that couldn't be delivered", async () => {
@@ -220,15 +288,30 @@ describe("LinearTracker follow-up", () => {
       const body = JSON.parse(init.body);
       queries.push(body.query);
       const node = (id: string, type: string) => ({ id, identifier: id.toUpperCase(), url: `https://linear.app/x/issue/${id}`, title: id, state: { type } });
-      const data = body.query.includes("issues(")
-        ? { issues: { nodes: [node("ed-1", "completed"), node("ed-2", "canceled"), node("ed-3", "started")] } }
-        : { issue: { relations: { nodes: [{ type: "related", relatedIssue: node("ed-9", "started") }, { type: "duplicate", relatedIssue: node("ed-1", "completed") }] } } };
+      const data = body.query.includes("teams(")
+        ? { teams: { nodes: [{ id: "team", states: { nodes: [{ id: "s1", name: "Triage", type: "triage", position: 0 }] } }] } }
+        : body.query.includes("labels(")
+          ? { team: { labels: { nodes: [] } }, issueLabels: { nodes: [] } }
+          : body.query.includes("issues(")
+            ? { issues: { nodes: [node("ed-1", "completed"), node("ed-2", "canceled"), node("ed-3", "backlog"), node("ed-4", "triage")] } }
+            : {
+                issue: {
+                  relations: { nodes: [{ type: "related", relatedIssue: node("ed-9", "started") }, { type: "duplicate", relatedIssue: node("ed-1", "completed") }] },
+                  comments: { nodes: [{ body: "Internal: dupe", createdAt: "2026-10-14T01:00:00Z" }, { body: "Reply: Merged into the main request.", createdAt: "2026-10-14T02:00:00Z" }] },
+                },
+              };
       return new Response(JSON.stringify({ data }), { status: 200 });
     });
     const t = new LinearTracker({ apiKey: "k", teamKey: "ED" });
-    const states = await t.states(["ed-1", "ed-2", "ed-3"]);
-    expect(states.map((s) => `${s.key}:${s.state}:${s.duplicateOf?.key ?? ""}`)).toEqual(["ED-1:done:", "ED-2:closed:ED-1", "ED-3:open:"]);
-    expect(queries).toHaveLength(2); // relations only for the canceled one
+    const states = await t.states(["ed-1", "ed-2", "ed-3", "ed-4"]);
+    expect(states.map((s) => `${s.key}:${s.state}:${s.duplicateOf?.key ?? ""}:${s.planned ? "planned" : ""}`)).toEqual([
+      "ED-1:done::",
+      "ED-2:closed:ED-1:",
+      "ED-3:open::planned", // out of triage
+      "ED-4:open::",
+    ]);
+    expect(states[1]!.reason).toBe("Merged into the main request.");
+    expect(queries.filter((q) => q.includes("relations"))).toHaveLength(1); // only for the canceled one
   });
 
   it("looks up an issue by key or link", async () => {

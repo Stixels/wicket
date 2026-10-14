@@ -104,8 +104,12 @@ export interface TrackedTicket {
   title: string;
   /** "done" means shipped or fixed; "closed" means closed without shipping (canceled, won't fix). */
   state: "open" | "done" | "closed";
+  /** Open, and the team has accepted it (out of triage, on their list). Ideas tell their reporters. */
+  planned?: boolean;
   /** When the team closed it as a duplicate, the ticket it duplicates. */
   duplicateOf?: TrackedTicket;
+  /** When the team closed it, what they want reporters told (a comment starting "Reply:"). */
+  reason?: string;
 }
 
 /**

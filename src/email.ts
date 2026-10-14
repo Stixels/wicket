@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { and, asc, eq, gt, inArray, isNotNull, or, sql } from "drizzle-orm";
 import { schema, type Db } from "./db/index.js";
-import type { ConversationService } from "./conversations.js";
+import { NEWS, type ConversationService } from "./conversations.js";
 
 export interface Mail {
   to: string;
@@ -76,7 +76,7 @@ export interface ReplyEmailOptions {
 const REPLY_MARKER = "Reply above this line to answer.";
 
 /** What gets emailed when unread: team replies, and news like a reported bug being fixed. */
-const EMAILED = or(eq(schema.messages.author, "staff"), inArray(schema.messages.event, ["fixed", "shipped"]));
+const EMAILED = or(eq(schema.messages.author, "staff"), inArray(schema.messages.event, [...NEWS]));
 
 /**
  * Emails team replies the user hasn't seen in the widget, so nobody has to keep a tab open
@@ -194,7 +194,7 @@ ${canReply ? `<div style="margin-top:14px;font-size:13px;color:#6b6b78">Or just 
 
     return {
       to: c.reporterEmail!,
-      subject: who.length ? `${who.join(" and ")} replied · ${name}` : `Something you reported is done · ${name}`,
+      subject: who.length ? `${who.join(" and ")} replied · ${name}` : `An update on something you reported · ${name}`,
       text,
       html,
       replyTo: canReply ? `reply+${c.id}.${sign(c.token, "reply")}@${this.opts.replyDomain}` : undefined,

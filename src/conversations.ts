@@ -12,7 +12,7 @@ import type { Identity } from "./identity.js";
 import { parseSettings, pathFromContext, resolveProfile, type Profile, type Settings } from "./settings.js";
 import { UsageLedger, dollarsToMicros } from "./usage.js";
 import { Members, type Member } from "./team/members.js";
-import type { ShippedNotice, TicketDesk } from "./tickets.js";
+import type { TicketNotice, TicketDesk } from "./tickets.js";
 import type { TicketTools } from "./agent/agent.js";
 
 type MessageParam = Anthropic.Beta.Messages.BetaMessageParam;
@@ -25,7 +25,7 @@ export interface PublicMessage {
   authorName: string | null;
   body: string;
   attachments: Attachment[];
-  /** "logged" when something they reported was logged; "fixed" or "shipped" when it's done. */
+  /** "logged" when something they reported was logged; "planned", "fixed", "shipped" or "declined" as it moves. */
   event?: string;
   /** What the widget draws for an event; `body` is the plain-text version. */
   card?: TicketCard;
@@ -94,7 +94,13 @@ export const MESSAGES = {
   overTotal: "The assistant is unavailable right now, so I've passed your message to the team. Someone will reply here.",
   nearBudget: "Heads up: you've used most of this month's assistant allowance. After that, your messages go straight to the team.",
   logged: (what: string, kind: string | null) =>
-    `Logged for the team: ${what}. You'll hear back here ${kind === "bug" ? "when it's fixed" : kind === "docs" ? "when it's updated" : "if it ships"}.`,
+    kind === "bug" || kind === "docs"
+      ? `Logged for the team: ${what}. You'll hear back here when it's ${kind === "bug" ? "fixed" : "updated"}.`
+      : `Passed to the team: ${what}. You'll hear back here once they've decided.`,
+  alreadyPlanned: (what: string) => `Added your vote: ${what} is already planned. You'll hear back here when it ships.`,
+  planned: (what: string) => `Good news: the team is planning to build ${what}. You'll hear back here when it ships.`,
+  declined: (what: string, kind: string | null, reason?: string | null) =>
+    `The team looked at ${what} and decided not to ${kind === "bug" || kind === "docs" ? "change it" : "build it"} for now.${reason ? ` Here's what they said: "${reason}"` : ""} Thanks for ${kind === "bug" || kind === "docs" ? "raising it" : "suggesting it"}.`,
   shipped: (what: string, kind: string | null) =>
     kind === "bug"
       ? `Good news: ${what} is fixed. Thanks for reporting it, and let me know if you still see it.`
@@ -250,7 +256,7 @@ export class ConversationService {
       title: (first ? previewText(first) : "").slice(0, 140),
       last: last ? { author: last.author, authorName: last.authorName, body: previewText(last).slice(0, 200), createdAt: last.createdAt } : null,
       updatedAt: last?.createdAt ?? c.createdAt.getTime(),
-      /** Something they reported is done and they haven't seen the message yet. */
+      /** Something they reported moved (planned, done, declined) and they haven't seen the message yet. */
       news: messages.some((m) => isNews(m) && m.id > (c.seenMessageId ?? 0)),
       /** Where the latest thing they reported here stands, for a status chip in their list. */
       report: [...messages].reverse().find((m) => m.card)?.card ?? null,
@@ -428,16 +434,22 @@ export class ConversationService {
     return true;
   }
 
-  /** A ticket this person reported is done: tell them in the chat (and by email, when they left one). */
-  async shipped(n: ShippedNotice): Promise<void> {
+  /** Something this person reported moved (planned, done, declined): tell them in the chat (and by email, when they left one). */
+  async ticketNews(n: TicketNotice): Promise<void> {
     const c = this.get(n.conversationId);
     if (!c) return;
     const what = n.summary?.trim() || `"${n.title}"`;
-    const card: TicketCard = { type: "ticket", stage: "done", kind: n.kind, summary: what, reportedAt: n.reportedAt, doneAt: Date.now() };
-    this.addMessage(c.id, "agent", MESSAGES.shipped(what, n.kind), null, undefined, { event: n.kind === "bug" ? "fixed" : "shipped", card });
+    const card: TicketCard = { type: "ticket", stage: n.stage, kind: n.kind, summary: what, reportedAt: n.reportedAt, doneAt: Date.now(), ...(n.reason ? { reason: n.reason } : {}) };
+    const [body, event, note] =
+      n.stage === "planned"
+        ? [MESSAGES.planned(what), "planned", `📋 ${n.key} is planned, so I let them know.`]
+        : n.stage === "declined"
+          ? [MESSAGES.declined(what, n.kind, n.reason), "declined", `${n.key} was canceled, so I let them know${n.reason ? " what you said" : ""}.`]
+          : [MESSAGES.shipped(what, n.kind), n.kind === "bug" ? "fixed" : "shipped", `✅ ${n.key} is done, so I let them know.`];
+    this.addMessage(c.id, "agent", body, null, undefined, { event, card });
     // Straight to the thread, not mirror(): a deleted post shouldn't hand a closed conversation back to the assistant.
     if (c.relayThreadId && this.relay) {
-      await this.relay.post(c.relayThreadId, "system", `✅ ${n.key} is done, so I let them know.`).catch((err) => this.log(`relay post failed for ${c.id}`, err));
+      await this.relay.post(c.relayThreadId, "system", note).catch((err) => this.log(`relay post failed for ${c.id}`, err));
     }
   }
 
@@ -463,8 +475,8 @@ export class ConversationService {
     };
     // The user sees a card saying it's logged and that they'll hear back, so the reply needn't repeat it.
     const hearBack = desk.canFollow ? " They'll see a card saying it's logged and that they'll hear back here if it's done, so just thank them briefly." : "";
-    const logged = (kind: TicketCard["kind"], summary: string, others = 0) => {
-      if (desk.canFollow) cards.push({ type: "ticket", stage: "logged", kind, summary: summary.trim().slice(0, 300), reportedAt: Date.now(), ...(others ? { others } : {}) });
+    const logged = (kind: TicketCard["kind"], summary: string, others = 0, planned = false) => {
+      if (desk.canFollow) cards.push({ type: "ticket", stage: planned ? "planned" : "logged", kind, summary: summary.trim().slice(0, 300), reportedAt: Date.now(), ...(planned ? { doneAt: Date.now() } : {}), ...(others ? { others } : {}) });
     };
     return {
       find: async (query) => {
@@ -494,7 +506,8 @@ export class ConversationService {
         this.addMessage(id, "note", `Added this report to ${result.ticket.key}: ${result.ticket.title}\n${result.ticket.url}`, "Assistant");
         await this.mirror(id, "system", `➕ Added to [${result.ticket.key}](${result.ticket.url}): ${result.ticket.title}`);
         if (result.ticket.state === "done") return `${result.ticket.key} is already done. Tell them it should be fixed already and to make sure they're on the latest version.`;
-        logged(input.kind, input.user_summary, result.reports - 1);
+        logged(input.kind, input.user_summary, result.reports - 1, result.planned);
+        if (result.planned) return `Added to ${result.ticket.key}, which the team already plans to build. Tell them it's planned. They'll see a card saying so.`;
         return `Added to ${result.ticket.key}.${hearBack}`;
       },
     };
@@ -577,7 +590,10 @@ export class ConversationService {
         this.addMessage(id, "agent", result.reply, null);
         await this.mirror(id, "agent", result.reply);
       }
-      for (const card of cards) this.addMessage(id, "system", MESSAGES.logged(card.summary, card.kind), null, undefined, { event: "logged", card });
+      for (const card of cards) {
+        const body = card.stage === "planned" ? MESSAGES.alreadyPlanned(card.summary) : MESSAGES.logged(card.summary, card.kind);
+        this.addMessage(id, "system", body, null, undefined, { event: "logged", card });
+      }
       if (this.get(id)?.status === "needs_human") this.addMessage(id, "system", this.waitingText(id), null);
       if (limit !== null && limit > 0) {
         const warnAt = limit * this.settings.budgets.warnAt;
@@ -790,8 +806,11 @@ export class ConversationService {
 }
 
 /** News worth flagging when unseen: something they reported is done. */
+/** Events that tell someone their report moved, so they get an unread dot and an email. */
+export const NEWS = new Set(["planned", "fixed", "shipped", "declined"]);
+
 export function isNews(m: { event?: string | null }): boolean {
-  return m.event === "fixed" || m.event === "shipped";
+  return m.event != null && NEWS.has(m.event);
 }
 
 /** The text of a message, or its first file's name when it only has files. */

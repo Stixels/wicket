@@ -89,7 +89,7 @@ if (linear) {
 }
 
 // Remembers which conversations each ticket came from, and tells them when it's done.
-const desk = linear ? new TicketDesk(db, linear, { notify: (n) => service.shipped(n), log: (msg, err) => console.error(msg, err ?? "") }) : null;
+const desk = linear ? new TicketDesk(db, linear, { notify: (n) => service.ticketNews(n), log: (msg, err) => console.error(msg, err ?? "") }) : null;
 
 let relay: Relay | null = null;
 if (config.RELAY === "discord") {

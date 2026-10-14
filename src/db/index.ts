@@ -107,6 +107,7 @@ CREATE TABLE IF NOT EXISTS tickets (
   state TEXT NOT NULL DEFAULT 'open',
   created_at INTEGER NOT NULL,
   checked_at INTEGER,
+  planned_at INTEGER,
   closed_at INTEGER
 );
 
@@ -117,7 +118,8 @@ CREATE TABLE IF NOT EXISTS ticket_links (
   relation TEXT NOT NULL,
   summary TEXT,
   created_at INTEGER NOT NULL,
-  notified_at INTEGER
+  notified_at INTEGER,
+  planned_at INTEGER
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ticket_links_pair ON ticket_links(ticket_id, conversation_id);
 CREATE INDEX IF NOT EXISTS ticket_links_conversation ON ticket_links(conversation_id);
@@ -147,6 +149,8 @@ export function openDb(file: string): Db {
   sqlite.exec("CREATE INDEX IF NOT EXISTS conversations_user ON conversations(user_id, updated_at)");
   addMissingColumns(sqlite, "messages", { attachments: "TEXT", member_id: "TEXT", mentions: "TEXT", event: "TEXT", card: "TEXT" });
   addMissingColumns(sqlite, "files", { deleted_at: "INTEGER" });
+  addMissingColumns(sqlite, "tickets", { planned_at: "INTEGER" });
+  addMissingColumns(sqlite, "ticket_links", { planned_at: "INTEGER" });
   return drizzle(sqlite, { schema }) as Db;
 }
 
