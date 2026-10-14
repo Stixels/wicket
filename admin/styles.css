@@ -248,6 +248,10 @@ code {
   font-size: 22px;
   letter-spacing: -0.025em;
 }
+.signin-card h1,
+.signin-card p {
+  text-wrap: balance;
+}
 .signin-card p {
   margin: 0 0 8px;
 }
