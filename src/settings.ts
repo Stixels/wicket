@@ -125,9 +125,11 @@ const settingsSchema = z
         instructions: z.string().optional(),
         /** decline: no code, point to guides and examples instead. snippets: short snippets adapted from examples it has read. */
         code: z.enum(["decline", "snippets"]).default("decline"),
+        /** Answer new posts in the public Discord help forum. Off by default: those answers can't be tied to a person, so no budget applies. */
+        helpForum: z.boolean().default(false),
       })
       .strict()
-      .default({ code: "decline" }),
+      .default({ code: "decline", helpForum: false }),
     /** Extra repos or sites to search. The main docs come from DOCS_GITHUB_REPO or DOCS_URL. */
     knowledge: z.array(knowledgeSchema).default([]),
     profiles: z.record(z.string(), profileSchema).default({}),

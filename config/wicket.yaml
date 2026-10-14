@@ -18,6 +18,8 @@ team:
 # Everywhere: the assistant doesn't write code; it links the closest guide or example.
 assistant:
   code: decline
+  # Discord members aren't signed in, so #help answers couldn't be metered per person. People answer there.
+  helpForum: false
 
 # The Device SDK (Arduino), so the assistant can answer from its guides and examples.
 knowledge:

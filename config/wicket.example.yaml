@@ -22,6 +22,8 @@ team:
 # How the assistant behaves everywhere, in every profile and the community help forum.
 # assistant:
 #   code: decline        # decline (default): no code, links guides and examples. snippets: short snippets from examples.
+#   helpForum: false     # true: also answer new posts in the public Discord help forum. Off by default, since
+#                        # those answers aren't tied to a person and no budget limits them.
 #   instructions: >      # facts and rules for every conversation, e.g. something the docs undersell
 #     Any device that speaks MQTT works, not just the boards in the quickstart.
 

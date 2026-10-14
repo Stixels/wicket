@@ -4,7 +4,7 @@ A drop-in help and feedback chat for any web app, plus a Discord community and s
 
 - **One script tag** adds a chat button to your app. It captures the page, app version and recent console errors, so reports arrive with context.
 - **Answers from your docs.** It indexes any GitHub repo of Markdown (GitBook Git Sync, Docusaurus, Mintlify, ...), or any hosted docs site by its sitemap, and links the exact section.
-- **Discord as the inbox and community.** Each in-app conversation becomes a private forum post that your team answers from Discord. The same assistant also answers new questions in your public `#help` forum.
+- **Discord as the inbox and community.** Each in-app conversation becomes a private forum post that your team answers from Discord. The same assistant can also answer new questions in your public `#help` forum.
 - **Hands off to a person** when the user asks, is frustrated, or the docs don't cover it, and pings a role you choose.
 - **Cheap to run.** One Node process with SQLite. The assistant runs through the Vercel AI Gateway or Anthropic directly, and it's optional: without a key, every chat goes straight to the team.
 
@@ -100,7 +100,7 @@ How it behaves:
 - **When you're done**, close the post (or tag it **Resolved**; deleting it works too, though the transcript is then gone from Discord). The user sees "resolved" in the widget, the post is tagged Resolved, and if they write again the post reopens and the assistant takes the new question first. Posts Discord archives on its own after inactivity aren't treated as resolved.
 - **Tickets:** with `LINEAR_API_KEY` and `LINEAR_TEAM_KEY` set, anyone with the Team role can tag the bot anywhere in the server, e.g. `@Wicket file this as a bug` in a support-inbox post. It reads the conversation, writes the ticket (summary, steps, context, who reported it), files it in Linear (Triage if the team has it on, otherwise Backlog) with the matching Bug/Feature/Improvement label, and replies with the link. Messages that tag the bot are never sent to the user. To file GitHub issues instead, set `GITHUB_ISSUES_REPO` and `GITHUB_ISSUES_TOKEN` (a fine-grained token with Issues: read and write); issues get the repo's `bug`, `enhancement`, `documentation` or `question` label when it exists, plus `GITHUB_ISSUES_LABEL` if you set one. The tracker is an adapter, so Jira can plug in the same way.
 - **Voice:** joining `➕ Start a call` creates a voice room named after you and moves you in. It's deleted when the last person leaves. `🎧 Talk to support` works the same way, but the room is visible only to the caller and the Team role, and it pings the team. The bot needs the **Move Members** permission for both.
-- **Community questions:** when someone opens a post in `#help`, the assistant answers once from the docs. If it can't, it pings the team. Everyone else can keep the thread going.
+- **Community questions:** with `assistant.helpForum: true`, when someone opens a post in `#help`, the assistant answers once from the docs. If it can't, it pings the team. Everyone else can keep the thread going. It's off by default, because Discord members aren't signed in to your app, so those answers can't count toward anyone's budget.
 
 ## Team dashboard
 
@@ -166,7 +166,7 @@ budgets:
 ```
 
 - **Theme** (top level) sets the widget's look for everyone, with the same fields as `Wicket.init({ theme })`, so the embed snippet can stay bare.
-- **Assistant** (top level) applies everywhere, including the community help forum: `instructions` for facts every answer should know, and `code` (`decline` by default: no code, it links the closest guide or example; `snippets` allows short snippets adapted from examples it has read).
+- **Assistant** (top level) applies everywhere, including the community help forum: `instructions` for facts every answer should know, `code` (`decline` by default: no code, it links the closest guide or example; `snippets` allows short snippets adapted from examples it has read), and `helpForum` (`false` by default; `true` answers new `#help` posts, which no per-person budget covers).
 - **Profiles** set whether the assistant answers at all, extra instructions, whether it stays on topic (`offTopic: decline` by default, so it won't do general coding or homework; `topics` widens what counts), the model and effort, a monthly budget per person, and what the widget shows (title, welcome text, placeholder, quick starts). Options passed to `Wicket.init()` still win.
 - **Rules** pick a profile from whether someone is signed in, their `plan`, and the page they're on. Signed in and plan come only from a verified token; the page comes from the widget.
 - **Budgets** count what each person's assistant answers cost this calendar month (UTC), from token usage and list prices. Signed-in people are counted by user id, visitors by IP. Each person has one total across all profiles; a profile's `budget` is the point where that profile stops answering, so giving every profile the same number makes it a single shared budget. Near the limit the widget says so; at the limit their messages go to the team instead. `monthlyTotal` does the same for everyone at once. Prices for current Claude models and GPT-6 Luna are built in; add others under `budgets.prices`.
