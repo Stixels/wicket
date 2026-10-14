@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import { openDb } from "../src/db/index.js";
 import { readDoc, replaceIndex, searchDocs } from "../src/knowledge/index.js";
 import { globToRegex, MarkdownRepoSource, splitMarkdown } from "../src/adapters/knowledge/markdownRepo.js";
+import { htmlToMarkdown, WebsiteSource } from "../src/adapters/knowledge/website.js";
 
 describe("splitMarkdown", () => {
   it("splits a page into sections with anchored links and strips GitBook tags", () => {
@@ -120,5 +121,54 @@ describe("code repos", () => {
     expect(globToRegex("examples/**/*.ino").test("examples/a/b.ino")).toBe(true);
     expect(globToRegex("examples/**/*.ino").test("examples/b.ino")).toBe(true);
     expect(globToRegex("src/Room.h").test("src/boards/Room.h")).toBe(false);
+  });
+});
+
+describe("WebsiteSource", () => {
+  const page = (title: string, body: string) =>
+    `<html><head><title>${title} | Acme Docs</title><script>x()</script></head><body><nav><a href="/guide/other">Nav</a></nav><main>${body}</main><footer>© Acme</footer></body></html>`;
+  const site: Record<string, string> = {
+    "https://docs.acme.com/guide": page("Guide", `<h1>Getting started</h1><p>Install the app.</p><h2>Add a timer</h2><p>Timers count &amp; down.</p><a href="/guide/rooms">Rooms</a><a href="/blog/news">Blog</a>`),
+    "https://docs.acme.com/guide/rooms": page("Rooms", `<p>Create a room from <code>Settings</code>.</p><pre><code>room.create()</code></pre>`),
+    "https://docs.acme.com/guide/other": page("Other", `<p>Other page.</p>`),
+    "https://docs.acme.com/blog/news": page("News", `<p>Not docs.</p>`),
+  };
+  const fetchFrom = (sitemap?: string) =>
+    (async (url: string) => {
+      if (url.endsWith("sitemap.xml")) return sitemap ? new Response(sitemap, { status: 200 }) : new Response("", { status: 404 });
+      const html = site[url];
+      return html ? new Response(html, { status: 200, headers: { "content-type": "text/html; charset=utf-8" } }) : new Response("", { status: 404 });
+    }) as typeof fetch;
+
+  it("follows links under the start path when there's no sitemap, and keeps only the main content", async () => {
+    const sections = await new WebsiteSource({ url: "https://docs.acme.com/guide", fetchImpl: fetchFrom() }).load();
+    expect(sections.map((s) => s.url).sort()).toEqual([
+      "https://docs.acme.com/guide",
+      "https://docs.acme.com/guide#add-a-timer",
+      "https://docs.acme.com/guide/other", // found through the nav, though the nav itself isn't indexed
+      "https://docs.acme.com/guide/rooms",
+    ]);
+    const timer = sections.find((s) => s.heading === "Add a timer")!;
+    expect(timer.title).toBe("Getting started");
+    expect(timer.body).toContain("Timers count & down.");
+    const rooms = sections.find((s) => s.url.endsWith("/rooms"))!;
+    expect(rooms.title).toBe("Rooms"); // from <title>, without the site name
+    expect(rooms.body).toContain("room.create()");
+    expect(sections.some((s) => /Nav|©|x\(\)/.test(s.body))).toBe(false);
+  });
+
+  it("uses the sitemap when there is one, including sitemap indexes", async () => {
+    const index = `<sitemapindex><sitemap><loc>https://docs.acme.com/sitemap-pages.xml</loc></sitemap></sitemapindex>`;
+    const pages = `<urlset><url><loc>https://docs.acme.com/guide/rooms</loc></url><url><loc>https://docs.acme.com/blog/news</loc></url></urlset>`;
+    const f = fetchFrom(index);
+    const fetchImpl = (async (url: string) => (url.endsWith("sitemap-pages.xml") ? new Response(pages, { status: 200 }) : f(url))) as typeof fetch;
+    const sections = await new WebsiteSource({ url: "https://docs.acme.com/guide", fetchImpl }).load();
+    expect([...new Set(sections.map((s) => s.url))]).toEqual(["https://docs.acme.com/guide/rooms"]);
+  });
+});
+
+describe("htmlToMarkdown", () => {
+  it("keeps headings, lists and code, and decodes entities", () => {
+    expect(htmlToMarkdown(`<article><h2>Steps <a href="#steps">#</a></h2><ul><li>One &lt;1&gt;</li><li>Two</li></ul></article>`)).toBe("## Steps\n\n- One <1>\n\n- Two");
   });
 });
