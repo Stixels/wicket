@@ -130,14 +130,24 @@ interface Message {
   authorName: string | null;
   body: string;
   attachments?: Attachment[];
-  /** "fixed" or "shipped": something they reported is done. */
+  /** "logged" when something they reported was logged; "fixed" or "shipped" when it's done. */
   event?: string;
+  card?: TicketCard;
   /** Set on news the user hasn't seen yet when the widget connects. */
   unseen?: boolean;
   createdAt: number;
 }
 
-const EVENT_LABEL: Record<string, string> = { fixed: "Fixed", shipped: "Shipped" };
+/** A report's progress: "logged" when it reaches the team, "done" when it ships. */
+interface TicketCard {
+  type: "ticket";
+  stage: "logged" | "done";
+  kind: string | null;
+  summary: string;
+  reportedAt: number;
+  doneAt?: number;
+  others?: number;
+}
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const ACCEPT = "image/png,image/jpeg,image/gif,image/webp,application/pdf,text/plain,text/csv,application/json,video/mp4,video/quicktime,video/webm,application/zip";
@@ -394,10 +404,31 @@ button { font: inherit; color: inherit; }
 .row.agent .msg, .row.staff .msg { background: var(--wk-bubble); border: 1px solid var(--wk-border);
   box-shadow: 0 1px 2px rgba(15,15,30,.04); }
 .row.agent a, .row.staff a { color: var(--wk-accent); }
-/* News that something they reported is done. */
-.row.news .msg { border-color: color-mix(in srgb, #22c55e 45%, var(--wk-border)); background: color-mix(in srgb, #22c55e 9%, var(--wk-bubble)); }
-.row.news .news-tag { display: flex; width: fit-content; align-items: center; gap: 5px; margin-bottom: 4px; font-size: 12px; font-weight: 700; letter-spacing: .02em; color: color-mix(in srgb, #22c55e 75%, var(--wk-text)); }
-.row.news .news-tag svg, .conv .new svg { width: 14px; height: 14px; padding: 2px; border-radius: 50%; background: #22c55e; color: #fff; box-sizing: border-box; }
+/* A report's progress card: logged (with the team) and done (fixed or shipped). */
+.ticket { --tk: var(--wk-accent); align-self: stretch; margin: 10px 0 4px; padding: 14px 16px 13px; border-radius: calc(var(--wk-radius) * .8);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--tk) 10%, var(--wk-bubble)), var(--wk-bubble) 70%);
+  border: 1px solid color-mix(in srgb, var(--tk) 30%, var(--wk-border)); animation: wk-pop .45s cubic-bezier(.2,.8,.2,1) both; }
+.ticket.done { --tk: #22c55e; }
+.tk-top { display: flex; align-items: center; gap: 8px; font-size: 11.5px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: var(--wk-muted); }
+.tk-ic { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 7px; background: color-mix(in srgb, var(--tk) 18%, transparent); color: var(--tk); }
+.tk-ic svg { width: 13px; height: 13px; }
+.tk-pill { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; letter-spacing: .02em; text-transform: none;
+  font-size: 11.5px; color: var(--tk); background: color-mix(in srgb, var(--tk) 14%, transparent); }
+.tk-pill svg { width: 11px; height: 11px; }
+.tk-title { margin: 9px 0 12px; font-size: 15px; font-weight: 600; line-height: 1.35; color: var(--wk-text); }
+.tk-steps { display: grid; grid-template-columns: repeat(3, 1fr); margin: 0; padding: 0; list-style: none; }
+.tk-steps li { position: relative; display: flex; flex-direction: column; gap: 1px; font-size: 12px; color: var(--wk-muted); }
+.tk-steps li::before { content: ""; position: absolute; top: 5px; left: 12px; right: 0; height: 2px; border-radius: 2px; background: var(--wk-border); }
+.tk-steps li:last-child::before { display: none; }
+.tk-steps li.on::before { background: var(--tk); }
+.tk-steps i { position: relative; z-index: 1; width: 12px; height: 12px; margin-bottom: 6px; border-radius: 50%; box-sizing: border-box; border: 2px solid var(--wk-border); background: var(--wk-bubble); }
+.tk-steps li.on i { border-color: var(--tk); background: var(--tk); }
+.tk-steps li.now i { border-color: var(--tk); box-shadow: 0 0 0 4px color-mix(in srgb, var(--tk) 22%, transparent); animation: wk-tk 2s ease-in-out infinite; }
+.tk-steps li.on span, .tk-steps li.now span { color: var(--wk-text); font-weight: 600; }
+.tk-steps time { font-size: 11px; }
+@keyframes wk-tk { 50% { box-shadow: 0 0 0 7px color-mix(in srgb, var(--tk) 8%, transparent); } }
+.tk-foot { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--wk-border); font-size: 12.5px; line-height: 1.45; color: var(--wk-muted); }
+.conv .new svg { width: 14px; height: 14px; padding: 2px; border-radius: 50%; background: #22c55e; color: #fff; box-sizing: border-box; }
 .conv .new { display: inline-flex; align-items: center; gap: 4px; font-style: normal; font-weight: 600; color: color-mix(in srgb, #22c55e 75%, var(--wk-text)); }
 .wk.dark .row.agent a, .wk.dark .row.staff a { color: color-mix(in srgb, var(--wk-accent) 60%, white); }
 .system { align-self: center; margin: 10px 0; font-size: 12px; color: var(--wk-muted); padding: 5px 12px; border-radius: 999px;
@@ -504,12 +535,15 @@ textarea::placeholder { color: var(--wk-muted); }
   .log { overscroll-behavior: contain; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .launcher, .panel, .row, .system, .chip, .send, .launcher svg, .glow, .hero { transition: none !important; animation: none !important; }
+  .launcher, .panel, .row, .system, .chip, .send, .launcher svg, .glow, .hero, .ticket, .tk-steps i { transition: none !important; animation: none !important; }
   .typing i, .avatar, .avatar::after, .mini, .bot .orb::before, .bot .orb2::before, .bot .eyes, .bot .eyes i, .typing .think { animation: none !important; }
 }
 `;
 
 const ICONS = {
+  bug: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9a4 4 0 0 1 8 0v5a4 4 0 0 1-8 0z"/><path d="M12 9v9M4 13h4M16 13h4M5 7l3 2M19 7l-3 2M5 19l3-2M19 19l-3-2M10 5 9 3M14 5l1-2"/></svg>`,
+  idea: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.6 10.8c.6.5 1 1.2 1.1 2.2h5c.1-1 .5-1.7 1.1-2.2A6 6 0 0 0 12 3z"/></svg>`,
+  book: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 21V5M9 7h6"/></svg>`,
   chat: `<svg class="ic-chat" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>`,
   close: `<svg class="ic-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg>`,
   x: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>`,
@@ -1274,6 +1308,17 @@ class Widget {
       this.stopThinking();
     }
 
+    if (m.card?.type === "ticket") {
+      const el = document.createElement("div");
+      el.className = `ticket ${m.card.stage}`;
+      el.setAttribute("role", "status");
+      el.innerHTML = ticketCardHtml(m.card);
+      this.log.insertBefore(el, this.typing);
+      this.lastAuthor = "card";
+      this.scrollDown();
+      return;
+    }
+
     if (m.author === "system") {
       const el = document.createElement("div");
       el.className = "system";
@@ -1296,14 +1341,13 @@ class Widget {
     if (continued) this.lastRow?.querySelector(".meta")?.remove();
 
     const row = document.createElement("div");
-    row.className = `row ${m.author}${continued ? " cont" : " gap"}${m.event ? " news" : ""}`;
+    row.className = `row ${m.author}${continued ? " cont" : " gap"}`;
     const name = m.author === "agent" ? this.opts.assistantName || "Assistant" : m.author === "staff" ? m.authorName || "Team" : "";
     const meta = m.author === "user" ? "" : `<div class="meta">${escapeHtml(name)} · <time data-t="${m.createdAt}">${timeAgo(m.createdAt, true)}</time></div>`;
     const files = (m.attachments ?? []).map((a) => this.attachmentHtml(a)).join("");
     const text = m.body ? renderMarkdown(m.body) : "";
     const onlyImages = !m.body && (m.attachments ?? []).every((a) => a.type.startsWith("image/"));
-    const tag = m.event ? `<div class="news-tag">${ICONS.check}<span>${escapeHtml(EVENT_LABEL[m.event] ?? "Update")}</span></div>` : "";
-    row.innerHTML = `<div class="col"><div class="msg${onlyImages ? " bare" : ""}">${tag}${files ? `<div class="atts">${files}</div>` : ""}${text}</div>${meta}</div>`;
+    row.innerHTML = `<div class="col"><div class="msg${onlyImages ? " bare" : ""}">${files ? `<div class="atts">${files}</div>` : ""}${text}</div>${meta}</div>`;
     for (const btn of row.querySelectorAll<HTMLButtonElement>(".code .copy")) {
       btn.addEventListener("click", () => {
         const code = btn.closest(".code")?.querySelector("pre")?.textContent ?? "";
@@ -1461,6 +1505,32 @@ function timeAgo(ms: number, capital = false): string {
   if (s < 86400) return `${Math.floor(s / 3600)}h`;
   if (s < 604800) return `${Math.floor(s / 86400)}d`;
   return new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+/** The words a report's card uses, by kind. */
+function ticketWords(kind: string | null) {
+  if (kind === "bug") return { noun: "Bug report", start: "Reported", end: "Fixed", icon: ICONS.bug, thanks: "Thanks for reporting it. Tell us here if you still see it." };
+  if (kind === "docs") return { noun: "Docs", start: "Reported", end: "Updated", icon: ICONS.book, thanks: "Thanks for pointing it out." };
+  return { noun: "Idea", start: "Suggested", end: "Shipped", icon: ICONS.idea, thanks: "Thanks for the suggestion." };
+}
+
+function ticketCardHtml(c: TicketCard): string {
+  const w = ticketWords(c.kind);
+  const done = c.stage === "done";
+  const title = c.summary.replace(/^"(.*)"$/, "$1");
+  const day = (ms: number) => {
+    const d = new Date(ms);
+    return d.toDateString() === new Date().toDateString() ? "Today" : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  };
+  const others = c.others ? `${c.others === 1 ? "1 other person" : `${c.others} others`} reported this too. ` : "";
+  return `<div class="tk-top"><span class="tk-ic">${w.icon}</span><span>${w.noun}</span><span class="tk-pill">${done ? `${ICONS.check}${w.end}` : "Logged"}</span></div>
+    <div class="tk-title">${escapeHtml(title.charAt(0).toUpperCase() + title.slice(1))}</div>
+    <ol class="tk-steps">
+      <li class="on"><i></i><span>${w.start}</span><time>${day(c.reportedAt)}</time></li>
+      <li class="${done ? "on" : "now"}"><i></i><span>With the team</span></li>
+      <li class="${done ? "on" : ""}"><i></i><span>${w.end}</span>${done && c.doneAt ? `<time>${day(c.doneAt)}</time>` : ""}</li>
+    </ol>
+    <div class="tk-foot">${done ? w.thanks : `${others}We'll let you know here when it's ${w.end.toLowerCase()}.`}</div>`;
 }
 
 function escapeHtml(s: string): string {

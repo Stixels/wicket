@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { and, asc, eq, gt, isNotNull, or, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNotNull, or, sql } from "drizzle-orm";
 import { schema, type Db } from "./db/index.js";
 import type { ConversationService } from "./conversations.js";
 
@@ -76,7 +76,7 @@ export interface ReplyEmailOptions {
 const REPLY_MARKER = "Reply above this line to answer.";
 
 /** What gets emailed when unread: team replies, and news like a reported bug being fixed. */
-const EMAILED = or(eq(schema.messages.author, "staff"), isNotNull(schema.messages.event));
+const EMAILED = or(eq(schema.messages.author, "staff"), inArray(schema.messages.event, ["fixed", "shipped"]));
 
 /**
  * Emails team replies the user hasn't seen in the widget, so nobody has to keep a tab open

@@ -144,7 +144,7 @@ export function openDb(file: string): Db {
     email_opt_out: "INTEGER",
     last_seen_at: "INTEGER",
   });
-  addMissingColumns(sqlite, "messages", { attachments: "TEXT", member_id: "TEXT", mentions: "TEXT", event: "TEXT" });
+  addMissingColumns(sqlite, "messages", { attachments: "TEXT", member_id: "TEXT", mentions: "TEXT", event: "TEXT", card: "TEXT" });
   addMissingColumns(sqlite, "files", { deleted_at: "INTEGER" });
   return drizzle(sqlite, { schema }) as Db;
 }

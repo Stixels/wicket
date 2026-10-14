@@ -6,7 +6,7 @@ import { cors } from "hono/cors";
 import { streamSSE } from "hono/streaming";
 import { bodyLimit } from "hono/body-limit";
 import { z } from "zod";
-import type { ConversationService, PublicMessage } from "./conversations.js";
+import { isNews, type ConversationService, type PublicMessage } from "./conversations.js";
 import { signUserToken, verifyUserToken } from "./identity.js";
 import { teamRoutes, type TeamOptions } from "./team/routes.js";
 import type { Db } from "./db/index.js";
@@ -291,7 +291,7 @@ Wicket.init({ page: true, conversation: token ? { id: id, token: token } : undef
       // News the user hasn't seen yet, however old, so the widget can badge the launcher for it.
       const seenBefore = conv.seenMessageId ?? 0;
       for (const message of service.list(conv.id, after)) {
-        await send({ type: "message", message: message.event && message.id > seenBefore ? { ...message, unseen: true } : message });
+        await send({ type: "message", message: isNews(message) && message.id > seenBefore ? { ...message, unseen: true } : message });
       }
       await send({ type: "status", status: service.get(conv.id)?.status });
 

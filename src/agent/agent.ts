@@ -21,7 +21,7 @@ export interface AgentTools {
 export interface TicketTools {
   find(query: string): Promise<string>;
   file(input: { title: string; kind: TicketKind; description: string; user_summary: string }): Promise<string>;
-  add(input: { key: string; note: string; user_summary: string }): Promise<string>;
+  add(input: { key: string; kind: TicketKind; note: string; user_summary: string }): Promise<string>;
 }
 
 export interface AgentOptions {
@@ -137,10 +137,11 @@ const TICKET_TOOLS: Anthropic.Beta.Messages.BetaTool[] = [
       type: "object",
       properties: {
         key: { type: "string", description: "The ticket key from find_tickets" },
+        kind: { type: "string", enum: ["bug", "feature", "improvement", "docs"] },
         note: { type: "string", description: "One or two sentences on what this user adds: their case, page, version or anything new" },
         user_summary: USER_SUMMARY,
       },
-      required: ["key", "note", "user_summary"],
+      required: ["key", "kind", "note", "user_summary"],
       additionalProperties: false,
     },
   },

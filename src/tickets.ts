@@ -10,6 +10,8 @@ export interface ShippedNotice {
   kind: TicketKind | null;
   /** The reporter's own words for it, when the assistant wrote them down. */
   summary: string | null;
+  /** When they reported it. */
+  reportedAt: number;
 }
 
 export interface DeskTicket extends TrackedTicket {
@@ -89,8 +91,8 @@ export class TicketDesk {
    */
   async add(
     keyOrUrl: string,
-    from: { conversationId?: string | null; summary?: string | null; comment: string },
-  ): Promise<{ ticket: TrackedTicket; already: boolean } | null> {
+    from: { conversationId?: string | null; summary?: string | null; comment: string; kind?: TicketKind | null },
+  ): Promise<{ ticket: TrackedTicket; already: boolean; reports: number } | null> {
     const ticket = await this.lookup(keyOrUrl);
     if (!ticket) return null;
     const id = this.idFor(ticket.id);
@@ -102,11 +104,16 @@ export class TicketDesk {
           .where(and(eq(schema.ticketLinks.ticketId, id), eq(schema.ticketLinks.conversationId, from.conversationId)))
           .get(),
     );
-    if (already) return { ticket, already };
+    if (already) return { ticket, already, reports: this.reportCount(id) };
     if (this.tracker.comment) await this.tracker.comment(ticket.id, from.comment).catch((err) => this.log(`tickets: couldn't comment on ${ticket.key}`, err));
-    this.remember(ticket);
+    this.remember(ticket, from.kind);
     if (from.conversationId) this.link(ticket.id, from.conversationId, "added", from.summary ?? null, ticket.state !== "open");
-    return { ticket, already };
+    return { ticket, already, reports: this.reportCount(id) };
+  }
+
+  /** How many conversations are linked to a ticket. */
+  private reportCount(id: string): number {
+    return this.db.select({ n: sql<number>`count(*)` }).from(schema.ticketLinks).where(eq(schema.ticketLinks.ticketId, id)).get()?.n ?? 0;
   }
 
   /** The tickets a conversation filed or was added to. */
@@ -183,7 +190,7 @@ export class TicketDesk {
     let told = 0;
     for (const l of links) {
       try {
-        await this.opts.notify({ conversationId: l.conversationId, key: t.key, title: t.title, kind: (t.kind as TicketKind | null) ?? null, summary: l.summary });
+        await this.opts.notify({ conversationId: l.conversationId, key: t.key, title: t.title, kind: (t.kind as TicketKind | null) ?? null, summary: l.summary, reportedAt: l.createdAt.getTime() });
         this.db.update(schema.ticketLinks).set({ notifiedAt: new Date() }).where(eq(schema.ticketLinks.id, l.id)).run();
         told++;
       } catch (err) {
@@ -233,7 +240,7 @@ export class TicketDesk {
       .values({ id: this.idFor(t.id), tracker: this.tracker.name, ref: t.id, key: t.key, url: t.url, title: t.title, kind: kind ?? null, state: t.state, createdAt: now })
       .onConflictDoUpdate({
         target: schema.tickets.id,
-        set: { key: t.key, url: t.url, title: t.title, ...(kind ? { kind } : {}), ...(t.state === "open" ? {} : { state: t.state }) },
+        set: { key: t.key, url: t.url, title: t.title, ...(kind ? { kind: sql`coalesce(${schema.tickets.kind}, ${kind})` } : {}), ...(t.state === "open" ? {} : { state: t.state }) },
       })
       .run();
   }

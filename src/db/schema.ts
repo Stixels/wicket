@@ -1,5 +1,18 @@
 import { sqliteTable, text, integer, index, uniqueIndex } from "drizzle-orm/sqlite-core";
 
+/** A report's progress, shown to the person who made it: "logged" when filed or added, "done" when it ships. */
+export interface TicketCard {
+  type: "ticket";
+  stage: "logged" | "done";
+  kind: "bug" | "feature" | "improvement" | "docs" | "question" | null;
+  /** In the reporter's words, e.g. "the timer drifting after a pause". */
+  summary: string;
+  reportedAt: number;
+  doneAt?: number;
+  /** Other people who reported the same thing. */
+  others?: number;
+}
+
 /**
  * status:
  *  - "agent": the agent answers
@@ -57,6 +70,8 @@ export const messages = sqliteTable(
     attachments: text("attachments", { mode: "json" }).$type<{ id: string; name: string; type: string; size: number; expired?: boolean }[]>(),
     /** Set on messages that report news rather than chat, e.g. "shipped" when a ticket the user reported is done. */
     event: text("event"),
+    /** What the widget draws for an event message; `body` is the plain-text version. */
+    card: text("card", { mode: "json" }).$type<TicketCard>(),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   },
   (t) => [index("messages_conversation").on(t.conversationId, t.id)],

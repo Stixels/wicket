@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import { asc, eq, sql } from "drizzle-orm";
 import type Anthropic from "@anthropic-ai/sdk";
 import { schema, type Db } from "./db/index.js";
+import type { TicketCard } from "./db/schema.js";
 import { ThreadGoneError, type Relay, type RelayFile } from "./adapters/types.js";
 import { FileStore, MAX_MODEL_IMAGE_BYTES, MODEL_IMAGE_TYPES, formatSize, type Attachment } from "./files.js";
 import type { Agent } from "./agent/agent.js";
@@ -24,8 +25,10 @@ export interface PublicMessage {
   authorName: string | null;
   body: string;
   attachments: Attachment[];
-  /** "fixed" or "shipped": news that something the user reported is done. */
+  /** "logged" when something they reported was logged; "fixed" or "shipped" when it's done. */
   event?: string;
+  /** What the widget draws for an event; `body` is the plain-text version. */
+  card?: TicketCard;
   createdAt: number;
 }
 
@@ -90,6 +93,8 @@ export const MESSAGES = {
   overBudget: "You've reached this month's limit for the assistant, so I've passed your message to the team. Someone will reply here.",
   overTotal: "The assistant is unavailable right now, so I've passed your message to the team. Someone will reply here.",
   nearBudget: "Heads up: you've used most of this month's assistant allowance. After that, your messages go straight to the team.",
+  logged: (what: string, kind: string | null) =>
+    `Logged for the team: ${what}. You'll hear back here when it's ${kind === "bug" ? "fixed" : kind === "docs" ? "updated" : "shipped"}.`,
   shipped: (what: string, kind: string | null) =>
     kind === "bug"
       ? `Good news: ${what} is fixed. Thanks for reporting it, and let me know if you still see it.`
@@ -234,7 +239,7 @@ export class ConversationService {
       last: last ? { author: last.author, authorName: last.authorName, body: previewText(last).slice(0, 200), createdAt: last.createdAt } : null,
       updatedAt: last?.createdAt ?? c.createdAt.getTime(),
       /** Something they reported is done and they haven't seen the message yet. */
-      news: messages.some((m) => m.event && m.id > (c.seenMessageId ?? 0)),
+      news: messages.some((m) => isNews(m) && m.id > (c.seenMessageId ?? 0)),
     };
   }
 
@@ -414,7 +419,8 @@ export class ConversationService {
     const c = this.get(n.conversationId);
     if (!c) return;
     const what = n.summary?.trim() || `"${n.title}"`;
-    this.addMessage(c.id, "agent", MESSAGES.shipped(what, n.kind), null, undefined, { event: n.kind === "bug" ? "fixed" : "shipped" });
+    const card: TicketCard = { type: "ticket", stage: "done", kind: n.kind, summary: what, reportedAt: n.reportedAt, doneAt: Date.now() };
+    this.addMessage(c.id, "agent", MESSAGES.shipped(what, n.kind), null, undefined, { event: n.kind === "bug" ? "fixed" : "shipped", card });
     // Straight to the thread, not mirror(): a deleted post shouldn't hand a closed conversation back to the assistant.
     if (c.relayThreadId && this.relay) {
       await this.relay.post(c.relayThreadId, "system", `✅ ${n.key} is done, so I let them know.`).catch((err) => this.log(`relay post failed for ${c.id}`, err));
@@ -432,7 +438,7 @@ export class ConversationService {
   }
 
   /** What the assistant can do with tickets in this conversation, if anything. */
-  private ticketTools(id: string): TicketTools | undefined {
+  private ticketTools(id: string, cards: TicketCard[]): TicketTools | undefined {
     const desk = this.tickets;
     if (!desk || !this.settings.tickets.assistant) return undefined;
     const source = () => {
@@ -441,7 +447,11 @@ export class ConversationService {
       const link = this.dashboardUrl(id);
       return `${who} in chat${link ? ` (${link})` : ""}`;
     };
-    const hearBack = desk.canFollow ? " They'll get a message here when it's done; you can tell them that." : "";
+    // The user sees a card saying it's logged and that they'll hear back, so the reply needn't repeat it.
+    const hearBack = desk.canFollow ? " They'll see a card saying it's logged and that they'll hear back here when it's done, so just thank them briefly." : "";
+    const logged = (kind: TicketCard["kind"], summary: string, others = 0) => {
+      if (desk.canFollow) cards.push({ type: "ticket", stage: "logged", kind, summary: summary.trim().slice(0, 300), reportedAt: Date.now(), ...(others ? { others } : {}) });
+    };
     return {
       find: async (query) => {
         const found = await desk.find(query);
@@ -455,15 +465,22 @@ export class ConversationService {
         );
         this.addMessage(id, "note", `Filed ${ticket.key}: ${ticket.title}\n${ticket.url}`, "Assistant");
         await this.mirror(id, "system", `🎫 Filed [${ticket.key}](${ticket.url}): ${ticket.title}`);
+        logged(input.kind, input.user_summary);
         return `Filed ${ticket.key}.${hearBack}`;
       },
       add: async (input) => {
-        const result = await desk.add(String(input.key), { conversationId: id, summary: input.user_summary, comment: `Another report from ${source()}:\n\n${input.note}` });
+        const result = await desk.add(String(input.key), {
+          conversationId: id,
+          summary: input.user_summary,
+          kind: input.kind,
+          comment: `Another report from ${source()}:\n\n${input.note}`,
+        });
         if (!result) return `There's no ticket ${input.key}. Use a key from find_tickets, or file_ticket.`;
         if (result.already) return `This conversation is already on ${result.ticket.key}.`;
         this.addMessage(id, "note", `Added this report to ${result.ticket.key}: ${result.ticket.title}\n${result.ticket.url}`, "Assistant");
         await this.mirror(id, "system", `➕ Added to [${result.ticket.key}](${result.ticket.url}): ${result.ticket.title}`);
         if (result.ticket.state === "done") return `${result.ticket.key} is already done. Tell them it should be fixed already and to make sure they're on the latest version.`;
+        logged(input.kind, input.user_summary, result.reports - 1);
         return `Added to ${result.ticket.key}.${hearBack}`;
       },
     };
@@ -528,6 +545,7 @@ export class ConversationService {
 
     this.events.emit(id, { type: "typing" });
     const stopTyping = this.relayTyping(id);
+    const cards: TicketCard[] = []; // shown after the reply, so the chat reads "thanks" then "logged"
     try {
       const result = await this.agent.respond(
         this.history(id),
@@ -535,7 +553,7 @@ export class ConversationService {
           searchDocs: (q) => searchDocs(this.db, q),
           readDoc: (url) => readDoc(this.db, url),
           handoff: (reason) => this.handoff(id, reason),
-          tickets: this.ticketTools(id),
+          tickets: this.ticketTools(id, cards),
         },
         { instructions: profile.instructions, model: profile.model, effort: profile.effort, topics: profile.topics, offTopic: profile.offTopic },
       );
@@ -545,6 +563,7 @@ export class ConversationService {
         this.addMessage(id, "agent", result.reply, null);
         await this.mirror(id, "agent", result.reply);
       }
+      for (const card of cards) this.addMessage(id, "system", MESSAGES.logged(card.summary, card.kind), null, undefined, { event: "logged", card });
       if (this.get(id)?.status === "needs_human") this.addMessage(id, "system", this.waitingText(id), null);
       if (limit !== null && limit > 0) {
         const warnAt = limit * this.settings.budgets.warnAt;
@@ -654,7 +673,7 @@ export class ConversationService {
     body: string,
     authorName: string | null,
     attach?: (messageId: number) => Attachment[],
-    team: { memberId?: string | null; mentions?: string[]; event?: string } = {},
+    team: { memberId?: string | null; mentions?: string[]; event?: string; card?: TicketCard } = {},
   ): TeamMessage {
     let row = this.db
       .insert(schema.messages)
@@ -666,6 +685,7 @@ export class ConversationService {
         memberId: team.memberId ?? null,
         mentions: team.mentions?.length ? team.mentions : null,
         event: team.event ?? null,
+        card: team.card ?? null,
         createdAt: new Date(),
       })
       .returning()
@@ -755,6 +775,11 @@ export class ConversationService {
   }
 }
 
+/** News worth flagging when unseen: something they reported is done. */
+export function isNews(m: { event?: string | null }): boolean {
+  return m.event === "fixed" || m.event === "shipped";
+}
+
 /** The text of a message, or its first file's name when it only has files. */
 function previewText(m: PublicMessage): string {
   return m.body || (m.attachments[0] ? `📎 ${m.attachments[0].name}` : "");
@@ -772,6 +797,7 @@ function toPublic(m: typeof schema.messages.$inferSelect): PublicMessage {
     body: m.body,
     attachments: m.attachments ?? [],
     ...(m.event ? { event: m.event } : {}),
+    ...(m.card ? { card: m.card } : {}),
     createdAt: m.createdAt.getTime(),
   };
 }

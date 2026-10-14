@@ -101,7 +101,7 @@ describe("everyone hears back", () => {
       text("Thanks! I've logged it, and I'll message you here when it's fixed."),
       // Alex reports the same thing: the assistant finds Sam's ticket and adds to it.
       toolCall("find_tickets", { query: "timer drift" }, "b1"),
-      toolCall("add_to_ticket", { key: "ED-1", note: "Also happens on v1.5.", user_summary: "the timer running fast after pausing" }, "b2"),
+      toolCall("add_to_ticket", { key: "ED-1", kind: "bug", note: "Also happens on v1.5.", user_summary: "the timer running fast after pausing" }, "b2"),
       text("Thanks, that's a known issue. I've added your report and I'll let you know here when it's fixed."),
     ]);
 
@@ -110,7 +110,12 @@ describe("everyone hears back", () => {
     expect(ticket.title).toBe("Timer drifts after pausing");
     expect(ticket.description).toContain(`Reported by Sam in chat (https://wicket.test/admin/c/${sam.id})`);
     // The model was told the person will hear back.
-    expect(s.client.requests[2].messages.at(-1).content[0].content).toContain("Filed ED-1. They'll get a message here when it's done");
+    expect(s.client.requests[2].messages.at(-1).content[0].content).toContain("Filed ED-1. They'll see a card saying it's logged");
+    // After the reply, Sam sees a card: logged, with the team, and they'll hear back.
+    const samLogged = s.service.list(sam.id).at(-1)!;
+    expect(samLogged).toMatchObject({ author: "system", event: "logged", body: "Logged for the team: the timer drifting after a pause. You'll hear back here when it's fixed." });
+    expect(samLogged.card).toMatchObject({ type: "ticket", stage: "logged", kind: "bug", summary: "the timer drifting after a pause" });
+    expect(s.service.list(sam.id).at(-2)!.author).toBe("agent");
     // The ticket tools and instructions were offered.
     expect(s.client.requests[0].tools.map((t: any) => t.name)).toEqual(expect.arrayContaining(["find_tickets", "file_ticket", "add_to_ticket"]));
     expect(s.client.requests[0].system[0].text).toContain("use find_tickets");
@@ -121,6 +126,8 @@ describe("everyone hears back", () => {
     expect(ticket.comments[0]).toContain("Another report from Alex in chat");
     expect(ticket.comments[0]).toContain("Also happens on v1.5.");
     expect(s.tracker.tickets.size).toBe(1);
+    // Alex's card says they're not the only one.
+    expect(s.service.list(alex.id).at(-1)!.card).toMatchObject({ stage: "logged", others: 1, summary: "the timer running fast after pausing" });
 
     // The team sees which ticket each conversation is on.
     expect(s.desk.forConversation(alex.id)).toEqual([
@@ -135,7 +142,8 @@ describe("everyone hears back", () => {
     s.tracker.set("ED-1", "done");
     expect(await s.desk.check()).toBe(2);
     const samNews = s.service.list(sam.id).at(-1)!;
-    expect(samNews).toMatchObject({ author: "agent", event: "fixed" });
+    expect(samNews).toMatchObject({ author: "agent", event: "fixed", card: { type: "ticket", stage: "done", kind: "bug", summary: "the timer drifting after a pause" } });
+    expect(samNews.card!.doneAt).toBeTypeOf("number");
     expect(samNews.body).toBe("Good news: the timer drifting after a pause is fixed. Thanks for reporting it, and let me know if you still see it.");
     expect(s.service.list(alex.id).at(-1)!.body).toContain("the timer running fast after pausing is fixed");
     expect(samThread.posts.at(-1)).toBe("system: ✅ ED-1 is done, so I let them know.");
@@ -143,7 +151,7 @@ describe("everyone hears back", () => {
 
     // Each person hears once.
     expect(await s.desk.check()).toBe(0);
-    expect(s.service.list(sam.id).filter((m) => m.event)).toHaveLength(1);
+    expect(s.service.list(sam.id).filter((m) => m.event === "fixed")).toHaveLength(1);
 
     // And by email, when they haven't seen it in the app.
     await s.emails.sweep(Date.now() + 10 * 60_000);
