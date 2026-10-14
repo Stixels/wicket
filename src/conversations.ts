@@ -242,7 +242,8 @@ export class ConversationService {
     if (!c) return null;
     const messages = this.list(id);
     const first = messages.find((m) => m.author === "user");
-    const last = messages.at(-1);
+    // Status lines ("Marked as resolved", "Alex joined") say less than the last real message.
+    const last = [...messages].reverse().find((m) => m.author !== "system") ?? messages.at(-1);
     return {
       id: c.id,
       status: c.status,

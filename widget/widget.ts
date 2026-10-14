@@ -427,6 +427,9 @@ button { font: inherit; color: inherit; }
 .conv .rnew { display: inline-block; width: 7px; height: 7px; margin-right: 8px; border-radius: 50%; background: #ef4444; box-shadow: 0 0 0 3px rgba(239,68,68,.2); }
 .conv.unread .ct { font-weight: 700; }
 .conv.has-rep .cw { display: flex; align-items: center; }
+.conv.resolved .ct { color: color-mix(in srgb, var(--wk-text) 72%, var(--wk-muted)); font-weight: 550; }
+.conv .res { display: inline-flex; align-items: center; gap: 4px; font-style: normal; }
+.conv .res svg { width: 11px; height: 11px; stroke-width: 3; }
 .rchip { --tk: color-mix(in srgb, var(--wk-text) 70%, var(--wk-muted)); flex: none; display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px 1px 6px; border-radius: 999px; font-style: normal;
   font-size: 11px; font-weight: 600; line-height: 16px; color: var(--tk); background: color-mix(in srgb, var(--tk) 13%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tk) 22%, transparent); }
@@ -1055,7 +1058,9 @@ class Widget {
       el.innerHTML = `<span class="ct">${escapeHtml(capitalize(r.summary.replace(/^"(.*)"$/, "$1")))}</span><span class="cw">${c.news ? `<i class="rnew" title="New update"></i>` : ""}${reportChip(r)}</span>
         <span class="cl">${w.noun} · ${status}</span>`;
     } else {
-      el.innerHTML = `<span class="ct">${escapeHtml(c.title || "Conversation")}</span><span class="cw">${c.status === "resolved" ? "Resolved · " : ""}${timeAgo(c.updatedAt)}</span>
+      // Resolved conversations step back so the open ones stand out.
+      if (c.status === "resolved") el.classList.add("resolved");
+      el.innerHTML = `<span class="ct">${escapeHtml(c.title || "Conversation")}</span><span class="cw">${c.status === "resolved" ? `<i class="res">${ICONS.check}Resolved</i>` : timeAgo(c.updatedAt)}</span>
         <span class="cl">${who ? `<b>${escapeHtml(who)}:</b> ` : ""}${escapeHtml(c.last?.body ?? "")}</span>`;
     }
     el.addEventListener("click", () => this.openConversation(c));
