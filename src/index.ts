@@ -68,6 +68,7 @@ if (config.RELAY === "discord" && config.DISCORD_GUILD_ID) {
     teamRoleName: config.DISCORD_TEAM_ROLE,
     productName: config.PRODUCT_NAME,
     docsUrl: config.DOCS_BASE_URL,
+    assistantAnswersHelp: settings.assistant.helpForum,
   });
   console.log(`discord: server ready${setup.created.length ? `: ${setup.created.join(", ")}` : ""}`);
   for (const step of setup.manual) console.log(`discord: needs you: ${step}`);
@@ -104,7 +105,7 @@ if (config.RELAY === "discord") {
         ? [{ channelId: config.DISCORD_SUPPORT_VOICE_HUB_CHANNEL_ID, prefix: SUPPORT_ROOM_PREFIX, teamRoleId: config.DISCORD_TEAM_ROLE_ID }]
         : []),
     ],
-    answerCommunityPost: agent ? (q) => answerOnce(agent, q, { searchDocs: (query) => searchDocs(db, query), readDoc: (url) => readDoc(db, url) }) : undefined,
+    answerCommunityPost: agent && settings.assistant.helpForum ? (q) => answerOnce(agent, q, { searchDocs: (query) => searchDocs(db, query), readDoc: (url) => readDoc(db, url) }) : undefined,
     tickets:
       anthropic && linear
         ? {
