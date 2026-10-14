@@ -102,6 +102,35 @@ How it behaves:
 - **Voice:** joining `➕ Start a call` creates a voice room named after you and moves you in. It's deleted when the last person leaves. `🎧 Talk to support` works the same way, but the room is visible only to the caller and the Team role, and it pings the team. The bot needs the **Move Members** permission for both.
 - **Community questions:** when someone opens a post in `#help`, the assistant answers once from the docs. If it can't, it pings the team. Everyone else can keep the thread going.
 
+## Team dashboard
+
+A reply inbox at `/admin`, for teammates who'd rather not answer from Discord. It's another place to reply, not a replacement: Wicket keeps the record, so a reply from the dashboard reaches the user's widget and shows up in the Discord post, and a reply in Discord shows up in the dashboard.
+
+- **Shared conversations.** Nobody owns a conversation. The dashboard shows who has replied ("Alex and you replied"), and anyone can jump in. Teammates are linked across tools by their Discord account, so Alex replying in Discord and Alex in the dashboard are the same person.
+- **Online status.** A dot on the user's avatar shows whether they're around: solid green while the chat is open in front of them, a green ring while they're on the site with the chat closed or in a background tab. The conversation header says "In the chat now", "On the site" or "Last seen 12m ago", so you know whether to expect a quick back-and-forth.
+- **Typing hints.** While someone types in the dashboard or in the Discord post, the others see "Alex is typing" on the conversation, so two people don't write the same answer.
+- **Hand off with a note.** Switch the composer to **Note** (or type `@`) to leave a team-only note like "@Alex can you take this?". Notes never reach the user. In Discord the note pings Alex, and the dashboard lists it under **Mentions** until Alex writes in that conversation. In Discord, a message that starts with an @mention of a teammate or role is treated the same way: it stays with the team instead of going to the user, and gets a 📝 reaction.
+- **Desktop notifications.** Turn them on from the banner or your profile menu. You're notified when a conversation is passed to the team, when the user writes in a conversation the team has, and when a note mentions you, but not while you're looking at the dashboard. The tab title counts what you missed.
+- **Saved replies.** Answers the team gives often, shared by everyone: the ⚡ button in the composer, or type `/` in an empty reply to search them. `{name}` becomes the person's first name. "Save what I wrote" turns a reply you just wrote into one.
+- **Views:** Open, Needs reply (the user is waiting on the team), Mentions, Resolved, All. **Resolve** works like closing the Discord post. Each conversation shows the person, their plan, the page and app version they wrote from, and recent console errors.
+- **Attachments** are up to 10 MB each (Discord's limit without server boosts), 30 per conversation, and stored on the server's volume. A teammate can delete one from the dashboard (hover it, then the bin); it's removed for everyone and the message keeps its name, marked removed. Files go automatically after `files.keepDays` (90 by default, 0 keeps them) and uploads that were never sent go after a day. Copies already posted to Discord stay there.
+
+Sign-in is with Discord, for everyone with the Team role:
+
+1. In the same Discord application as the bot, open **OAuth2**, copy the **Client ID** and **Client Secret**, and add a redirect: `https://YOUR-SERVER/admin/auth/callback`.
+2. Set `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET` and `PUBLIC_URL` (your server's address). With `DISCORD_GUILD_ID` set, anyone with the Team role can sign in. To let in someone without the role, add their Discord user id to `TEAM_DISCORD_IDS`.
+
+For local work, `TEAM_DEV_LOGIN=true` adds a one-click "local teammate" sign-in. Never set it on a public server.
+
+## Email
+
+Support is async, so nobody should have to keep a tab open waiting. With email set up, a team reply the user hasn't seen in the widget for 5 minutes is emailed to them (at most one email per conversation an hour, with every unread reply in it). The email links to a page with just that conversation, and replying to the email posts into the conversation, so it reaches the dashboard and Discord too. Each email has an unsubscribe link for that conversation. The address comes from the signed-in user's token, `user.email` in `Wicket.init`, or the email field in the widget (`askEmail` in a profile), and the "passed to the team" message adds "We'll email you when they do."
+
+It uses [Resend](https://resend.com); the free tier is plenty for a small team.
+
+1. In Resend, verify the domain you'll send from and create an API key. Set `RESEND_API_KEY`, `EMAIL_FROM` (e.g. `Escape Director <support@escapedirector.com>`) and `PUBLIC_URL`.
+2. For replies by email: add a receiving domain in Resend (e.g. `reply.escapedirector.com`) and set it as `EMAIL_REPLY_DOMAIN`. Add a webhook for `email.received` pointing at `https://YOUR-SERVER/email/inbound` and set its signing secret as `RESEND_WEBHOOK_SECRET`. A reply only counts if it comes from the address we emailed, to that conversation's own reply address.
+
 ## Deploy on Railway
 
 1. In Railway, choose **New → GitHub Repo** and pick this repo. It builds from the `Dockerfile` and redeploys on every push to `main`.
@@ -154,6 +183,8 @@ See [`.env.example`](.env.example). The main settings:
 | `DOCS_GITHUB_REPO`, `DOCS_BASE_URL` | Markdown docs repo to index, and the public site its links should point to. Reindexed every `DOCS_REINDEX_HOURS`. |
 | `RELAY`, `DISCORD_*` | Where conversations show up for the team. |
 | `ALLOWED_ORIGINS` | Sites allowed to embed the widget. |
+| `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `PUBLIC_URL` | Discord sign-in for the team dashboard at `/admin`. `TEAM_DISCORD_IDS` lets in people without the Team role. |
+| `RESEND_API_KEY`, `EMAIL_FROM`, `EMAIL_REPLY_DOMAIN`, `RESEND_WEBHOOK_SECRET` | Emailing unread replies to users, and replies by email. See [Email](#email). |
 | `IDENTITY_SECRET` | Shared with your backend to sign user tokens (at least 32 characters). |
 | `WICKET_CONFIG` | Profiles, rules, budgets and extra knowledge repos (`knowledge:`, e.g. an SDK with examples): a file path or the YAML itself. Defaults to `config/wicket.yaml`. |
 
@@ -164,6 +195,8 @@ widget.js ──▶ Hono API ──▶ ConversationService ──▶ Agent (Clau
                  ▲               │                         │
          SSE live updates        ├──▶ SQLite (conversations, messages, transcript, FTS5 docs index)
                                  └──▶ Relay adapter (Discord) ◀── team replies
+                 ▲
+/admin dashboard ┘ (team replies, notes, typing; live over SSE)
 ```
 
 Each external tool sits behind an adapter interface in `src/adapters/types.ts` (`KnowledgeSource`, `Relay`), so Slack, other docs sources or trackers plug in without touching the core.

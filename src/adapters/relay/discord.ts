@@ -11,7 +11,7 @@ import {
   type TextChannel,
   type ThreadChannel,
 } from "discord.js";
-import { ThreadGoneError, type Relay, type RelayConversation, type RelayFile, type StaffReply } from "../types.js";
+import { ThreadGoneError, type Relay, type RelayConversation, type RelayFile, type RelayMember, type StaffReply, type StaffTyping } from "../types.js";
 import { MAX_FILE_BYTES, allowedType } from "../../files.js";
 import { attachVoiceRooms, type VoiceHub } from "../../discord/voiceRooms.js";
 import { attachTicketCommand, mentionsBot, type TicketCommandOptions } from "../../discord/tickets.js";
@@ -38,8 +38,9 @@ const LIMIT = 1900; // Discord's hard limit is 2000 characters
 const EMBED_LIMIT = 4000; // embed descriptions allow 4096
 
 // The user and the assistant show as colored cards; the team's own replies stay plain messages,
-// so it's easy to see at a glance who said what.
-const COLOR = { user: 0x5865f2, agent: 0x8b8f98 } as const;
+// so it's easy to see at a glance who said what. Team replies sent from the dashboard get a card too,
+// since the bot posts them.
+const COLOR = { user: 0x5865f2, agent: 0x8b8f98, staff: 0x3ba55c } as const;
 
 /**
  * Each in-app conversation becomes a forum post (or thread). Anything the team
@@ -54,6 +55,7 @@ export class DiscordRelay implements Relay {
       GatewayIntentBits.GuildMessages,
       GatewayIntentBits.MessageContent,
       GatewayIntentBits.GuildVoiceStates,
+      GatewayIntentBits.GuildMessageTyping,
     ],
   });
 
@@ -62,23 +64,36 @@ export class DiscordRelay implements Relay {
     if (opts.tickets) attachTicketCommand(this.client, opts.tickets);
   }
 
-  async start(onStaffReply: (reply: StaffReply) => Promise<void>, onResolved?: (threadId: string, deleted?: boolean) => Promise<boolean>): Promise<void> {
+  async start(
+    onStaffReply: (reply: StaffReply) => Promise<void>,
+    onResolved?: (threadId: string, deleted?: boolean) => Promise<boolean>,
+    onTyping?: (typing: StaffTyping) => void,
+  ): Promise<void> {
     this.client.on(Events.MessageCreate, async (message: Message) => {
       if (message.author.bot || message.system || !message.channel.isThread()) return;
       if (message.channel.parentId !== this.opts.channelId) return;
       if (this.opts.tickets && mentionsBot(message)) return; // a note to the bot, not a reply to the user
+      const author = {
+        threadId: message.channel.id,
+        authorName: message.member?.displayName ?? message.author.globalName ?? message.author.username,
+        authorId: message.author.id,
+        avatarUrl: message.member?.displayAvatarURL() ?? message.author.displayAvatarURL(),
+      };
+      // "@Alex can you take this?" is a handoff between teammates, so it stays with the team.
+      const handoff = /^<@[!&]?(\d+)>/.exec(message.content.trim());
+      if (handoff && handoff[1] !== this.client.user?.id) {
+        const mentions = [...message.mentions.users.keys()].filter((id) => id !== this.client.user?.id);
+        await onStaffReply({ ...author, body: readableMentions(message), note: true, mentions }).catch((err) => console.error("discord: failed to save note", err));
+        await message.react("📝").catch(() => {});
+        return;
+      }
       try {
         // Discord's file links expire, so the files are copied into Wicket's own store.
         const files = await downloadAttachments(message);
         const skipped = message.attachments.size - files.length;
         const body = [message.content, skipped ? `(${skipped} file${skipped === 1 ? "" : "s"} too large or not allowed to send)` : ""].filter(Boolean).join("\n");
         if (!body.trim() && !files.length) return;
-        await onStaffReply({
-          threadId: message.channel.id,
-          authorName: message.member?.displayName ?? message.author.globalName ?? message.author.username,
-          body,
-          files,
-        });
+        await onStaffReply({ ...author, body, files });
         if (skipped) await message.react("📎").catch(() => {});
       } catch (err) {
         console.error("discord: failed to relay staff reply", err);
@@ -102,6 +117,14 @@ export class DiscordRelay implements Relay {
         if (thread.parentId !== this.opts.channelId) return;
         await onResolved(thread.id, true).catch((err) => console.error("discord: failed to resolve", err));
         console.log(`discord: post "${thread.name}" deleted, conversation resolved`);
+      });
+    }
+    if (onTyping) {
+      this.client.on(Events.TypingStart, (typing) => {
+        const ch = typing.channel;
+        if (typing.user.bot || !ch.isThread() || ch.parentId !== this.opts.channelId) return;
+        const name = typing.member?.displayName ?? typing.user.globalName ?? typing.user.username ?? "Someone";
+        onTyping({ threadId: ch.id, authorName: name, authorId: typing.user.id });
       });
     }
     if (this.opts.communityHelpChannelId && this.opts.answerCommunityPost) {
@@ -138,7 +161,7 @@ export class DiscordRelay implements Relay {
     return thread.id;
   }
 
-  async post(threadId: string, author: "user" | "agent" | "system", body: string, authorName?: string | null, files: RelayFile[] = []): Promise<void> {
+  async post(threadId: string, author: "user" | "agent" | "staff" | "system", body: string, authorName?: string | null, files: RelayFile[] = []): Promise<void> {
     const thread = await this.thread(threadId);
     const attachments = files.map((f) => new AttachmentBuilder(f.data, { name: f.name }));
     if (author === "system" || !body.trim()) {
@@ -147,6 +170,17 @@ export class DiscordRelay implements Relay {
       return;
     }
     await thread.send({ embeds: [card(author, body, authorName, this.client.user?.displayAvatarURL())], files: attachments, allowedMentions: { parse: [] } });
+  }
+
+  async postNote(threadId: string, author: RelayMember, body: string, mentions: RelayMember[]): Promise<void> {
+    const thread = await this.thread(threadId);
+    const ping = mentions.flatMap((m) => (m.relayId ? [m.relayId] : []));
+    // Names typed as "@Alex" become real mentions, so the teammate gets pinged.
+    let text = body;
+    for (const m of mentions) if (m.relayId) text = text.split(`@${m.name}`).join(`<@${m.relayId}>`);
+    const missing = ping.filter((id) => !text.includes(`<@${id}>`)).map((id) => `<@${id}>`);
+    const content = `📝 **${author.name}** · team note, not sent to the user\n${[...missing, text].join(" ")}`;
+    for (const part of chunk(content)) await thread.send({ content: part, allowedMentions: { users: ping } });
   }
 
   async typing(threadId: string): Promise<void> {
@@ -240,7 +274,19 @@ export class DiscordRelay implements Relay {
   }
 }
 
-/** A colored card for a user or assistant message. */
+/** "<@123> can you take this?" -> "@Alex can you take this?", for showing outside Discord. */
+function readableMentions(message: Message): string {
+  return message.content
+    .replace(/<@!?(\d+)>/g, (raw, id: string) => {
+      const name = message.mentions.members?.get(id)?.displayName ?? message.mentions.users.get(id)?.globalName ?? message.mentions.users.get(id)?.username;
+      return name ? `@${name}` : raw;
+    })
+    .replace(/<@&(\d+)>/g, (raw, id: string) => {
+      const role = message.mentions.roles.get(id);
+      return role ? `@${role.name}` : raw;
+    });
+}
+
 /** Copies a message's files (up to Wicket's size limit and allowed types). */
 async function downloadAttachments(message: Message): Promise<RelayFile[]> {
   const out: RelayFile[] = [];
@@ -254,11 +300,18 @@ async function downloadAttachments(message: Message): Promise<RelayFile[]> {
   return out;
 }
 
-function card(author: "user" | "agent", body: string, name?: string | null, avatar?: string) {
+/** A colored card for a message the bot posts on someone else's behalf. */
+function card(author: "user" | "agent" | "staff", body: string, name?: string | null, avatar?: string) {
   const text = body.length > EMBED_LIMIT ? `${body.slice(0, EMBED_LIMIT)}…` : body;
+  const who =
+    author === "agent"
+      ? { name: "Assistant", iconURL: avatar }
+      : author === "staff"
+        ? { name: `${name ?? "Team"} (from the dashboard)` }
+        : { name: name ? `${name} (in the app)` : "User (in the app)" };
   return new EmbedBuilder()
     .setColor(COLOR[author])
-    .setAuthor(author === "agent" ? { name: "Assistant", iconURL: avatar } : { name: name ? `${name} (in the app)` : "User (in the app)" })
+    .setAuthor(who)
     .setDescription(text || "(empty message)");
 }
 

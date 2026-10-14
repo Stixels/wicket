@@ -4,12 +4,13 @@
   "description": "Drop-in feedback agent: in-app chat that answers from your docs, relays to Discord, and routes to your tracker.",
   "main": "dist/src/index.js",
   "scripts": {
-    "dev": "npm run build:widget && tsx watch --env-file-if-exists=.env src/index.ts",
-    "build": "tsc && npm run build:widget",
+    "dev": "npm run build:widget && npm run build:admin && tsx watch --env-file-if-exists=.env src/index.ts",
+    "build": "tsc && npm run build:widget && npm run build:admin",
     "build:widget": "esbuild widget/widget.ts --bundle --minify --format=iife --target=es2019 --outfile=dist/widget.js",
+    "build:admin": "esbuild admin/main.tsx --bundle --minify --format=iife --target=es2020 --jsx=automatic --define:process.env.NODE_ENV='\"production\"' --outdir=dist/admin --entry-names=app",
     "start": "node dist/src/index.js",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit && tsc -p widget",
+    "typecheck": "tsc --noEmit && tsc -p widget && tsc -p admin",
     "demo": "npm run build:widget && tsx scripts/demo.ts",
     "discord:setup": "tsx scripts/discord-setup.ts"
   },
@@ -30,7 +31,11 @@
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.6.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "esbuild": "^0.28.2",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vitest": "^5.0.3"

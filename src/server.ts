@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { Hono, type Context } from "hono";
@@ -7,7 +8,10 @@ import { bodyLimit } from "hono/body-limit";
 import { z } from "zod";
 import type { ConversationService, PublicMessage } from "./conversations.js";
 import { signUserToken, verifyUserToken } from "./identity.js";
+import { teamRoutes, type TeamOptions } from "./team/routes.js";
+import type { Db } from "./db/index.js";
 import { INLINE_TYPES, MAX_FILES_PER_CONVERSATION, MAX_FILE_BYTES, allowedType } from "./files.js";
+import { verifyWebhook, type ReplyEmails } from "./email.js";
 
 export interface ServerOptions {
   allowedOrigins: string[];
@@ -18,6 +22,12 @@ export interface ServerOptions {
   playground?: { title: string };
   /** Shared with the host app's backend, which signs user tokens with it. */
   identitySecret?: string;
+  /** The team dashboard at /admin. */
+  team?: TeamOptions & { db: Db };
+  /** Shown on the standalone chat page that email links open. */
+  productName?: string;
+  /** Emailing unread team replies, and taking replies by email. */
+  email?: { replies: ReplyEmails; webhookSecret?: string };
 }
 
 const createBody = z.object({
@@ -30,6 +40,7 @@ const sessionBody = z.object({
   context: z.record(z.string(), z.unknown()).optional(),
 });
 const emailBody = z.object({ email: z.string().max(320) });
+const presenceBody = z.object({ cid: z.string().min(1).max(64), viewing: z.boolean() });
 const messageBody = z.object({
   body: z.string().max(4000).default(""),
   context: z.record(z.string(), z.unknown()).optional(),
@@ -55,6 +66,11 @@ export function createServer(service: ConversationService, opts: ServerOptions) 
   );
 
   app.get("/health", (c) => c.json({ ok: true }));
+
+  if (opts.team) {
+    app.get("/admin/", (c) => c.redirect("/admin"));
+    app.route("/admin", teamRoutes(opts.team.db, service, opts.team));
+  }
 
   app.get("/widget.js", (c) => {
     if (!fs.existsSync(widgetPath)) return c.text("widget not built; run npm run build:widget", 404);
@@ -131,7 +147,9 @@ export function createServer(service: ConversationService, opts: ServerOptions) 
   app.get("/api/conversations/:id/messages", (c) => {
     const conv = service.authorize(c.req.param("id"), bearer(c) ?? "");
     if (!conv) return c.json({ error: "Not found" }, 404);
-    return c.json({ status: conv.status, messages: service.list(conv.id, Number(c.req.query("after") ?? 0)) });
+    const messages = service.list(conv.id, Number(c.req.query("after") ?? 0));
+    if (messages.length) service.markSeen(conv.id, messages.at(-1)!.id);
+    return c.json({ status: conv.status, messages });
   });
 
   app.post("/api/conversations/:id/messages", async (c) => {
@@ -187,6 +205,73 @@ export function createServer(service: ConversationService, opts: ServerOptions) 
     return c.body(new Uint8Array(data));
   });
 
+  app.post("/api/conversations/:id/presence", async (c) => {
+    const conv = service.authorize(c.req.param("id"), bearer(c) ?? "");
+    if (!conv) return c.json({ error: "Not found" }, 404);
+    const parsed = presenceBody.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: "Invalid request" }, 400);
+    service.widgetViewing(conv.id, parsed.data.cid, parsed.data.viewing);
+    return c.json({ ok: true });
+  });
+
+  // A page with just the chat, for links in emails. The token is in the #fragment, so it never
+  // reaches server logs; the widget reads it and keeps the conversation in this browser.
+  app.get("/chat/:id", (c) => {
+    const name = opts.productName ?? "Support";
+    c.header("Referrer-Policy", "no-referrer");
+    c.header("Cache-Control", "no-store");
+    return c.html(`<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${escapeHtml(name)} support</title>
+<style>html,body{margin:0;height:100%;background:#0b0b0e}@media (prefers-color-scheme:light){html,body{background:#f4f4f6}}</style>
+</head><body>
+<script src="/widget.js"></script>
+<script>
+var id=${JSON.stringify(c.req.param("id")).replace(/</g, "\\u003c")},token=location.hash.slice(1);
+if(token)history.replaceState(null,"",location.pathname);
+Wicket.init({ page: true, conversation: token ? { id: id, token: token } : undefined });
+</script>
+</body></html>`);
+  });
+
+  if (opts.email) {
+    const { replies, webhookSecret } = opts.email;
+    const unsubscribed = (ok: boolean) =>
+      `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Email updates</title>
+<body style="font:16px/1.5 system-ui,sans-serif;max-width:480px;margin:80px auto;padding:0 16px;color:#222">
+<p>${ok ? "Done. You won't get more emails about this conversation." : "That link doesn't work anymore."}</p></body>`;
+    // A GET only asks, so link scanners in inboxes can't unsubscribe anyone; the button and
+    // mail apps' one-click unsubscribe POST.
+    app.get("/email/unsubscribe/:id/:sig", (c) =>
+      c.html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Email updates</title>
+<body style="font:16px/1.5 system-ui,sans-serif;max-width:480px;margin:80px auto;padding:0 16px;color:#222">
+<p>Stop emails about this conversation? You can still read and reply in the chat.</p>
+<form method="post"><button style="font:inherit;padding:10px 16px;border-radius:10px;border:0;background:#16161d;color:#fff;cursor:pointer">Stop emails</button></form></body>`),
+    );
+    app.post("/email/unsubscribe/:id/:sig", (c) => {
+      const ok = replies.unsubscribe(c.req.param("id"), c.req.param("sig"));
+      return c.html(unsubscribed(ok), ok ? 200 : 404);
+    });
+    // Resend's webhook for received email. It only carries the id; the email itself is fetched from Resend.
+    app.post("/email/inbound", async (c) => {
+      const raw = await c.req.text();
+      if (
+        webhookSecret &&
+        !verifyWebhook(webhookSecret, { id: c.req.header("svix-id"), timestamp: c.req.header("svix-timestamp"), signature: c.req.header("svix-signature") }, raw)
+      ) {
+        return c.json({ error: "Bad signature" }, 401);
+      }
+      let event: { type?: string; data?: { email_id?: string } };
+      try {
+        event = JSON.parse(raw);
+      } catch {
+        return c.json({ error: "Invalid JSON" }, 400);
+      }
+      if (event.type === "email.received" && event.data?.email_id) await replies.receive(event.data.email_id);
+      return c.json({ ok: true });
+    });
+  }
+
   // EventSource can't send headers, so the token comes in the query string.
   app.get("/api/conversations/:id/events", (c) => {
     const conv = service.authorize(c.req.param("id"), c.req.query("token") ?? "");
@@ -194,26 +279,36 @@ export function createServer(service: ConversationService, opts: ServerOptions) 
     const after = Number(c.req.header("Last-Event-ID") ?? c.req.query("after") ?? 0);
 
     return streamSSE(c, async (stream) => {
-      const send = (event: { type: string; message?: PublicMessage; status?: string }) =>
-        stream.writeSSE({
+      const send = (event: { type: string; message?: PublicMessage; status?: string }) => {
+        if (event.message) service.markSeen(conv.id, event.message.id);
+        return stream.writeSSE({
           event: event.type,
           data: JSON.stringify(event),
           ...(event.message ? { id: String(event.message.id) } : {}),
         });
+      };
 
       for (const message of service.list(conv.id, after)) await send({ type: "message", message });
       await send({ type: "status", status: service.get(conv.id)?.status });
 
       const listener = (event: { type: string }) => void send(event).catch(() => {});
       service.events.on(conv.id, listener);
-      stream.onAbort(() => {
+      // Each open widget names its connection, so it can say whether its chat is in view.
+      const cid = (c.req.query("cid") ?? "").slice(0, 64) || crypto.randomUUID();
+      service.widgetConnected(conv.id, cid);
+      let gone = false;
+      const leave = () => {
+        if (gone) return;
+        gone = true;
         service.events.off(conv.id, listener);
-      });
+        service.widgetDisconnected(conv.id, cid);
+      };
+      stream.onAbort(leave);
       while (!stream.aborted) {
         await stream.sleep(25_000);
         await stream.writeSSE({ event: "ping", data: "{}" }).catch(() => {});
       }
-      service.events.off(conv.id, listener);
+      leave();
     });
   });
 

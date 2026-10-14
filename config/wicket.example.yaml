@@ -14,6 +14,11 @@ theme:
 team:
   # replyTime: a few hours   # "Passed to the team. They usually reply within a few hours."
 
+# Attachments are removed this many days after they're sent (0 keeps them forever). Uploads
+# that never get sent go after a day. Copies posted to Discord follow Discord's own rules.
+# files:
+#   keepDays: 90
+
 # A profile is a way of answering. Everything in it is optional.
 # Other GitHub repos to search besides the main docs (DOCS_GITHUB_REPO), such as an SDK.
 # knowledge:
