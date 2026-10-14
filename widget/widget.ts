@@ -424,9 +424,8 @@ button { font: inherit; color: inherit; }
   background: linear-gradient(90deg, color-mix(in srgb, var(--tk) 55%, transparent), var(--tk)); }
 .ticket.logged .tk-bar::after { animation: wk-tk 2.4s ease-in-out infinite; }
 @keyframes wk-tk { 50% { opacity: .55; } }
-.conv .rnew { display: inline-block; width: 7px; height: 7px; margin: 0 6px 1px 0; border-radius: 50%; background: #22c55e; box-shadow: 0 0 8px rgba(34,197,94,.6); }
-.conv .rep { display: flex; align-items: center; gap: 7px; min-width: 0; }
-.conv .rep > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.conv .rnew { display: inline-block; width: 7px; height: 7px; margin: 0 7px 1px 0; border-radius: 50%; background: #22c55e; box-shadow: 0 0 8px rgba(34,197,94,.6); }
+.conv.has-rep .cw { display: flex; align-items: center; }
 .rchip { --tk: var(--wk-accent); flex: none; display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px 1px 6px; border-radius: 999px; font-style: normal;
   font-size: 11px; font-weight: 600; line-height: 16px; color: var(--tk); background: color-mix(in srgb, var(--tk) 13%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tk) 22%, transparent); }
@@ -1044,12 +1043,19 @@ class Widget {
     el.type = "button";
     el.className = "conv";
     const who = !c.last ? "" : c.last.author === "user" ? "You" : c.last.author === "staff" ? c.last.authorName ?? "Team" : c.last.author === "agent" ? "Assistant" : "";
-    const when = `${c.news ? `<i class="rnew" title="New update"></i>` : c.status === "resolved" && !c.report ? "Resolved · " : ""}${timeAgo(c.updatedAt)}`;
-    // A conversation with a report shows where it stands instead of the last message.
-    const line = c.report
-      ? `<span class="cl rep">${reportChip(c.report)}<span>${escapeHtml(capitalize(c.report.summary.replace(/^"(.*)"$/, "$1")))}</span></span>`
-      : `<span class="cl">${who ? `<b>${escapeHtml(who)}:</b> ` : ""}${escapeHtml(c.last?.body ?? "")}</span>`;
-    el.innerHTML = `<span class="ct">${escapeHtml(c.title || "Conversation")}</span><span class="cw">${when}</span>${line}`;
+    const r = c.report;
+    if (r) {
+      // A report reads as the report: its name, where it stands, and when that last changed.
+      const w = ticketWords(r.kind);
+      const done = r.stage === "done";
+      const status = done ? `${w.end.toLowerCase()} ${dayLabel(r.doneAt ?? c.updatedAt)}` : `logged ${dayLabel(r.reportedAt)} · we'll update you here`;
+      el.classList.add("has-rep");
+      el.innerHTML = `<span class="ct">${escapeHtml(capitalize(r.summary.replace(/^"(.*)"$/, "$1")))}</span><span class="cw">${reportChip(r)}</span>
+        <span class="cl">${c.news ? `<i class="rnew" title="New update"></i>` : ""}${w.noun} · ${status}</span>`;
+    } else {
+      el.innerHTML = `<span class="ct">${escapeHtml(c.title || "Conversation")}</span><span class="cw">${c.status === "resolved" ? "Resolved · " : ""}${timeAgo(c.updatedAt)}</span>
+        <span class="cl">${who ? `<b>${escapeHtml(who)}:</b> ` : ""}${escapeHtml(c.last?.body ?? "")}</span>`;
+    }
     el.addEventListener("click", () => this.openConversation(c));
     return el;
   }
@@ -1530,6 +1536,12 @@ function reportChip(c: TicketCard): string {
   return `<i class="rchip${done ? " done" : ""}">${done ? ICONS.check : "<b></b>"}${done ? ticketWords(c.kind).end : "Logged"}</i>`;
 }
 
+/** "today", or a short date like "Oct 20". */
+function dayLabel(ms: number): string {
+  const d = new Date(ms);
+  return d.toDateString() === new Date().toDateString() ? "today" : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
 function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
@@ -1539,10 +1551,7 @@ function ticketCardHtml(c: TicketCard): string {
   const done = c.stage === "done";
   const raw = c.summary.replace(/^"(.*)"$/, "$1");
   const title = raw.charAt(0).toUpperCase() + raw.slice(1);
-  const day = (ms: number) => {
-    const d = new Date(ms);
-    return d.toDateString() === new Date().toDateString() ? "today" : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-  };
+  const day = dayLabel;
   const others = c.others ? ` · ${c.others === 1 ? "1 other" : `${c.others} others`} too` : "";
   const sub = done
     ? `<b>${w.end}</b> ${day(c.doneAt ?? Date.now())} · ${w.thanks}`
