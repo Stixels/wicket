@@ -11,6 +11,8 @@ import type { Identity } from "./identity.js";
 import { parseSettings, pathFromContext, resolveProfile, type Profile, type Settings } from "./settings.js";
 import { UsageLedger, dollarsToMicros } from "./usage.js";
 import { Members, type Member } from "./team/members.js";
+import type { ShippedNotice, TicketDesk } from "./tickets.js";
+import type { TicketTools } from "./agent/agent.js";
 
 type MessageParam = Anthropic.Beta.Messages.BetaMessageParam;
 type Author = "user" | "agent" | "staff" | "system" | "note";
@@ -22,6 +24,8 @@ export interface PublicMessage {
   authorName: string | null;
   body: string;
   attachments: Attachment[];
+  /** "fixed" or "shipped": news that something the user reported is done. */
+  event?: string;
   createdAt: number;
 }
 
@@ -70,6 +74,10 @@ export interface ServiceOptions {
   log?: (msg: string, err?: unknown) => void;
   /** Team replies are emailed when unread, so the waiting message can say so. */
   emailReplies?: boolean;
+  /** Files tickets and remembers who reported what. Without it the assistant can't log anything. */
+  tickets?: TicketDesk | null;
+  /** Where the dashboard lives, for links in tickets. */
+  publicUrl?: string;
 }
 
 export const MESSAGES = {
@@ -82,6 +90,12 @@ export const MESSAGES = {
   overBudget: "You've reached this month's limit for the assistant, so I've passed your message to the team. Someone will reply here.",
   overTotal: "The assistant is unavailable right now, so I've passed your message to the team. Someone will reply here.",
   nearBudget: "Heads up: you've used most of this month's assistant allowance. After that, your messages go straight to the team.",
+  shipped: (what: string, kind: string | null) =>
+    kind === "bug"
+      ? `Good news: ${what} is fixed. Thanks for reporting it, and let me know if you still see it.`
+      : kind === "docs"
+        ? `Good news: the docs on ${what} are updated. Thanks for pointing it out.`
+        : `Good news: ${what} just shipped. Thanks for the suggestion.`,
 };
 
 const MAX_BODY = 4000;
@@ -101,6 +115,8 @@ export class ConversationService {
   readonly members: Members;
   private log: (msg: string, err?: unknown) => void;
   private emailReplies: boolean;
+  readonly tickets: TicketDesk | null;
+  private publicUrl: string | null;
 
   constructor(
     private db: Db,
@@ -116,6 +132,8 @@ export class ConversationService {
     this.members = new Members(db);
     this.log = o.log ?? console.log;
     this.emailReplies = Boolean(o.emailReplies);
+    this.tickets = o.tickets ?? null;
+    this.publicUrl = o.publicUrl?.replace(/\/$/, "") ?? null;
   }
 
   /**
@@ -215,6 +233,8 @@ export class ConversationService {
       title: (first ? previewText(first) : "").slice(0, 140),
       last: last ? { author: last.author, authorName: last.authorName, body: previewText(last).slice(0, 200), createdAt: last.createdAt } : null,
       updatedAt: last?.createdAt ?? c.createdAt.getTime(),
+      /** Something they reported is done and they haven't seen the message yet. */
+      news: messages.some((m) => m.event && m.id > (c.seenMessageId ?? 0)),
     };
   }
 
@@ -389,6 +409,66 @@ export class ConversationService {
     return true;
   }
 
+  /** A ticket this person reported is done: tell them in the chat (and by email, when they left one). */
+  async shipped(n: ShippedNotice): Promise<void> {
+    const c = this.get(n.conversationId);
+    if (!c) return;
+    const what = n.summary?.trim() || `"${n.title}"`;
+    this.addMessage(c.id, "agent", MESSAGES.shipped(what, n.kind), null, undefined, { event: n.kind === "bug" ? "fixed" : "shipped" });
+    // Straight to the thread, not mirror(): a deleted post shouldn't hand a closed conversation back to the assistant.
+    if (c.relayThreadId && this.relay) {
+      await this.relay.post(c.relayThreadId, "system", `✅ ${n.key} is done, so I let them know.`).catch((err) => this.log(`relay post failed for ${c.id}`, err));
+    }
+  }
+
+  /** The conversation behind a relay thread, e.g. to link a ticket the team filed from it. */
+  conversationForThread(threadId: string): string | null {
+    return this.byThread(threadId)?.id ?? null;
+  }
+
+  /** Where the team opens a conversation, for links in tickets. */
+  dashboardUrl(id: string): string | null {
+    return this.publicUrl ? `${this.publicUrl}/admin/c/${id}` : null;
+  }
+
+  /** What the assistant can do with tickets in this conversation, if anything. */
+  private ticketTools(id: string): TicketTools | undefined {
+    const desk = this.tickets;
+    if (!desk || !this.settings.tickets.assistant) return undefined;
+    const source = () => {
+      const c = this.get(id);
+      const who = c?.reporterName ?? c?.reporterEmail ?? "someone";
+      const link = this.dashboardUrl(id);
+      return `${who} in chat${link ? ` (${link})` : ""}`;
+    };
+    const hearBack = desk.canFollow ? " They'll get a message here when it's done; you can tell them that." : "";
+    return {
+      find: async (query) => {
+        const found = await desk.find(query);
+        if (!found.length) return "No open tickets match.";
+        return found.map((t) => `${t.key}: ${t.title}${t.reports ? ` (${t.reports} ${t.reports === 1 ? "report" : "reports"} from chat)` : ""}`).join("\n");
+      },
+      file: async (input) => {
+        const ticket = await desk.file(
+          { title: String(input.title).slice(0, 200), kind: input.kind, description: `${input.description}\n\n---\nReported by ${source()}` },
+          { conversationId: id, summary: input.user_summary },
+        );
+        this.addMessage(id, "note", `Filed ${ticket.key}: ${ticket.title}\n${ticket.url}`, "Assistant");
+        await this.mirror(id, "system", `🎫 Filed [${ticket.key}](${ticket.url}): ${ticket.title}`);
+        return `Filed ${ticket.key}.${hearBack}`;
+      },
+      add: async (input) => {
+        const result = await desk.add(String(input.key), { conversationId: id, summary: input.user_summary, comment: `Another report from ${source()}:\n\n${input.note}` });
+        if (!result) return `There's no ticket ${input.key}. Use a key from find_tickets, or file_ticket.`;
+        if (result.already) return `This conversation is already on ${result.ticket.key}.`;
+        this.addMessage(id, "note", `Added this report to ${result.ticket.key}: ${result.ticket.title}\n${result.ticket.url}`, "Assistant");
+        await this.mirror(id, "system", `➕ Added to [${result.ticket.key}](${result.ticket.url}): ${result.ticket.title}`);
+        if (result.ticket.state === "done") return `${result.ticket.key} is already done. Tell them it should be fixed already and to make sure they're on the latest version.`;
+        return `Added to ${result.ticket.key}.${hearBack}`;
+      },
+    };
+  }
+
   /** Waits for queued work on a conversation (used by tests and graceful shutdown). */
   async idle(id: string): Promise<void> {
     await this.queues.get(id);
@@ -455,6 +535,7 @@ export class ConversationService {
           searchDocs: (q) => searchDocs(this.db, q),
           readDoc: (url) => readDoc(this.db, url),
           handoff: (reason) => this.handoff(id, reason),
+          tickets: this.ticketTools(id),
         },
         { instructions: profile.instructions, model: profile.model, effort: profile.effort, topics: profile.topics, offTopic: profile.offTopic },
       );
@@ -573,7 +654,7 @@ export class ConversationService {
     body: string,
     authorName: string | null,
     attach?: (messageId: number) => Attachment[],
-    team: { memberId?: string | null; mentions?: string[] } = {},
+    team: { memberId?: string | null; mentions?: string[]; event?: string } = {},
   ): TeamMessage {
     let row = this.db
       .insert(schema.messages)
@@ -584,6 +665,7 @@ export class ConversationService {
         body,
         memberId: team.memberId ?? null,
         mentions: team.mentions?.length ? team.mentions : null,
+        event: team.event ?? null,
         createdAt: new Date(),
       })
       .returning()
@@ -683,7 +765,15 @@ function asBlocks(content: MessageParam["content"]): Anthropic.Beta.Messages.Bet
 }
 
 function toPublic(m: typeof schema.messages.$inferSelect): PublicMessage {
-  return { id: m.id, author: m.author, authorName: m.authorName, body: m.body, attachments: m.attachments ?? [], createdAt: m.createdAt.getTime() };
+  return {
+    id: m.id,
+    author: m.author,
+    authorName: m.authorName,
+    body: m.body,
+    attachments: m.attachments ?? [],
+    ...(m.event ? { event: m.event } : {}),
+    createdAt: m.createdAt.getTime(),
+  };
 }
 
 function toTeam(m: typeof schema.messages.$inferSelect): TeamMessage {

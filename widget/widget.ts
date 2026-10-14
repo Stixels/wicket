@@ -112,6 +112,8 @@ interface Summary {
   title: string;
   last: { author: string; authorName: string | null; body: string; createdAt: number } | null;
   updatedAt: number;
+  /** Something they reported shipped, and they haven't seen it yet. */
+  news?: boolean;
 }
 
 interface Attachment {
@@ -128,8 +130,14 @@ interface Message {
   authorName: string | null;
   body: string;
   attachments?: Attachment[];
+  /** "fixed" or "shipped": something they reported is done. */
+  event?: string;
+  /** Set on news the user hasn't seen yet when the widget connects. */
+  unseen?: boolean;
   createdAt: number;
 }
+
+const EVENT_LABEL: Record<string, string> = { fixed: "Fixed", shipped: "Shipped" };
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const ACCEPT = "image/png,image/jpeg,image/gif,image/webp,application/pdf,text/plain,text/csv,application/json,video/mp4,video/quicktime,video/webm,application/zip";
@@ -386,6 +394,11 @@ button { font: inherit; color: inherit; }
 .row.agent .msg, .row.staff .msg { background: var(--wk-bubble); border: 1px solid var(--wk-border);
   box-shadow: 0 1px 2px rgba(15,15,30,.04); }
 .row.agent a, .row.staff a { color: var(--wk-accent); }
+/* News that something they reported is done. */
+.row.news .msg { border-color: color-mix(in srgb, #22c55e 45%, var(--wk-border)); background: color-mix(in srgb, #22c55e 9%, var(--wk-bubble)); }
+.row.news .news-tag { display: flex; width: fit-content; align-items: center; gap: 5px; margin-bottom: 4px; font-size: 12px; font-weight: 700; letter-spacing: .02em; color: color-mix(in srgb, #22c55e 75%, var(--wk-text)); }
+.row.news .news-tag svg, .conv .new svg { width: 14px; height: 14px; padding: 2px; border-radius: 50%; background: #22c55e; color: #fff; box-sizing: border-box; }
+.conv .new { display: inline-flex; align-items: center; gap: 4px; font-style: normal; font-weight: 600; color: color-mix(in srgb, #22c55e 75%, var(--wk-text)); }
 .wk.dark .row.agent a, .wk.dark .row.staff a { color: color-mix(in srgb, var(--wk-accent) 60%, white); }
 .system { align-self: center; margin: 10px 0; font-size: 12px; color: var(--wk-muted); padding: 5px 12px; border-radius: 999px;
   background: color-mix(in srgb, var(--wk-text) 5%, transparent); animation: wk-in .25s ease; text-align: center; }
@@ -570,6 +583,7 @@ class Widget {
       } catch {}
     } else this.conv = this.loadStored();
     if (this.conv) this.connect();
+    void this.checkNews();
     if (options.page) {
       this.wrap.classList.add("page");
       this.open();
@@ -993,7 +1007,7 @@ class Widget {
     el.type = "button";
     el.className = "conv";
     const who = !c.last ? "" : c.last.author === "user" ? "You" : c.last.author === "staff" ? c.last.authorName ?? "Team" : c.last.author === "agent" ? "Assistant" : "";
-    el.innerHTML = `<span class="ct">${escapeHtml(c.title || "Conversation")}</span><span class="cw">${c.status === "resolved" ? "Resolved · " : ""}${timeAgo(c.updatedAt)}</span>
+    el.innerHTML = `<span class="ct">${escapeHtml(c.title || "Conversation")}</span><span class="cw">${c.news ? `<i class="new">${ICONS.check}Done</i>` : c.status === "resolved" ? "Resolved · " : ""}${c.news ? "" : timeAgo(c.updatedAt)}</span>
       <span class="cl">${who ? `<b>${escapeHtml(who)}:</b> ` : ""}${escapeHtml(c.last?.body ?? "")}</span>`;
     el.addEventListener("click", () => this.openConversation(c));
     return el;
@@ -1019,6 +1033,13 @@ class Widget {
     this.wrap.classList.remove("home", "list");
     this.connect();
     this.input.focus();
+  }
+
+  /** Badges the launcher for news in earlier conversations (the open one reports its own). */
+  private async checkNews() {
+    if (this.loadList().every((x) => x.id === this.conv?.id)) return;
+    const n = (await this.summaries()).filter((c) => c.news && c.id !== this.conv?.id).length;
+    if (n && !this.wrap.classList.contains("open")) this.setUnread(this.unread + n);
   }
 
   private async summaries(): Promise<Summary[]> {
@@ -1164,7 +1185,7 @@ class Widget {
       const m = JSON.parse((e as MessageEvent).data).message as Message;
       const fresh = !this.seen.has(m.id);
       this.appendBubble(m);
-      if (fresh && m.author !== "user" && !this.wrap.classList.contains("open") && Date.now() - m.createdAt < 60_000) {
+      if (fresh && m.author !== "user" && !this.wrap.classList.contains("open") && (Date.now() - m.createdAt < 60_000 || m.unseen)) {
         this.setUnread(this.unread + 1);
       }
     });
@@ -1275,13 +1296,14 @@ class Widget {
     if (continued) this.lastRow?.querySelector(".meta")?.remove();
 
     const row = document.createElement("div");
-    row.className = `row ${m.author}${continued ? " cont" : " gap"}`;
+    row.className = `row ${m.author}${continued ? " cont" : " gap"}${m.event ? " news" : ""}`;
     const name = m.author === "agent" ? this.opts.assistantName || "Assistant" : m.author === "staff" ? m.authorName || "Team" : "";
     const meta = m.author === "user" ? "" : `<div class="meta">${escapeHtml(name)} · <time data-t="${m.createdAt}">${timeAgo(m.createdAt, true)}</time></div>`;
     const files = (m.attachments ?? []).map((a) => this.attachmentHtml(a)).join("");
     const text = m.body ? renderMarkdown(m.body) : "";
     const onlyImages = !m.body && (m.attachments ?? []).every((a) => a.type.startsWith("image/"));
-    row.innerHTML = `<div class="col"><div class="msg${onlyImages ? " bare" : ""}">${files ? `<div class="atts">${files}</div>` : ""}${text}</div>${meta}</div>`;
+    const tag = m.event ? `<div class="news-tag">${ICONS.check}<span>${escapeHtml(EVENT_LABEL[m.event] ?? "Update")}</span></div>` : "";
+    row.innerHTML = `<div class="col"><div class="msg${onlyImages ? " bare" : ""}">${tag}${files ? `<div class="atts">${files}</div>` : ""}${text}</div>${meta}</div>`;
     for (const btn of row.querySelectorAll<HTMLButtonElement>(".code .copy")) {
       btn.addEventListener("click", () => {
         const code = btn.closest(".code")?.querySelector("pre")?.textContent ?? "";

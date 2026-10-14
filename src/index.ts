@@ -17,6 +17,7 @@ import { loadSettings } from "./settings.js";
 import { FileStore } from "./files.js";
 import { ReplyEmails, ResendMailer } from "./email.js";
 import { priceFor } from "./usage.js";
+import { TicketDesk } from "./tickets.js";
 
 const config = loadConfig();
 const settings = loadSettings(config.WICKET_CONFIG);
@@ -87,6 +88,9 @@ if (linear) {
   );
 }
 
+// Remembers which conversations each ticket came from, and tells them when it's done.
+const desk = linear ? new TicketDesk(db, linear, { notify: (n) => service.shipped(n), log: (msg, err) => console.error(msg, err ?? "") }) : null;
+
 let relay: Relay | null = null;
 if (config.RELAY === "discord") {
   relay = new DiscordRelay({
@@ -104,11 +108,13 @@ if (config.RELAY === "discord") {
     ],
     answerCommunityPost: agent ? (q) => answerOnce(agent, q, { searchDocs: (query) => searchDocs(db, query), readDoc: (url) => readDoc(db, url) }) : undefined,
     tickets:
-      anthropic && linear
+      anthropic && desk
         ? {
-            tracker: linear!,
+            desk,
             draft: (transcript, ask) => draftTicket(anthropic, model, config.PRODUCT_NAME, transcript, ask),
             teamRoleId: config.DISCORD_TEAM_ROLE_ID,
+            conversationFor: (threadId) => service.conversationForThread(threadId),
+            conversationUrl: (id) => service.dashboardUrl(id),
           }
         : undefined,
   });
@@ -120,6 +126,8 @@ const service = new ConversationService(db, agent, relay, {
   files: new FileStore(db, config.DATABASE_PATH),
   log: (msg, err) => console.error(msg, err ?? ""),
   emailReplies: Boolean(mailer),
+  tickets: desk,
+  publicUrl: config.PUBLIC_URL,
 });
 const replyEmails = mailer
   ? new ReplyEmails(db, service, mailer, { productName: config.PRODUCT_NAME, publicUrl: config.PUBLIC_URL!, replyDomain: config.EMAIL_REPLY_DOMAIN })
@@ -156,6 +164,18 @@ function sweepFiles() {
 sweepFiles();
 setInterval(sweepFiles, 6 * 3_600_000).unref();
 setInterval(refreshDocs, config.DOCS_REINDEX_HOURS * 3_600_000).unref();
+
+// Reporters hear back when their ticket is done.
+if (desk?.canFollow && settings.tickets.checkMinutes > 0) {
+  const checkTickets = () =>
+    void desk.check().then(
+      (n) => n && console.log(`tickets: told ${n} ${n === 1 ? "person" : "people"} their report is done`),
+      (err) => console.error("tickets: check failed", err),
+    );
+  checkTickets();
+  setInterval(checkTickets, settings.tickets.checkMinutes * 60_000).unref();
+  console.log(`tickets: ${settings.tickets.assistant && agent ? "the assistant logs reports, and " : ""}reporters hear back when tickets are done (checked every ${settings.tickets.checkMinutes} min)`);
+}
 
 if (relay) {
   await relay.start(

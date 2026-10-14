@@ -19,6 +19,12 @@ team:
 # files:
 #   keepDays: 90
 
+# With a tracker (LINEAR_API_KEY): the assistant logs bugs, ideas and docs gaps, adding repeat
+# reports to the ticket that exists, and reporters hear back in the chat when a ticket is done.
+# tickets:
+#   assistant: true     # false: only the team files tickets (by tagging the bot)
+#   checkMinutes: 15    # how often to ask the tracker what's done; 0 turns hearing back off
+
 # A profile is a way of answering. Everything in it is optional.
 # Other GitHub repos to search besides the main docs (DOCS_GITHUB_REPO), such as an SDK.
 # knowledge:

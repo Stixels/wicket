@@ -213,7 +213,12 @@ export function teamRoutes(db: Db, service: ConversationService, opts: TeamOptio
     const row = service.get(c.req.param("id"));
     if (!row) return c.json({ error: "Not found" }, 404);
     return c.json({
-      conversation: { ...inboxItem(service, row, c.get("member").id, opts.discordGuildId), context: row.context, createdAt: row.createdAt.getTime() },
+      conversation: {
+        ...inboxItem(service, row, c.get("member").id, opts.discordGuildId),
+        context: row.context,
+        createdAt: row.createdAt.getTime(),
+        tickets: service.tickets?.forConversation(row.id) ?? [],
+      },
       messages: service.teamMessages(row.id),
     });
   });

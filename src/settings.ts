@@ -108,6 +108,16 @@ const settingsSchema = z
       })
       .strict()
       .default({ keepDays: 90 }),
+    /** Needs a tracker (LINEAR_API_KEY). */
+    tickets: z
+      .object({
+        /** The assistant logs bugs, ideas and docs gaps itself, adding repeat reports to the ticket that exists. */
+        assistant: z.boolean().default(true),
+        /** How often to ask the tracker what's done, to tell the people who reported it. 0 turns that off. */
+        checkMinutes: z.number().min(0).default(15),
+      })
+      .strict()
+      .default({ assistant: true, checkMinutes: 15 }),
     /** Extra repos to search. The main docs come from DOCS_GITHUB_REPO. */
     knowledge: z.array(knowledgeSchema).default([]),
     profiles: z.record(z.string(), profileSchema).default({}),

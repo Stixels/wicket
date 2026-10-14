@@ -48,9 +48,20 @@ export interface Presence {
   lastSeenAt: number | null;
 }
 
+export interface LinkedTicket {
+  key: string;
+  url: string;
+  title: string;
+  state: "open" | "done" | "closed";
+  relation: "filed" | "added";
+  notified: boolean;
+}
+
 export interface ConversationDetail extends InboxItem {
   context: Record<string, unknown> | null;
   createdAt: number;
+  /** Tickets this conversation filed or was added to. */
+  tickets?: LinkedTicket[];
 }
 
 export type View = "open" | "needs_reply" | "mentions" | "resolved" | "all";

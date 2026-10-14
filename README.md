@@ -8,7 +8,7 @@ A drop-in help and feedback chat for any web app, plus a Discord community and s
 - **Hands off to a person** when the user asks, is frustrated, or the docs don't cover it, and pings a role you choose.
 - **Cheap to run.** One Node process with SQLite. The assistant runs through the Vercel AI Gateway or Anthropic directly, and it's optional: without a key, every chat goes straight to the team.
 
-Coming next: filing bugs, ideas and docs gaps as Linear issues in Triage, and telling users when their issue ships.
+- **Everyone hears back.** With a tracker set up, the assistant logs bugs, ideas and docs gaps itself. A repeat report becomes another report on the ticket that already exists, not a new one. When the ticket is done, everyone who reported it gets a message in their chat (and by email if they're away).
 
 ## Run the demo (no keys needed)
 
@@ -99,6 +99,9 @@ How it behaves:
 - **In-app conversations** become posts in `#support-inbox`. The user's messages show as blue cards and the assistant's as gray cards, so your own replies (plain messages) stand out. While the assistant is working the bot shows as typing. Reply in a post to answer the user in the app. The assistant stops replying once someone from the team does. When the assistant asks for a person, it pings the Team role and tags the post **Needs a person**. Only a reply that fails to reach the app gets a ⚠️ reaction.
 - **When you're done**, close the post (or tag it **Resolved**; deleting it works too, though the transcript is then gone from Discord). The user sees "resolved" in the widget, the post is tagged Resolved, and if they write again the post reopens and the assistant takes the new question first. Posts Discord archives on its own after inactivity aren't treated as resolved.
 - **Tickets:** with `LINEAR_API_KEY` and `LINEAR_TEAM_KEY` set, anyone with the Team role can tag the bot anywhere in the server, e.g. `@Wicket file this as a bug` in a support-inbox post. It reads the conversation, writes the ticket (summary, steps, context, who reported it), files it in Linear (Triage if the team has it on, otherwise Backlog) with the matching Bug/Feature/Improvement label, and replies with the link. Messages that tag the bot are never sent to the user. The tracker is an adapter, so GitHub Issues or Jira can plug in the same way.
+  - Tag the bot with a ticket key or link (`@Wicket +1 ED-123`, `@Wicket same as <link>`) to add the conversation to that ticket instead of filing a new one.
+  - Tickets filed or added from a support-inbox post are linked to that app conversation, so its reporter hears back too.
+- **Hearing back:** Wicket asks the tracker every 15 minutes (`tickets.checkMinutes`) about tickets someone is waiting on. When one is done, each reporter gets a "Fixed" or "Shipped" message in their conversation, in the reporter's own words where the assistant noted them. A ticket closed as a duplicate passes its reporters to the one it duplicates; one closed without shipping sends nothing. The dashboard lists each conversation's tickets. Turn off assistant filing with `tickets.assistant: false`.
 - **Voice:** joining `➕ Start a call` creates a voice room named after you and moves you in. It's deleted when the last person leaves. `🎧 Talk to support` works the same way, but the room is visible only to the caller and the Team role, and it pings the team. The bot needs the **Move Members** permission for both.
 - **Community questions:** when someone opens a post in `#help`, the assistant answers once from the docs. If it can't, it pings the team. Everyone else can keep the thread going.
 

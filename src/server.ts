@@ -279,7 +279,7 @@ Wicket.init({ page: true, conversation: token ? { id: id, token: token } : undef
     const after = Number(c.req.header("Last-Event-ID") ?? c.req.query("after") ?? 0);
 
     return streamSSE(c, async (stream) => {
-      const send = (event: { type: string; message?: PublicMessage; status?: string }) => {
+      const send = (event: { type: string; message?: PublicMessage & { unseen?: boolean }; status?: string }) => {
         if (event.message) service.markSeen(conv.id, event.message.id);
         return stream.writeSSE({
           event: event.type,
@@ -288,7 +288,11 @@ Wicket.init({ page: true, conversation: token ? { id: id, token: token } : undef
         });
       };
 
-      for (const message of service.list(conv.id, after)) await send({ type: "message", message });
+      // News the user hasn't seen yet, however old, so the widget can badge the launcher for it.
+      const seenBefore = conv.seenMessageId ?? 0;
+      for (const message of service.list(conv.id, after)) {
+        await send({ type: "message", message: message.event && message.id > seenBefore ? { ...message, unseen: true } : message });
+      }
       await send({ type: "status", status: service.get(conv.id)?.status });
 
       const listener = (event: { type: string }) => void send(event).catch(() => {});

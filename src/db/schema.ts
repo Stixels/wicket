@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, index } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, index, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 /**
  * status:
@@ -55,6 +55,8 @@ export const messages = sqliteTable(
     mentions: text("mentions", { mode: "json" }).$type<string[]>(),
     body: text("body").notNull(),
     attachments: text("attachments", { mode: "json" }).$type<{ id: string; name: string; type: string; size: number; expired?: boolean }[]>(),
+    /** Set on messages that report news rather than chat, e.g. "shipped" when a ticket the user reported is done. */
+    event: text("event"),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   },
   (t) => [index("messages_conversation").on(t.conversationId, t.id)],
@@ -139,3 +141,40 @@ export const teamSessions = sqliteTable("team_sessions", {
   memberId: text("member_id").notNull(),
   expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
 });
+
+/**
+ * Tickets Wicket filed or added reports to, so it can tell those people when one ships.
+ * `id` is "<tracker>:<the tracker's own id>".
+ */
+export const tickets = sqliteTable("tickets", {
+  id: text("id").primaryKey(),
+  tracker: text("tracker").notNull(),
+  ref: text("ref").notNull(),
+  key: text("key").notNull(),
+  url: text("url").notNull(),
+  title: text("title").notNull(),
+  kind: text("kind"),
+  state: text("state", { enum: ["open", "done", "closed"] }).notNull().default("open"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  checkedAt: integer("checked_at", { mode: "timestamp_ms" }),
+  closedAt: integer("closed_at", { mode: "timestamp_ms" }),
+});
+
+/**
+ * Which conversations a ticket came from. "filed" opened it; "added" was a repeat report folded
+ * into it. Each person hears back once, when the ticket is done.
+ */
+export const ticketLinks = sqliteTable(
+  "ticket_links",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    ticketId: text("ticket_id").notNull(),
+    conversationId: text("conversation_id").notNull(),
+    relation: text("relation", { enum: ["filed", "added"] }).notNull(),
+    /** How the reporter would describe it ("the timer drifting after a pause"), for the notice. */
+    summary: text("summary"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    notifiedAt: integer("notified_at", { mode: "timestamp_ms" }),
+  },
+  (t) => [uniqueIndex("ticket_links_pair").on(t.ticketId, t.conversationId), index("ticket_links_conversation").on(t.conversationId)],
+);
