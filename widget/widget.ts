@@ -426,13 +426,12 @@ button { font: inherit; color: inherit; }
 @keyframes wk-tk { 50% { opacity: .55; } }
 .conv .rnew { display: inline-block; width: 7px; height: 7px; margin-right: 8px; border-radius: 50%; background: #ef4444; }
 .conv.unread .ct { font-weight: 700; }
-.conv.has-rep .cw { display: flex; align-items: center; }
+.conv .cw { display: flex; align-items: center; }
 .conv.resolved .ct { color: color-mix(in srgb, var(--wk-text) 72%, var(--wk-muted)); font-weight: 550; }
 .conv .res { display: inline-flex; align-items: center; gap: 4px; font-style: normal; }
 .conv .res svg { width: 11px; height: 11px; stroke-width: 3; }
-.rchip { display: inline-flex; align-items: center; gap: 3px; font-style: normal; font-size: 12px; color: var(--wk-muted); }
-.rchip.done { color: #22c55e; font-weight: 600; }
-.rchip svg { width: 11px; height: 11px; stroke-width: 3.2; }
+.conv .ok { display: inline-flex; align-items: center; gap: 3px; color: #22c55e; font-weight: 600; }
+.conv .ok svg { width: 11px; height: 11px; stroke-width: 3.2; }
 .wk.dark .row.agent a, .wk.dark .row.staff a { color: color-mix(in srgb, var(--wk-accent) 60%, white); }
 .system { align-self: center; margin: 10px 0; font-size: 12px; color: var(--wk-muted); padding: 5px 12px; border-radius: 999px;
   background: color-mix(in srgb, var(--wk-text) 5%, transparent); animation: wk-in .25s ease; text-align: center; }
@@ -1046,14 +1045,15 @@ class Widget {
     const who = !c.last ? "" : c.last.author === "user" ? "You" : c.last.author === "staff" ? c.last.authorName ?? "Team" : c.last.author === "agent" ? "Assistant" : "";
     const r = c.report;
     if (r) {
-      // A report reads as the report: its name, where it stands, and when that last changed.
+      // A report reads as the report: what it is, and one plain line on where it stands.
       const w = ticketWords(r.kind);
-      const done = r.stage === "done";
-      const status = capitalize(dayLabel(done ? (r.doneAt ?? c.updatedAt) : r.reportedAt));
-      el.classList.add("has-rep");
+      const status =
+        r.stage === "done"
+          ? `<span class="ok">${ICONS.check}${w.end}</span> ${dayLabel(r.doneAt ?? c.updatedAt)}`
+          : `We'll let you know when it's ${w.end.toLowerCase()}`;
       if (c.news) el.classList.add("unread");
-      el.innerHTML = `<span class="ct">${escapeHtml(capitalize(r.summary.replace(/^"(.*)"$/, "$1")))}</span><span class="cw">${c.news ? `<i class="rnew" title="New update"></i>` : ""}${reportChip(r)}</span>
-        <span class="cl">${w.noun} · ${status}</span>`;
+      el.innerHTML = `<span class="ct">${escapeHtml(capitalize(r.summary.replace(/^"(.*)"$/, "$1")))}</span><span class="cw">${c.news ? `<i class="rnew" title="New update"></i>` : ""}${timeAgo(c.updatedAt)}</span>
+        <span class="cl">${status}</span>`;
     } else {
       // Resolved conversations step back so the open ones stand out.
       if (c.status === "resolved") el.classList.add("resolved");
@@ -1534,12 +1534,6 @@ function ticketWords(kind: string | null) {
   return { noun: "Idea", start: "Suggested", end: "Shipped", icon: ICONS.idea, thanks: "thanks for the idea" };
 }
 
-/** A report's status as quiet text: "Logged" in grey, "✓ Fixed" or "✓ Shipped" in green. */
-function reportChip(c: TicketCard): string {
-  const done = c.stage === "done";
-  return `<i class="rchip${done ? " done" : ""}">${done ? ICONS.check : ""}${done ? ticketWords(c.kind).end : "Logged"}</i>`;
-}
-
 /** "today", or a short date like "Oct 20". */
 function dayLabel(ms: number): string {
   const d = new Date(ms);
@@ -1556,10 +1550,8 @@ function ticketCardHtml(c: TicketCard): string {
   const raw = c.summary.replace(/^"(.*)"$/, "$1");
   const title = raw.charAt(0).toUpperCase() + raw.slice(1);
   const day = dayLabel;
-  const others = c.others ? ` · ${c.others === 1 ? "1 other" : `${c.others} others`} too` : "";
-  const sub = done
-    ? `<b>${w.end}</b> ${day(c.doneAt ?? Date.now())} · ${w.thanks}`
-    : `<b>Logged</b> · ${w.noun}${others} · we'll update you here`;
+  const others = c.others ? ` · ${c.others === 1 ? "1 other person" : `${c.others} others`} reported this too` : "";
+  const sub = done ? `<b>${w.end}</b> ${day(c.doneAt ?? Date.now())}` : `We'll let you know when it's ${w.end.toLowerCase()}${others}`;
   return `<span class="tk-ic">${done ? ICONS.check : w.icon}</span>
     <div class="tk-title" title="${escapeAttr(title)}">${escapeHtml(title)}</div>
     <div class="tk-sub">${sub}</div>
