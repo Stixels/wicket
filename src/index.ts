@@ -6,44 +6,26 @@ import { Agent, answerOnce } from "./agent/agent.js";
 import { ConversationService } from "./conversations.js";
 import { createServer } from "./server.js";
 import { reindex, readDoc, searchDocs } from "./knowledge/index.js";
-import { WebsiteSource } from "./adapters/knowledge/website.js";
-import { MarkdownRepoSource } from "./adapters/knowledge/markdownRepo.js";
+import { knowledgeSources } from "./knowledge/sources.js";
 import { DiscordRelay } from "./adapters/relay/discord.js";
 import { setupGuild } from "./discord/setup.js";
 import { GitHubIssuesTracker } from "./adapters/tracker/github.js";
 import { LinearTracker } from "./adapters/tracker/linear.js";
 import { draftTicket } from "./agent/tickets.js";
 import { COMMUNITY_ROOM_PREFIX, SUPPORT_ROOM_PREFIX } from "./discord/voiceRooms.js";
-import type { KnowledgeSource, Relay } from "./adapters/types.js";
+import type { Relay } from "./adapters/types.js";
 import { loadSettings } from "./settings.js";
 import { FileStore } from "./files.js";
 import { ReplyEmails, ResendMailer } from "./email.js";
 import { priceFor } from "./usage.js";
+import { gatewayModelId } from "./gateway.js";
 import { TicketDesk } from "./tickets.js";
 
 const config = loadConfig();
 const settings = loadSettings(config.WICKET_CONFIG);
 const db = openDb(config.DATABASE_PATH);
 
-const sources: KnowledgeSource[] = [];
-if (config.DOCS_GITHUB_REPO) {
-  sources.push(
-    new MarkdownRepoSource({
-      repo: config.DOCS_GITHUB_REPO,
-      ref: config.DOCS_GITHUB_REF,
-      token: config.DOCS_GITHUB_TOKEN,
-      baseUrl: config.DOCS_BASE_URL,
-    }),
-  );
-}
-if (config.DOCS_URL) sources.push(new WebsiteSource({ url: config.DOCS_URL }));
-for (const k of settings.knowledge) {
-  sources.push(
-    "url" in k
-      ? new WebsiteSource({ url: k.url, maxPages: k.maxPages })
-      : new MarkdownRepoSource({ repo: k.github, ref: k.ref, baseUrl: k.baseUrl, include: k.include, exclude: k.exclude, token: config.DOCS_GITHUB_TOKEN }),
-  );
-}
+const sources = knowledgeSources(config, settings);
 
 // No key means no assistant: every conversation goes straight to the team.
 // The Vercel AI Gateway speaks the Anthropic Messages API, so only the URL, key and model id change.
@@ -254,9 +236,4 @@ function describeSettings() {
   if (usesSignIn && !config.IDENTITY_SECRET) {
     console.log("profiles: needs you: rules check sign-in or plan, but IDENTITY_SECRET isn't set, so nobody counts as signed in");
   }
-}
-
-/** "claude-sonnet-5-5" -> "anthropic/claude-sonnet-5.5", the gateway's naming. Full gateway ids pass through. */
-function gatewayModelId(id: string): string {
-  return id.includes("/") ? id : `anthropic/${id.replace(/-(\d+)-(\d+)$/, "-$1.$2")}`;
 }

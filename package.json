@@ -12,6 +12,7 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit && tsc -p widget && tsc -p admin",
     "demo": "npm run build:widget && tsx scripts/demo.ts",
+    "eval": "tsx --env-file-if-exists=.env scripts/eval.ts",
     "discord:setup": "tsx scripts/discord-setup.ts"
   },
   "keywords": [],

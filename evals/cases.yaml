@@ -1,0 +1,41 @@
+# Model test set for `npm run eval`. Approved by Matthew on 2026-10-14.
+# Written from the Escape Director docs, not from real chats; swap in real questions when there are some.
+#
+# kind decides how a reply is scored (see src/eval/grade.ts):
+#   answer    links one of `links` and doesn't hand off
+#   handoff   hands off to the team
+#   decline   no handoff, no code block, short reply
+#   bug       no handoff, asks at least one question
+#   idea      no handoff, and the reply mentions one of `mentions`
+#   code      no code block, says it can't write code, links one of `links`
+#   hardware  mentions the managed boards and MQTT or HTTP devices, links one of `links`
+
+cases:
+  - { id: 1, kind: answer, question: "How do I add a timer to the screen players see?", links: [build-your-rooms/configure-live-view] }
+  - { id: 2, kind: answer, question: "Can I show a different screen when the team escapes vs when they run out of time?", links: [build-your-rooms/configure-live-view] }
+  - { id: 3, kind: answer, question: "how do i add a clue to a puzzle", links: [build-your-rooms/add-puzzles-and-clues] }
+  - { id: 4, kind: answer, question: "What's the storage limit for room media?", links: [build-your-rooms/manage-room-media] }
+  - { id: 5, kind: answer, question: "I want the lights to turn off automatically when the game ends", links: [build-your-rooms/configure-room-automations] }
+  - { id: 6, kind: answer, question: "How do I pair a new controller with Room Connector?", links: [build-your-rooms/connect-room-devices] }
+  - { id: 7, kind: answer, question: "We already have MQTT props. Can Escape Director use them without new hardware?", links: [build-your-rooms/connect-existing-devices] }
+  - { id: 8, kind: answer, question: "How do I add a new game master to our account?", links: [prepare-for-a-shift/manage-game-masters] }
+  - { id: 9, kind: answer, question: "Does the room station work if the internet goes down?", links: [prepare-for-a-shift/prepare-your-room-station] }
+  - { id: 10, kind: answer, question: "How do I export my room stats to a spreadsheet?", links: [review-and-improve/view-room-statistics] }
+  - { id: 11, kind: answer, question: "Where do I set our target escape rate?", links: [review-and-improve/use-analytics] }
+  - { id: 12, kind: answer, question: "A group's time on the leaderboard is wrong, can I fix it?", links: [review-and-improve/manage-leaderboards] }
+  - { id: 13, kind: answer, question: "how do i change my password", links: [account/use-account-settings] }
+  - { id: 14, kind: answer, question: "The clue I sent isn't showing on the TV in the room", links: [run-a-session/troubleshoot-a-live-session] }
+  - { id: 15, kind: answer, question: "Timer is off by 2 minutes mid-game, how do I correct it?", links: [run-a-session/troubleshoot-a-live-session] }
+  - { id: 16, kind: handoff, question: "I was charged twice this month, can someone look at this?" }
+  - { id: 17, kind: handoff, question: "All of last week's session history is gone from our account" }
+  - { id: 18, kind: handoff, question: "Can I just talk to a real person please" }
+  - { id: 19, kind: handoff, question: "This is the third time the game froze tonight with guests in the room, this is ridiculous" }
+  - { id: 20, kind: decline, question: "Can you write me a tic tac toe game in Python?" }
+  - { id: 21, kind: decline, question: "What's the weather going to be in Chicago tomorrow?" }
+  - { id: 22, kind: bug, question: "The puzzle list jumps back to the top every time I save" }
+  - { id: 23, kind: idea, question: "It would be great if game masters could send a clue as a voice recording", mentions: [voice, audio, recording] }
+  - { id: 24, kind: code, question: "How do I make a button on my Arduino prop solve a puzzle? Can you write the sketch?", links: [build-your-own-controller, escape-director-device-sdk] }
+  - { id: 25, kind: code, question: "Show me how to read a magnetic sensor with the Device SDK", links: [build-your-own-controller, escape-director-device-sdk] }
+  # A real chat from 2026-10-13: the answer made the two bundled boards sound like the only option.
+  - { id: 26, kind: hardware, question: "Hello there! What can you tell me about the Escape Director SDK?", links: [connect-existing-devices, BOARD_PORTING, common-questions] }
+  - { id: 27, kind: hardware, question: "Do I have to use Arduino boards for my props?", links: [connect-existing-devices, BOARD_PORTING, common-questions] }

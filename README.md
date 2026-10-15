@@ -214,3 +214,14 @@ npm run typecheck
 cp .env.example .env   # fill in your keys
 npm run dev            # open http://localhost:4318 for a test page with the widget
 ```
+
+### Comparing models
+
+`evals/cases.yaml` is a set of real-world questions, each with the kind of reply it should get (an answer that links the right page, a handoff, a polite decline, and so on). `npm run eval` sends each one to the model with your `.env` settings and docs, scores the replies without an AI judge, and prints pass rate, cost, time and tool calls per model:
+
+```bash
+npm run eval -- --models claude-haiku-5-5,openai/gpt-6-luna   # 2 runs per case by default
+npm run eval -- --only 24,25 --reps 1
+```
+
+Full replies are saved to `evals/results/` (not committed). A run of every case twice on two models costs well under a dollar.
