@@ -1,11 +1,16 @@
 import { EmbedBuilder, Events, type Client, type Message } from "discord.js";
-import type { TicketDraft, Tracker } from "../adapters/types.js";
+import type { TicketDraft, TrackedTicket } from "../adapters/types.js";
+import type { TicketDesk } from "../tickets.js";
 
 export interface TicketCommandOptions {
-  tracker: Tracker;
+  desk: TicketDesk;
   draft: (transcript: string, ask: string) => Promise<TicketDraft>;
   /** Only members with this role can file tickets. */
   teamRoleId?: string;
+  /** The app conversation behind a support thread, so its reporter hears back when the ticket ships. */
+  conversationFor?: (threadId: string) => string | null;
+  /** Where the team opens that conversation, for the ticket. */
+  conversationUrl?: (id: string) => string | null;
 }
 
 const KIND_LABEL = { bug: "🐛 Bug", feature: "✨ Feature", improvement: "🔧 Improvement", docs: "📚 Docs", question: "❓ Question" } as const;
@@ -31,18 +36,29 @@ export function attachTicketCommand(client: Client, opts: TicketCommandOptions) 
     void message.channel.sendTyping().catch(() => {});
     try {
       const ask = message.content.replace(/<@!?\d+>/g, "").trim();
+      const conversationId = message.channel.isThread() ? (opts.conversationFor?.(message.channel.id) ?? null) : null;
+      const link = conversationId ? opts.conversationUrl?.(conversationId) : null;
+      const source = `${message.url}${link ? `\nConversation: ${link}` : ""}`;
+
+      // "@Wicket +1 ED-123" or "same as <link>": add this report to that ticket instead of filing a new one.
+      for (const ref of ticketRefs(ask)) {
+        const added = await opts.desk.add(ref, { conversationId, comment: `Another report, added from Discord by ${name(message)}: ${source}` });
+        if (!added) continue;
+        await message.reply({
+          embeds: [embed(added.ticket, added.already ? "already linked" : "added this report", conversationId, opts.desk)],
+          allowedMentions: { repliedUser: false },
+        });
+        return;
+      }
+
       const transcript = await gather(message);
       const draft = await opts.draft(transcript, ask);
-      const ticket = await opts.tracker.create({
-        ...draft,
-        description: `${draft.description}\n\n---\nFiled from Discord by ${name(message)}: ${message.url}`,
+      const ticket = await opts.desk.file({ ...draft, description: `${draft.description}\n\n---\nFiled from Discord by ${name(message)}: ${source}` }, { conversationId });
+      const where = opts.desk.tracker.name === "linear" ? "Linear" : opts.desk.tracker.name === "github" ? "GitHub" : opts.desk.tracker.name;
+      await message.reply({
+        embeds: [embed(ticket, `${KIND_LABEL[draft.kind] ?? draft.kind} · filed in ${where}`, conversationId, opts.desk)],
+        allowedMentions: { repliedUser: false },
       });
-      const embed = new EmbedBuilder()
-        .setColor(0x5e6ad2)
-        .setTitle(`${ticket.key}: ${draft.title}`.slice(0, 256))
-        .setURL(ticket.url)
-        .setDescription(`${KIND_LABEL[draft.kind] ?? draft.kind} · filed in ${opts.tracker.name === "linear" ? "Linear" : opts.tracker.name}`);
-      await message.reply({ embeds: [embed], allowedMentions: { repliedUser: false } });
     } catch (err) {
       console.error("discord: ticket failed", err);
       await message.reply({ content: "⚠️ I couldn't file that ticket. Check the logs, or try again.", allowedMentions: { repliedUser: false } }).catch(() => {});
@@ -50,6 +66,22 @@ export function attachTicketCommand(client: Client, opts: TicketCommandOptions) 
       clearInterval(typing);
     }
   });
+}
+
+function embed(ticket: TrackedTicket, what: string, conversationId: string | null, desk: TicketDesk) {
+  const hears = conversationId && desk.canFollow ? " · they'll hear back in the app if it's done" : "";
+  return new EmbedBuilder()
+    .setColor(0x5e6ad2)
+    .setTitle(`${ticket.key}: ${ticket.title}`.slice(0, 256))
+    .setURL(ticket.url)
+    .setDescription(`${what}${hears}`);
+}
+
+/** Ticket keys ("ED-123", "#45") and links in a teammate's message, in order. */
+export function ticketRefs(text: string): string[] {
+  const plain = text.replace(/<[#@][!&]?\d+>/g, ""); // channel, role and user mentions
+  const refs = [...plain.matchAll(/https?:\/\/\S+|\b[A-Z][A-Z0-9]{0,9}-\d+\b|#\d+\b/g)].map((m) => m[0].replace(/[>)\].,]+$/, ""));
+  return [...new Set(refs)];
 }
 
 /** The conversation around the mention as plain text, oldest first, including the bot's message cards. */

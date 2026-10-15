@@ -864,6 +864,25 @@ function Details({ conv, me }: { conv: ConversationDetail; me: Member }) {
           )}
         </dl>
       </section>
+      {conv.tickets && conv.tickets.length > 0 && (
+        <section>
+          <h3>Tickets</h3>
+          <ul className="tickets">
+            {conv.tickets.map((t) => (
+              <li key={t.key}>
+                <a href={t.url} target="_blank" rel="noreferrer">
+                  {t.key}
+                </a>{" "}
+                {t.title}
+                <div className="muted small">
+                  {t.relation === "filed" ? "Filed from this chat" : "Added as another report"} ·{" "}
+                  {t.state === "done" ? (t.notified ? "done, they were told" : "done") : t.state === "closed" ? "closed" : "open, they'll hear back when it's done"}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       {fields.length > 0 && (
         <section>
           <h3>From the app</h3>

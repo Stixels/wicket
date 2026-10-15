@@ -94,10 +94,39 @@ export interface TicketDraft {
   kind: TicketKind;
 }
 
-/** Where tickets go (Linear, GitHub Issues, Jira, ...). */
+/** A ticket as the tracker sees it now. */
+export interface TrackedTicket {
+  /** The tracker's stable id (Linear's issue id, a GitHub issue number). */
+  id: string;
+  /** What people call it, e.g. "ED-123" or "#45". */
+  key: string;
+  url: string;
+  title: string;
+  /** "done" means shipped or fixed; "closed" means closed without shipping (canceled, won't fix). */
+  state: "open" | "done" | "closed";
+  /** Open, and the team has accepted it (out of triage, on their list). Ideas tell their reporters. */
+  planned?: boolean;
+  /** When the team closed it as a duplicate, the ticket it duplicates. */
+  duplicateOf?: TrackedTicket;
+  /** When the team closed it, what they want reporters told (a comment starting "Reply:"). */
+  reason?: string;
+}
+
+/**
+ * Where tickets go (Linear, GitHub Issues, Jira, ...). Only `create` is required; the rest
+ * let Wicket fold repeat reports into one ticket and tell reporters when it ships.
+ */
 export interface Tracker {
   name: string;
-  create(ticket: TicketDraft): Promise<{ key: string; url: string }>;
+  create(ticket: TicketDraft): Promise<{ id?: string; key: string; url: string }>;
+  /** Open tickets that might be the same thing, best match first. */
+  search?(text: string, limit: number): Promise<TrackedTicket[]>;
+  /** One ticket by key ("ED-123") or link, or null when there's no such ticket. */
+  get?(keyOrUrl: string): Promise<TrackedTicket | null>;
+  /** Adds a comment, e.g. "another report from ...". `id` is TrackedTicket.id. */
+  comment?(id: string, body: string): Promise<void>;
+  /** Current state of these tickets (by TrackedTicket.id). Missing ones were deleted. */
+  states?(ids: string[]): Promise<TrackedTicket[]>;
 }
 
 /** Thrown by a relay when the team deleted a conversation's thread. */

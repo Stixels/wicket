@@ -79,7 +79,7 @@ const themeSchema = z
   .strict();
 
 /** A GitHub repo to search besides the main docs, e.g. an SDK with examples. */
-const knowledgeSchema = z
+const repoKnowledgeSchema = z
   .object({
     github: z.string().regex(/^[\w.-]+\/[\w.-]+$/, "use owner/repo"),
     ref: z.string().optional(),
@@ -90,6 +90,16 @@ const knowledgeSchema = z
     exclude: z.array(z.string()).optional(),
   })
   .strict();
+
+/** A hosted docs site with no repo: pages come from its sitemap, or by following links. */
+const siteKnowledgeSchema = z
+  .object({
+    url: z.string().url(),
+    maxPages: z.number().int().positive().optional(),
+  })
+  .strict();
+
+const knowledgeSchema = z.union([repoKnowledgeSchema, siteKnowledgeSchema]);
 
 const settingsSchema = z
   .object({
@@ -115,10 +125,22 @@ const settingsSchema = z
         instructions: z.string().optional(),
         /** decline: no code, point to guides and examples instead. snippets: short snippets adapted from examples it has read. */
         code: z.enum(["decline", "snippets"]).default("decline"),
+        /** Answer new posts in the public Discord help forum. Off by default: those answers can't be tied to a person, so no budget applies. */
+        helpForum: z.boolean().default(false),
       })
       .strict()
-      .default({ code: "decline" }),
-    /** Extra repos to search. The main docs come from DOCS_GITHUB_REPO. */
+      .default({ code: "decline", helpForum: false }),
+    /** Needs a tracker (LINEAR_API_KEY). */
+    tickets: z
+      .object({
+        /** The assistant logs bugs, ideas and docs gaps itself, adding repeat reports to the ticket that exists. */
+        assistant: z.boolean().default(true),
+        /** How often to ask the tracker what's done, to tell the people who reported it. 0 turns that off. */
+        checkMinutes: z.number().min(0).default(15),
+      })
+      .strict()
+      .default({ assistant: true, checkMinutes: 15 }),
+    /** Extra repos or sites to search. The main docs come from DOCS_GITHUB_REPO or DOCS_URL. */
     knowledge: z.array(knowledgeSchema).default([]),
     profiles: z.record(z.string(), profileSchema).default({}),
     rules: z.array(ruleSchema).default([]),

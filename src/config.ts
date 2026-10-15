@@ -32,6 +32,8 @@ const schema = z.object({
   DOCS_GITHUB_REF: z.string().default("HEAD"),
   DOCS_GITHUB_TOKEN: z.string().optional(),
   DOCS_BASE_URL: z.string().optional(), // public docs site, e.g. https://docs.example.com
+  // Or, with no repo: a hosted docs site, read from its sitemap or by following links
+  DOCS_URL: z.string().url().optional(), // docs home page (pages under its path) or a sitemap.xml
   DOCS_REINDEX_HOURS: z.coerce.number().default(24),
 
   // Relay: where conversations show up for the team
@@ -46,10 +48,13 @@ const schema = z.object({
   DISCORD_SUPPORT_VOICE_HUB_CHANNEL_ID: z.string().optional(), // same, private to the caller and the team
   DISCORD_TEAM_ROLE_ID: z.string().optional(), // who sees and is pinged in support calls
 
-  // Tickets: tag the bot in Discord ("@Wicket file this as a bug") to file one in Linear
+  // Tickets: tag the bot in Discord ("@Wicket file this as a bug") to file one. Set up one tracker.
   LINEAR_API_KEY: z.string().optional(), // personal API key: Linear > Settings > Security & access
   LINEAR_TEAM_KEY: z.string().optional(), // e.g. "ED"
   LINEAR_SOURCE_LABEL: z.string().default("Source: Discord"), // added when the label exists
+  GITHUB_ISSUES_REPO: z.string().optional(), // "owner/repo"
+  GITHUB_ISSUES_TOKEN: z.string().optional(), // fine-grained token with Issues: read and write
+  GITHUB_ISSUES_LABEL: z.string().optional(), // added to each issue when the label exists, e.g. "triage"
 
   // Team dashboard at /admin, with Discord sign-in. Create an OAuth2 app (the bot's own app works)
   // and add <PUBLIC_URL>/admin/auth/callback as a redirect.
@@ -91,5 +96,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     throw new Error("RELAY=discord needs DISCORD_BOT_TOKEN and either DISCORD_GUILD_ID or DISCORD_CHANNEL_ID");
   }
   if (config.LINEAR_API_KEY && !config.LINEAR_TEAM_KEY) throw new Error("LINEAR_API_KEY needs LINEAR_TEAM_KEY (e.g. ED)");
+  if (Boolean(config.GITHUB_ISSUES_REPO) !== Boolean(config.GITHUB_ISSUES_TOKEN)) throw new Error("GITHUB_ISSUES_REPO and GITHUB_ISSUES_TOKEN go together");
+  if (config.LINEAR_API_KEY && config.GITHUB_ISSUES_REPO) throw new Error("Set up one tracker: Linear (LINEAR_API_KEY) or GitHub (GITHUB_ISSUES_REPO), not both");
   return config;
 }

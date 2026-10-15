@@ -96,6 +96,34 @@ CREATE TABLE IF NOT EXISTS team_sessions (
   expires_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS tickets (
+  id TEXT PRIMARY KEY,
+  tracker TEXT NOT NULL,
+  ref TEXT NOT NULL,
+  key TEXT NOT NULL,
+  url TEXT NOT NULL,
+  title TEXT NOT NULL,
+  kind TEXT,
+  state TEXT NOT NULL DEFAULT 'open',
+  created_at INTEGER NOT NULL,
+  checked_at INTEGER,
+  planned_at INTEGER,
+  closed_at INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS ticket_links (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ticket_id TEXT NOT NULL,
+  conversation_id TEXT NOT NULL,
+  relation TEXT NOT NULL,
+  summary TEXT,
+  created_at INTEGER NOT NULL,
+  notified_at INTEGER,
+  planned_at INTEGER
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ticket_links_pair ON ticket_links(ticket_id, conversation_id);
+CREATE INDEX IF NOT EXISTS ticket_links_conversation ON ticket_links(conversation_id);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS docs USING fts5(
   title, heading, url UNINDEXED, body,
   tokenize = 'porter unicode61'
@@ -118,8 +146,11 @@ export function openDb(file: string): Db {
     email_opt_out: "INTEGER",
     last_seen_at: "INTEGER",
   });
-  addMissingColumns(sqlite, "messages", { attachments: "TEXT", member_id: "TEXT", mentions: "TEXT" });
+  sqlite.exec("CREATE INDEX IF NOT EXISTS conversations_user ON conversations(user_id, updated_at)");
+  addMissingColumns(sqlite, "messages", { attachments: "TEXT", member_id: "TEXT", mentions: "TEXT", event: "TEXT", card: "TEXT" });
   addMissingColumns(sqlite, "files", { deleted_at: "INTEGER" });
+  addMissingColumns(sqlite, "tickets", { planned_at: "INTEGER" });
+  addMissingColumns(sqlite, "ticket_links", { planned_at: "INTEGER" });
   return drizzle(sqlite, { schema }) as Db;
 }
 

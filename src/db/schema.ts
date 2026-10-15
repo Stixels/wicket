@@ -1,4 +1,23 @@
-import { sqliteTable, text, integer, index } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, index, uniqueIndex } from "drizzle-orm/sqlite-core";
+
+/**
+ * A report's progress, shown to the person who made it: "logged" when filed or added, "planned"
+ * when the team accepts an idea, "done" when it ships, "declined" when the team won't do it.
+ */
+export interface TicketCard {
+  type: "ticket";
+  stage: "logged" | "planned" | "done" | "declined";
+  kind: "bug" | "feature" | "improvement" | "docs" | "question" | null;
+  /** In the reporter's words, e.g. "the timer drifting after a pause". */
+  summary: string;
+  reportedAt: number;
+  /** When it reached this stage (planned, done or declined). */
+  doneAt?: number;
+  /** Other people who reported the same thing. */
+  others?: number;
+  /** For "declined": what the team said. */
+  reason?: string;
+}
 
 /**
  * status:
@@ -35,7 +54,7 @@ export const conversations = sqliteTable(
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
   },
-  (t) => [index("conversations_relay_thread").on(t.relayThreadId)],
+  (t) => [index("conversations_relay_thread").on(t.relayThreadId), index("conversations_user").on(t.userId, t.updatedAt)],
 );
 
 /**
@@ -55,6 +74,10 @@ export const messages = sqliteTable(
     mentions: text("mentions", { mode: "json" }).$type<string[]>(),
     body: text("body").notNull(),
     attachments: text("attachments", { mode: "json" }).$type<{ id: string; name: string; type: string; size: number; expired?: boolean }[]>(),
+    /** Set on messages that report news rather than chat, e.g. "shipped" when a ticket the user reported is done. */
+    event: text("event"),
+    /** What the widget draws for an event message; `body` is the plain-text version. */
+    card: text("card", { mode: "json" }).$type<TicketCard>(),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   },
   (t) => [index("messages_conversation").on(t.conversationId, t.id)],
@@ -139,3 +162,45 @@ export const teamSessions = sqliteTable("team_sessions", {
   memberId: text("member_id").notNull(),
   expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
 });
+
+/**
+ * Tickets Wicket filed or added reports to, so it can tell those people when one ships.
+ * `id` is "<tracker>:<the tracker's own id>".
+ */
+export const tickets = sqliteTable("tickets", {
+  id: text("id").primaryKey(),
+  tracker: text("tracker").notNull(),
+  ref: text("ref").notNull(),
+  key: text("key").notNull(),
+  url: text("url").notNull(),
+  title: text("title").notNull(),
+  kind: text("kind"),
+  state: text("state", { enum: ["open", "done", "closed"] }).notNull().default("open"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  checkedAt: integer("checked_at", { mode: "timestamp_ms" }),
+  /** When Wicket first saw the team accept it. */
+  plannedAt: integer("planned_at", { mode: "timestamp_ms" }),
+  closedAt: integer("closed_at", { mode: "timestamp_ms" }),
+});
+
+/**
+ * Which conversations a ticket came from. "filed" opened it; "added" was a repeat report folded
+ * into it. Each person hears back when the ticket is done or declined, and for ideas, when it's planned.
+ */
+export const ticketLinks = sqliteTable(
+  "ticket_links",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    ticketId: text("ticket_id").notNull(),
+    conversationId: text("conversation_id").notNull(),
+    relation: text("relation", { enum: ["filed", "added"] }).notNull(),
+    /** How the reporter would describe it ("the timer drifting after a pause"), for the notice. */
+    summary: text("summary"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    /** Told it's done or declined: nothing more to say. */
+    notifiedAt: integer("notified_at", { mode: "timestamp_ms" }),
+    /** Told an idea is planned. */
+    plannedAt: integer("planned_at", { mode: "timestamp_ms" }),
+  },
+  (t) => [uniqueIndex("ticket_links_pair").on(t.ticketId, t.conversationId), index("ticket_links_conversation").on(t.conversationId)],
+);

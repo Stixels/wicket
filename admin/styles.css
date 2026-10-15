@@ -248,6 +248,10 @@ code {
   font-size: 22px;
   letter-spacing: -0.025em;
 }
+.signin-card h1,
+.signin-card p {
+  text-wrap: balance;
+}
 .signin-card p {
   margin: 0 0 8px;
 }
@@ -1453,6 +1457,17 @@ nav {
   white-space: pre-wrap;
   font-size: 11.5px;
   color: #f19999;
+}
+.tickets {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 10px;
+  font-size: 13px;
+}
+.tickets a {
+  font-weight: 600;
 }
 
 /* --- Smaller screens --- */

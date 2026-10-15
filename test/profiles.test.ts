@@ -88,6 +88,12 @@ describe("settings", () => {
     expect(p).toMatchObject({ name: "default", ai: true });
   });
 
+  it("leaves the public help forum to people unless turned on", () => {
+    expect(parseSettings("").assistant.helpForum).toBe(false);
+    expect(parseSettings("assistant:\n  code: decline").assistant.helpForum).toBe(false);
+    expect(parseSettings("assistant:\n  helpForum: true").assistant.helpForum).toBe(true);
+  });
+
   it("explains mistakes", () => {
     expect(() => parseSettings("rules:\n  - profile: nope")).toThrow(/profile "nope"/);
     expect(() => parseSettings("profiles:\n  a:\n    budjet: 2")).toThrow(/profiles\.a/);

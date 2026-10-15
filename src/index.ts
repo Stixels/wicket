@@ -6,37 +6,26 @@ import { Agent, answerOnce } from "./agent/agent.js";
 import { ConversationService } from "./conversations.js";
 import { createServer } from "./server.js";
 import { reindex, readDoc, searchDocs } from "./knowledge/index.js";
-import { MarkdownRepoSource } from "./adapters/knowledge/markdownRepo.js";
+import { knowledgeSources } from "./knowledge/sources.js";
 import { DiscordRelay } from "./adapters/relay/discord.js";
 import { setupGuild } from "./discord/setup.js";
+import { GitHubIssuesTracker } from "./adapters/tracker/github.js";
 import { LinearTracker } from "./adapters/tracker/linear.js";
 import { draftTicket } from "./agent/tickets.js";
 import { COMMUNITY_ROOM_PREFIX, SUPPORT_ROOM_PREFIX } from "./discord/voiceRooms.js";
-import type { KnowledgeSource, Relay } from "./adapters/types.js";
+import type { Relay } from "./adapters/types.js";
 import { loadSettings } from "./settings.js";
 import { FileStore } from "./files.js";
 import { ReplyEmails, ResendMailer } from "./email.js";
 import { priceFor } from "./usage.js";
 import { gatewayModelId } from "./gateway.js";
+import { TicketDesk } from "./tickets.js";
 
 const config = loadConfig();
 const settings = loadSettings(config.WICKET_CONFIG);
 const db = openDb(config.DATABASE_PATH);
 
-const sources: KnowledgeSource[] = [];
-if (config.DOCS_GITHUB_REPO) {
-  sources.push(
-    new MarkdownRepoSource({
-      repo: config.DOCS_GITHUB_REPO,
-      ref: config.DOCS_GITHUB_REF,
-      token: config.DOCS_GITHUB_TOKEN,
-      baseUrl: config.DOCS_BASE_URL,
-    }),
-  );
-}
-for (const k of settings.knowledge) {
-  sources.push(new MarkdownRepoSource({ repo: k.github, ref: k.ref, baseUrl: k.baseUrl, include: k.include, exclude: k.exclude, token: config.DOCS_GITHUB_TOKEN }));
-}
+const sources = knowledgeSources(config, settings);
 
 // No key means no assistant: every conversation goes straight to the team.
 // The Vercel AI Gateway speaks the Anthropic Messages API, so only the URL, key and model id change.
@@ -69,6 +58,7 @@ if (config.RELAY === "discord" && config.DISCORD_GUILD_ID) {
     teamRoleName: config.DISCORD_TEAM_ROLE,
     productName: config.PRODUCT_NAME,
     docsUrl: config.DOCS_BASE_URL,
+    assistantAnswersHelp: settings.assistant.helpForum,
   });
   console.log(`discord: server ready${setup.created.length ? `: ${setup.created.join(", ")}` : ""}`);
   for (const step of setup.manual) console.log(`discord: needs you: ${step}`);
@@ -80,15 +70,20 @@ if (config.RELAY === "discord" && config.DISCORD_GUILD_ID) {
   config.DISCORD_TEAM_ROLE_ID ||= setup.teamRoleId;
 }
 
-const linear = config.LINEAR_API_KEY
+const tracker = config.LINEAR_API_KEY
   ? new LinearTracker({ apiKey: config.LINEAR_API_KEY, teamKey: config.LINEAR_TEAM_KEY!, sourceLabel: config.LINEAR_SOURCE_LABEL })
-  : null;
-if (linear) {
-  await linear.check().then(
-    (where) => console.log(`linear: ready (${where})`),
-    (err) => console.error(`linear: ${err.message}`),
+  : config.GITHUB_ISSUES_REPO
+    ? new GitHubIssuesTracker({ token: config.GITHUB_ISSUES_TOKEN!, repo: config.GITHUB_ISSUES_REPO, sourceLabel: config.GITHUB_ISSUES_LABEL })
+    : null;
+if (tracker) {
+  await tracker.check().then(
+    (where) => console.log(`${tracker.name}: ready (${where})`),
+    (err) => console.error(`${tracker.name}: ${err.message}`),
   );
 }
+
+// Remembers which conversations each ticket came from, and tells them when it's done.
+const desk = tracker ? new TicketDesk(db, tracker, { notify: (n) => service.ticketNews(n), log: (msg, err) => console.error(msg, err ?? "") }) : null;
 
 let relay: Relay | null = null;
 if (config.RELAY === "discord") {
@@ -105,13 +100,15 @@ if (config.RELAY === "discord") {
         ? [{ channelId: config.DISCORD_SUPPORT_VOICE_HUB_CHANNEL_ID, prefix: SUPPORT_ROOM_PREFIX, teamRoleId: config.DISCORD_TEAM_ROLE_ID }]
         : []),
     ],
-    answerCommunityPost: agent ? (q) => answerOnce(agent, q, { searchDocs: (query) => searchDocs(db, query), readDoc: (url) => readDoc(db, url) }) : undefined,
+    answerCommunityPost: agent && settings.assistant.helpForum ? (q) => answerOnce(agent, q, { searchDocs: (query) => searchDocs(db, query), readDoc: (url) => readDoc(db, url) }) : undefined,
     tickets:
-      anthropic && linear
+      anthropic && desk
         ? {
-            tracker: linear!,
+            desk,
             draft: (transcript, ask) => draftTicket(anthropic, model, config.PRODUCT_NAME, transcript, ask),
             teamRoleId: config.DISCORD_TEAM_ROLE_ID,
+            conversationFor: (threadId) => service.conversationForThread(threadId),
+            conversationUrl: (id) => service.dashboardUrl(id),
           }
         : undefined,
   });
@@ -123,6 +120,8 @@ const service = new ConversationService(db, agent, relay, {
   files: new FileStore(db, config.DATABASE_PATH),
   log: (msg, err) => console.error(msg, err ?? ""),
   emailReplies: Boolean(mailer),
+  tickets: desk,
+  publicUrl: config.PUBLIC_URL,
 });
 const replyEmails = mailer
   ? new ReplyEmails(db, service, mailer, { productName: config.PRODUCT_NAME, publicUrl: config.PUBLIC_URL!, replyDomain: config.EMAIL_REPLY_DOMAIN })
@@ -160,13 +159,25 @@ sweepFiles();
 setInterval(sweepFiles, 6 * 3_600_000).unref();
 setInterval(refreshDocs, config.DOCS_REINDEX_HOURS * 3_600_000).unref();
 
+// Reporters hear back when their ticket is done.
+if (desk?.canFollow && settings.tickets.checkMinutes > 0) {
+  const checkTickets = () =>
+    void desk.check().then(
+      (n) => n && console.log(`tickets: told ${n} ${n === 1 ? "person" : "people"} their report is done`),
+      (err) => console.error("tickets: check failed", err),
+    );
+  checkTickets();
+  setInterval(checkTickets, settings.tickets.checkMinutes * 60_000).unref();
+  console.log(`tickets: ${settings.tickets.assistant && agent ? "the assistant logs reports, and " : ""}reporters hear back when tickets are done (checked every ${settings.tickets.checkMinutes} min)`);
+}
+
 if (relay) {
   await relay.start(
     ({ threadId, authorName, body, files, ...from }) => service.handleStaffReply(threadId, authorName, body, files, from),
     (threadId, deleted) => service.resolve(threadId, deleted),
     ({ threadId, authorName, authorId }) => service.typingInThread(threadId, authorName, authorId),
   );
-  console.log(`relay: ${relay.name} connected${config.LINEAR_API_KEY && anthropic ? ", tag the bot to file Linear tickets" : ""}`);
+  console.log(`relay: ${relay.name} connected${tracker && anthropic ? `, tag the bot to file ${tracker.name === "github" ? "GitHub issues" : "Linear tickets"}` : ""}`);
 }
 
 const app = createServer(service, {

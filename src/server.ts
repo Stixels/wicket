@@ -6,12 +6,13 @@ import { cors } from "hono/cors";
 import { streamSSE } from "hono/streaming";
 import { bodyLimit } from "hono/body-limit";
 import { z } from "zod";
-import type { ConversationService, PublicMessage } from "./conversations.js";
+import { isNews, type ConversationService, type PublicMessage } from "./conversations.js";
 import { signUserToken, verifyUserToken } from "./identity.js";
 import { teamRoutes, type TeamOptions } from "./team/routes.js";
 import type { Db } from "./db/index.js";
 import { INLINE_TYPES, MAX_FILES_PER_CONVERSATION, MAX_FILE_BYTES, allowedType } from "./files.js";
 import { verifyWebhook, type ReplyEmails } from "./email.js";
+import { playgroundPage } from "./playground.js";
 
 export interface ServerOptions {
   allowedOrigins: string[];
@@ -49,6 +50,8 @@ const messageBody = z.object({
 
 const summariesBody = z.object({
   conversations: z.array(z.object({ id: z.string().max(64), token: z.string().max(128) })).max(50),
+  /** A signed-in user's other conversations come back too, so their history follows them across devices. */
+  userToken: z.string().max(4000).optional(),
 });
 
 export function createServer(service: ConversationService, opts: ServerOptions) {
@@ -80,7 +83,7 @@ export function createServer(service: ConversationService, opts: ServerOptions) 
   });
 
   if (opts.playground) {
-    const title = JSON.stringify(opts.playground.title);
+    const { title } = opts.playground;
     app.get("/", (c) => {
       // With an identity secret, the page signs in as a test user, like a host app's backend would.
       const as = c.req.query("as");
@@ -89,19 +92,9 @@ export function createServer(service: ConversationService, opts: ServerOptions) 
         opts.identitySecret && as !== "visitor"
           ? signUserToken({ sub: "local-test", name: "Local test", ...(plan ? { plan } : {}) }, opts.identitySecret, 3600)
           : null;
-      const user = token ? `userToken: ${JSON.stringify(token)},` : as === "visitor" ? "" : `user: { id: "local-test", name: "Local test" },`;
-      return c.html(`<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Wicket playground</title>
-<style>body{font:16px/1.5 system-ui,sans-serif;max-width:640px;margin:64px auto;padding:0 16px;color:#222}code{background:#f2f2f2;padding:2px 5px;border-radius:4px}</style>
-</head><body>
-<h1>Wicket playground</h1>
-<p>This page stands in for your app. Open the chat button in the corner and send a message. With Discord set up, it shows up as a post in <code>#support-inbox</code>, and replying there sends the reply back here.</p>
-<p>${token ? `Signed in as a test user${plan ? ` on the <code>${escapeHtml(plan)}</code> plan` : ""}.` : as === "visitor" ? "Not signed in." : "Set <code>IDENTITY_SECRET</code> to try signed-in profiles."} Try it as: <a href="/">signed in</a> · <a href="/?plan=pro">pro plan</a> · <a href="/?as=visitor">visitor</a></p>
-<p>Turn this page off with <code>PLAYGROUND=false</code>.</p>
-<script src="/widget.js"></script>
-<script>Wicket.init({ title: ${title}, ${user} context: { area: "playground" } });</script>
-</body></html>`);
+      const initUser = token ? `userToken: ${JSON.stringify(token)},` : as === "visitor" ? "" : `user: { id: "local-test", name: "Local test" },`;
+      const mode = as === "visitor" ? "visitor" : token ? "signed-in" : "unsigned";
+      return c.html(playgroundPage({ title, mode, plan, initUser }));
     });
   }
 
@@ -137,10 +130,13 @@ export function createServer(service: ConversationService, opts: ServerOptions) 
   app.post("/api/conversations/summaries", async (c) => {
     const parsed = summariesBody.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: "Invalid request" }, 400);
-    const conversations = parsed.data.conversations
-      .filter((x) => service.authorize(x.id, x.token))
-      .map((x) => service.summary(x.id)!)
-      .sort((a, b) => b.updatedAt - a.updatedAt);
+    const identity = verifyUserToken(parsed.data.userToken, opts.identitySecret);
+    const mine = identity ? service.forUser(identity.id) : [];
+    const local = parsed.data.conversations.filter((x) => service.authorize(x.id, x.token) && !mine.some((m) => m.id === x.id));
+    // The token goes back only for the user's own conversations found by their verified id.
+    const conversations = [...mine.map((m) => ({ ...service.summary(m.id)!, token: m.token })), ...local.map((x) => service.summary(x.id)!)].sort(
+      (a, b) => b.updatedAt - a.updatedAt,
+    );
     return c.json({ conversations });
   });
 
@@ -279,7 +275,7 @@ Wicket.init({ page: true, conversation: token ? { id: id, token: token } : undef
     const after = Number(c.req.header("Last-Event-ID") ?? c.req.query("after") ?? 0);
 
     return streamSSE(c, async (stream) => {
-      const send = (event: { type: string; message?: PublicMessage; status?: string }) => {
+      const send = (event: { type: string; message?: PublicMessage & { unseen?: boolean }; status?: string }) => {
         if (event.message) service.markSeen(conv.id, event.message.id);
         return stream.writeSSE({
           event: event.type,
@@ -288,7 +284,11 @@ Wicket.init({ page: true, conversation: token ? { id: id, token: token } : undef
         });
       };
 
-      for (const message of service.list(conv.id, after)) await send({ type: "message", message });
+      // News the user hasn't seen yet, however old, so the widget can badge the launcher for it.
+      const seenBefore = conv.seenMessageId ?? 0;
+      for (const message of service.list(conv.id, after)) {
+        await send({ type: "message", message: isNews(message) && message.id > seenBefore ? { ...message, unseen: true } : message });
+      }
       await send({ type: "status", status: service.get(conv.id)?.status });
 
       const listener = (event: { type: string }) => void send(event).catch(() => {});

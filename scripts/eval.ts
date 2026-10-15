@@ -15,13 +15,12 @@ import { parseArgs } from "node:util";
 import { parse } from "yaml";
 import { z } from "zod";
 import { Agent } from "../src/agent/agent.js";
-import { MarkdownRepoSource } from "../src/adapters/knowledge/markdownRepo.js";
-import type { KnowledgeSource } from "../src/adapters/types.js";
 import { loadConfig } from "../src/config.js";
 import { openDb } from "../src/db/index.js";
 import { caseSchema, grade, type EvalCase } from "../src/eval/grade.js";
 import { gatewayModelId } from "../src/gateway.js";
 import { readDoc, reindex, searchDocs } from "../src/knowledge/index.js";
+import { knowledgeSources } from "../src/knowledge/sources.js";
 import { loadSettings, resolveProfile } from "../src/settings.js";
 import { costMicros } from "../src/usage.js";
 
@@ -57,13 +56,7 @@ const profile = resolveProfile(settings, { signedIn: true, plan: null, path: "/a
 
 const dir = mkdtempSync(join(tmpdir(), "wicket-eval-"));
 const db = openDb(join(dir, "eval.db"));
-const sources: KnowledgeSource[] = [];
-if (config.DOCS_GITHUB_REPO) {
-  sources.push(new MarkdownRepoSource({ repo: config.DOCS_GITHUB_REPO, ref: config.DOCS_GITHUB_REF, token: config.DOCS_GITHUB_TOKEN, baseUrl: config.DOCS_BASE_URL }));
-}
-for (const k of settings.knowledge) {
-  sources.push(new MarkdownRepoSource({ repo: k.github, ref: k.ref, baseUrl: k.baseUrl, include: k.include, exclude: k.exclude, token: config.DOCS_GITHUB_TOKEN }));
-}
+const sources = knowledgeSources(config, settings);
 console.log(`docs: indexed ${await reindex(db, sources)} sections`);
 
 interface Run {
