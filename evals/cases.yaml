@@ -38,4 +38,4 @@ cases:
   - { id: 25, kind: code, question: "Show me how to read a magnetic sensor with the Device SDK", links: [build-your-own-controller, escape-director-device-sdk] }
   # A real chat from 2026-10-13: the answer made the two bundled boards sound like the only option.
   - { id: 26, kind: hardware, question: "Hello there! What can you tell me about the Escape Director SDK?", links: [connect-existing-devices, BOARD_PORTING, common-questions] }
-  - { id: 27, kind: hardware, question: "Do I have to use Arduino boards for my props?", links: [connect-existing-devices, BOARD_PORTING, common-questions] }
+  - { id: 27, kind: hardware, question: "Do I have to use Arduino boards for my props?", links: [connect-existing-devices, BOARD_PORTING, common-questions, build-your-own-controller] }
