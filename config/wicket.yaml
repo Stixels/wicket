@@ -11,10 +11,15 @@ theme:
     --wk-border: "rgba(255,255,255,0.07)"
     --wk-text: "#EDEDEF"
     --wk-muted: "#8A8F98"
-    # Your own messages are a quiet gray; red stays for buttons and the brand.
-    --wk-user: "#2a2424"
-    --wk-user-text: "#EDEDEF"
-    --wk-user-border: "rgba(255,255,255,0.09)"
+    # Your own messages are a lighter neutral gray than the assistant's; red stays for buttons and the brand.
+    --wk-user: "#37322f"
+    --wk-user-text: "#F5F5F6"
+    --wk-user-border: "transparent"
+    # Suggested questions are neutral too.
+    --wk-chip: "transparent"
+    --wk-chip-text: "#D6D7DB"
+    --wk-chip-border: "rgba(255,255,255,0.12)"
+    --wk-chip-hover: "rgba(255,255,255,0.06)"
 
 team:
   replyTime: a few hours
@@ -40,6 +45,8 @@ profiles:
     botCheck: true
     tickets: false
     askEmail: true
+    # Suggested questions only on the Analytics page.
+    suggestions: []
     instructions: >
       This person isn't signed in. If they report a bug or share an idea, thank them and point them to
       the #ideas forum in the Escape Director Discord (https://discord.gg/tRDXj9x6SF), or ask them to
@@ -48,7 +55,7 @@ profiles:
   # Signed in, any page. ED's token carries the account's allowance ($3 per Location a month), and
   # every answer from everyone on the account counts toward it.
   default:
-    followUps: true
+    suggestions: []
     appTools:
       url:
         production: https://api.escapedirector.com/api/v1/integrations/wicket/tools

@@ -307,6 +307,8 @@ button { font: inherit; color: inherit; }
   transition: opacity .2s ease, transform .25s cubic-bezier(.2,.8,.2,1), visibility 0s linear .25s;
 }
 .left .panel { right: auto; left: var(--wk-x); transform-origin: bottom left; }
+/* No launcher (the host has its own button): nothing to leave room for, so the panel sits in the corner. */
+.wk.no-launcher .panel { bottom: var(--wk-y); height: min(760px, calc(100vh - var(--wk-y) * 2)); }
 /* Under the host's own button (theme anchor): drops down from it, right edges aligned. */
 .wk.anchored .panel, .wk.left.anchored .panel { top: var(--wk-at); right: var(--wk-ar); left: auto; bottom: auto;
   width: min(440px, calc(100vw - var(--wk-ar) - 8px)); height: var(--wk-ah); transform: translateY(-8px) scale(.98); transform-origin: top right; }
@@ -456,8 +458,9 @@ button { font: inherit; color: inherit; }
 .ask-team button:hover { border-color: color-mix(in srgb, var(--wk-text) 25%, var(--wk-border)); }
 .ask-team button:disabled { opacity: .6; cursor: default; }
 /* "How we got this": the numbers behind an analytics answer, folded by default. */
-.ev { margin: 6px 0 0; font-size: 12.5px; color: var(--wk-muted); }
-.ev summary { cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 5px; padding: 2px 4px; border-radius: 6px; font-weight: 550; }
+.ev { margin: -2px 0 0 4px; font-size: 11.5px; color: var(--wk-muted); }
+.ev summary { cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 4px; padding: 2px 0; border-radius: 6px; font-weight: 500; }
+.ev .en { opacity: .7; }
 .ev summary::-webkit-details-marker { display: none; }
 .ev summary:hover { color: var(--wk-text); }
 .ev summary svg { width: 12px; height: 12px; transition: transform .15s; }
@@ -475,10 +478,10 @@ button { font: inherit; color: inherit; }
   color: var(--wk-muted); cursor: pointer; font-family: inherit; }
 .evref:hover { color: var(--wk-text); }
 /* Follow-up questions under the latest answer. */
-.next { display: flex; flex-direction: column; gap: 6px; margin: 2px 0 6px 4px; animation: wk-in .25s ease; }
-.next-h { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--wk-muted); }
+.next { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 6px 4px; animation: wk-in .25s ease; }
+.next-h { font-size: 11.5px; font-weight: 550; color: var(--wk-muted); }
 .next-c { display: flex; flex-wrap: wrap; gap: 6px; }
-.next .chip { padding: 6px 12px; font-size: 12.5px; text-align: left; }
+.next .chip { padding: 5px 11px; font-size: 12.5px; font-weight: 500; text-align: left; }
 /* The bot check (Cloudflare Turnstile) before a visitor's first answer. */
 .check { display: none; margin: 0 0 8px; }
 .check.on { display: block; }
@@ -593,10 +596,12 @@ button { font: inherit; color: inherit; }
 .closed .linkish:hover { color: var(--wk-text) !important; }
 .wk.list .titles .subtitle { display: none; }
 .wk.home .hist { display: none; }
-.chip { border: 1px solid color-mix(in srgb, var(--wk-accent) 35%, var(--wk-border)); background: var(--wk-bg); color: var(--wk-accent);
+/* Suggestion chips. --wk-chip, --wk-chip-text, --wk-chip-border and --wk-chip-hover restyle them (e.g. neutral). */
+.chip { border: 1px solid var(--wk-chip-border, color-mix(in srgb, var(--wk-accent) 35%, var(--wk-border)));
+  background: var(--wk-chip, var(--wk-bg)); color: var(--wk-chip-text, var(--wk-accent));
   border-radius: 999px; padding: 7px 13px; font-size: 13px; font-weight: 550; cursor: pointer; transition: background .15s, transform .15s; }
-.wk.dark .chip { color: color-mix(in srgb, var(--wk-accent) 60%, white); }
-.chip:hover { background: color-mix(in srgb, var(--wk-accent) 8%, var(--wk-bg)); transform: translateY(-1px); }
+.wk.dark .chip { color: var(--wk-chip-text, color-mix(in srgb, var(--wk-accent) 60%, white)); }
+.chip:hover { background: var(--wk-chip-hover, color-mix(in srgb, var(--wk-accent) 8%, var(--wk-bg))); transform: translateY(-1px); }
 
 .composer { padding: 12px; background: var(--wk-bg); border-top: 1px solid var(--wk-border); }
 .field { display: flex; align-items: flex-end; gap: 8px; padding: 6px 6px 6px 14px; border-radius: calc(var(--wk-radius) * .8);
@@ -878,8 +883,8 @@ class Widget {
   }
 
   /**
-   * Puts the panel and the preview just below the anchor, right edges aligned and kept 8px inside the
-   * screen. Without a visible anchor they fall back to the corner; on phones the panel stays full screen.
+   * Puts the panel and the preview just below the anchor, against the right side of the screen like a
+   * side panel (or right edges aligned when the anchor is too far left for that). Without a visible anchor they fall back to the corner; on phones the panel stays full screen.
    */
   private place() {
     const a = this.anchor;
@@ -894,7 +899,9 @@ class Widget {
     const top = Math.round(r.bottom + 8);
     const s = this.wrap.style;
     s.setProperty("--wk-at", `${top}px`);
-    s.setProperty("--wk-ar", `${Math.max(8, Math.round(vw - r.right))}px`);
+    const fromRight = vw - r.right;
+    // The panel is up to 440px wide: if it still sits under the anchor against the side, put it there.
+    s.setProperty("--wk-ar", `${fromRight < 440 - 2 * EDGE ? EDGE : Math.max(8, Math.round(fromRight))}px`);
     s.setProperty("--wk-ah", `${Math.max(200, Math.min(640, vh - top - 12))}px`);
   }
 
@@ -2167,7 +2174,7 @@ function evidenceRefs(html: string): string {
 function evidenceEl(items: Evidence[]): HTMLDetailsElement {
   const el = document.createElement("details");
   el.className = "ev";
-  el.innerHTML = `<summary>${ICONS.caret}How we got this</summary><ol>${items
+  el.innerHTML = `<summary>${ICONS.caret}How we got this <span class="en">· ${items.length}</span></summary><ol>${items
     .map((e) => {
       const sub = [e.period, e.basis].filter(Boolean).map((x) => escapeHtml(String(x))).join(" · ");
       const caveats = (e.caveats ?? []).filter(Boolean).map((c) => escapeHtml(String(c))).join(" · ");
@@ -2186,6 +2193,9 @@ function inlineMarkdown(text: string): string {
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
     .replace(/`([^`\n]+)`/g, "<code>$1</code>");
 }
+
+/** Gap between a side panel and the screen edge. */
+const EDGE = 12;
 
 let instance: Widget | null = null;
 const api = {
