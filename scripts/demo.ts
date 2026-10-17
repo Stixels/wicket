@@ -7,6 +7,7 @@ import { ConversationService } from "../src/conversations.js";
 import { createServer } from "../src/server.js";
 import { reindex, searchDocs } from "../src/knowledge/index.js";
 import { MarkdownRepoSource } from "../src/adapters/knowledge/markdownRepo.js";
+import { MockLanguageModelV4 } from "ai/test";
 import { FakeRelay } from "../test/helpers.js";
 import { loadSettings } from "../src/settings.js";
 import { signUserToken } from "../src/identity.js";
@@ -21,21 +22,36 @@ for (const q of ["How do I add a clue to a puzzle?", "invite a game master"]) {
   console.log(q, "=>", searchDocs(db, q, 2).map((h) => `${h.title} > ${h.heading}`));
 }
 // Scripted model: search with the user's words, then answer with the top hit.
+const reply = (last: any) => {
+  if (last.role === "tool") {
+    const out = last.content[0]?.output;
+    const hit = String(typeof out?.value === "string" ? out.value : JSON.stringify(out?.value ?? "")).split("\n");
+    return { finish: "stop", text: `Here's the guide that covers it: [${hit[0].replace(/^## /, "")}](${hit[1]}). Let me know if that doesn't do it.` };
+  }
+  const q = String(last.content.filter((c: any) => c.type === "text").at(-1)?.text ?? "");
+  if (/snippet|script|code/i.test(q)) return { finish: "stop", text: "From the SDK's MQTT example, publish the win like this:\n\n```python\nfrom escape_director import Device\n\ndevice = Device.from_env()\n\ndef on_win():\n    device.signal(\"tictactoe.won\", {\"board\": \"A\"})  # maps to a signal in Escape Director\n```\n\nThen map `tictactoe.won` to **Complete a puzzle** on the device page." };
+  if (/person|human|refund/i.test(q)) return { finish: "tool-calls", tool: { id: "h1", name: "handoff_to_human", input: { reason: q } } };
+  return { finish: "tool-calls", tool: { id: `s${Date.now()}`, name: "search_docs", input: { query: q } } };
+};
 const client = {
-  beta: { messages: { create: async (p: any) => {
-    const last = p.messages.at(-1);
-    if (last.content[0]?.type === "tool_result") {
-      const hit = String(last.content[0].content).split("\n");
-      return { stop_reason: "end_turn", content: [{ type: "text", text: `Here's the guide that covers it: [${hit[0].replace(/^## /, "")}](${hit[1]}). Let me know if that doesn't do it.` }] };
-    }
-    const q = last.content.at(-1).text;
-    if (/snippet|script|code/i.test(q)) return { stop_reason: "end_turn", content: [{ type: "text", text: "From the SDK's MQTT example, publish the win like this:\n\n```python\nfrom escape_director import Device\n\ndevice = Device.from_env()\n\ndef on_win():\n    device.signal(\"tictactoe.won\", {\"board\": \"A\"})  # maps to a signal in Escape Director\n```\n\nThen map `tictactoe.won` to **Complete a puzzle** on the device page." }] };
-    if (/person|human|refund/i.test(q)) return { stop_reason: "tool_use", content: [{ type: "tool_use", id: "h1", name: "handoff_to_human", input: { reason: q } }] };
-    return { stop_reason: "tool_use", content: [{ type: "tool_use", id: "s1", name: "search_docs", input: { query: q } }] };
-  } } },
+  languageModel: (id: string) =>
+    new MockLanguageModelV4({
+      modelId: id,
+      doGenerate: async (options: any) => {
+        const r: any = reply(options.prompt.at(-1));
+        return {
+          content: r.tool
+            ? [{ type: "tool-call" as const, toolCallId: r.tool.id, toolName: r.tool.name, input: JSON.stringify(r.tool.input) }]
+            : [{ type: "text" as const, text: r.text }],
+          finishReason: { unified: r.finish, raw: r.finish },
+          usage: { inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 0, text: undefined, reasoning: undefined } },
+          warnings: [],
+        };
+      },
+    }),
 };
 const relay = new FakeRelay();
-const service = new ConversationService(db, new Agent(client as any, { model: "x", effort: "low", maxSteps: 4, productName: "Escape Director", productDescription: "" }), relay, { settings: loadSettings(), log: console.error });
+const service = new ConversationService(db, new Agent(client, { model: "x", effort: "low", maxSteps: 4, productName: "Escape Director", productDescription: "" }), relay, { settings: loadSettings(), log: console.error });
 await relay.start((r) => service.handleStaffReply(r.threadId, r.authorName, r.body));
 (globalThis as any).relay = relay;
 const app = createServer(service, { allowedOrigins: [], maxConversationsPerIpPerHour: 50, maxMessagesPerConversationPerHour: 50, identitySecret: SECRET });
