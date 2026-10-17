@@ -307,6 +307,8 @@ button { font: inherit; color: inherit; }
   transition: opacity .2s ease, transform .25s cubic-bezier(.2,.8,.2,1), visibility 0s linear .25s;
 }
 .left .panel { right: auto; left: var(--wk-x); transform-origin: bottom left; }
+/* No launcher (the host has its own button): nothing to leave room for, so the panel sits in the corner. */
+@media (min-width: 641px) { .wk.no-launcher .panel { bottom: var(--wk-y); height: min(760px, calc(100vh - var(--wk-y) * 2)); } }
 /* Under the host's own button (theme anchor): drops down from it, right edges aligned. */
 .wk.anchored .panel, .wk.left.anchored .panel { top: var(--wk-at); right: var(--wk-ar); left: auto; bottom: auto;
   width: min(440px, calc(100vw - var(--wk-ar) - 8px)); height: var(--wk-ah); transform: translateY(-8px) scale(.98); transform-origin: top right; }
@@ -456,32 +458,29 @@ button { font: inherit; color: inherit; }
 .ask-team button:hover { border-color: color-mix(in srgb, var(--wk-text) 25%, var(--wk-border)); }
 .ask-team button:disabled { opacity: .6; cursor: default; }
 /* "How we got this": the numbers behind an analytics answer, folded by default. */
-.ev { margin: 6px 0 0; font-size: 12.5px; color: var(--wk-muted); }
-.ev summary { cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 5px; padding: 2px 4px; border-radius: 6px; font-weight: 550; }
+.ev { margin: -2px 0 0 4px; font-size: 11.5px; color: var(--wk-muted); }
+.ev summary { cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 4px; padding: 2px 0; border-radius: 6px; font-weight: 500; }
+.ev .en { opacity: .7; }
 .ev summary::-webkit-details-marker { display: none; }
 .ev summary:hover { color: var(--wk-text); }
 .ev summary svg { width: 12px; height: 12px; transition: transform .15s; }
 .ev[open] summary svg { transform: rotate(90deg); }
 .ev ol { list-style: none; margin: 6px 0 2px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .ev li { padding: 8px 10px; border-radius: 10px; background: color-mix(in srgb, var(--wk-text) 4%, transparent); border: 1px solid var(--wk-border); }
-.ev li.hit { border-color: color-mix(in srgb, var(--wk-accent) 55%, var(--wk-border)); }
 .ev .er { display: flex; align-items: baseline; gap: 8px; }
-.ev .ei { flex: none; font-size: 10.5px; font-weight: 650; color: var(--wk-muted); }
 .ev .el { flex: 1; min-width: 0; color: var(--wk-text); }
 .ev .evv { flex: none; font-weight: 650; color: var(--wk-text); font-variant-numeric: tabular-nums; }
-.ev .es { margin-top: 2px; padding-left: 24px; font-size: 11.5px; }
-.ev .ec { margin-top: 3px; padding-left: 24px; font-size: 11.5px; color: color-mix(in srgb, #f59e0b 80%, var(--wk-text)); }
-.evref { font-size: .68em; font-weight: 650; vertical-align: super; line-height: 0; margin-left: 1px; padding: 0 2px; border: 0; background: none;
-  color: var(--wk-muted); cursor: pointer; font-family: inherit; }
-.evref:hover { color: var(--wk-text); }
+.ev .es { margin-top: 2px; font-size: 11.5px; }
+.ev .ec { margin-top: 3px; font-size: 11.5px; color: color-mix(in srgb, #f59e0b 80%, var(--wk-text)); }
 /* Follow-up questions under the latest answer. */
-.next { display: flex; flex-direction: column; gap: 6px; margin: 2px 0 6px 4px; animation: wk-in .25s ease; }
-.next-h { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--wk-muted); }
+.next { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 6px 4px; animation: wk-in .25s ease; }
+.next-h { font-size: 11.5px; font-weight: 550; color: var(--wk-muted); }
 .next-c { display: flex; flex-wrap: wrap; gap: 6px; }
-.next .chip { padding: 6px 12px; font-size: 12.5px; text-align: left; }
+.next .chip { padding: 5px 11px; font-size: 12.5px; font-weight: 500; text-align: left; }
 /* The bot check (Cloudflare Turnstile) before a visitor's first answer. */
 .check { display: none; margin: 0 0 8px; }
 .check.on { display: block; }
+.check.passed { height: 0; margin: 0; overflow: hidden; }
 .check-t { font-size: 12.5px; color: var(--wk-muted); margin: 0 2px 6px; display: none; }
 .check.ask .check-t { display: block; }
 .row.cont { margin-top: -2px; }
@@ -592,10 +591,12 @@ button { font: inherit; color: inherit; }
 .closed .linkish:hover { color: var(--wk-text) !important; }
 .wk.list .titles .subtitle { display: none; }
 .wk.home .hist { display: none; }
-.chip { border: 1px solid color-mix(in srgb, var(--wk-accent) 35%, var(--wk-border)); background: var(--wk-bg); color: var(--wk-accent);
+/* Suggestion chips. --wk-chip, --wk-chip-text, --wk-chip-border and --wk-chip-hover restyle them (e.g. neutral). */
+.chip { border: 1px solid var(--wk-chip-border, color-mix(in srgb, var(--wk-accent) 35%, var(--wk-border)));
+  background: var(--wk-chip, var(--wk-bg)); color: var(--wk-chip-text, var(--wk-accent));
   border-radius: 999px; padding: 7px 13px; font-size: 13px; font-weight: 550; cursor: pointer; transition: background .15s, transform .15s; }
-.wk.dark .chip { color: color-mix(in srgb, var(--wk-accent) 60%, white); }
-.chip:hover { background: color-mix(in srgb, var(--wk-accent) 8%, var(--wk-bg)); transform: translateY(-1px); }
+.wk.dark .chip { color: var(--wk-chip-text, color-mix(in srgb, var(--wk-accent) 60%, white)); }
+.chip:hover { background: var(--wk-chip-hover, color-mix(in srgb, var(--wk-accent) 8%, var(--wk-bg))); transform: translateY(-1px); }
 
 .composer { padding: 12px; background: var(--wk-bg); border-top: 1px solid var(--wk-border); }
 .field { display: flex; align-items: flex-end; gap: 8px; padding: 6px 6px 6px 14px; border-radius: calc(var(--wk-radius) * .8);
@@ -679,7 +680,7 @@ textarea::placeholder { color: var(--wk-muted); }
   .left .panel { left: 0; }
   .wk.page .panel { inset: auto 0 auto 0; top: var(--wk-vtop, 0px); margin: 0; width: 100%; height: var(--wk-vh, 100dvh); }
   .wk.open .launcher { display: none; }
-  .head { padding-top: env(safe-area-inset-top); }
+  .head { padding-top: max(18px, env(safe-area-inset-top)); }
   .composer { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
   textarea, .email input, .pv-reply input { font-size: 16px; }
   .pv, .left .pv { right: 8px; left: auto; }
@@ -814,6 +815,7 @@ class Widget {
     this.source?.close();
     this.source = null;
     for (const undo of this.teardown.splice(0)) undo();
+    this.fitToScreen(false);
     this.setAnchor(null);
     this.host.remove();
   }
@@ -829,7 +831,9 @@ class Widget {
     this.setUnread(0);
     this.sendPresence();
     if (this.session?.botCheck && !this.conv) this.renderBotCheck(false);
-    setTimeout(() => this.input.focus(), 50);
+    // On a phone, focusing at once pops the keyboard while the panel is still opening and the page
+    // flashes; the person taps the message box when they're ready.
+    if (!window.matchMedia?.("(max-width: 640px)").matches) setTimeout(() => this.input.focus(), 50);
     if (!was) emit("open");
   }
 
@@ -877,8 +881,8 @@ class Widget {
   }
 
   /**
-   * Puts the panel and the preview just below the anchor, right edges aligned and kept 8px inside the
-   * screen. Without a visible anchor they fall back to the corner; on phones the panel stays full screen.
+   * Puts the panel and the preview just below the anchor, against the right side of the screen like a
+   * side panel (or right edges aligned when the anchor is too far left for that). Without a visible anchor they fall back to the corner; on phones the panel stays full screen.
    */
   private place() {
     const a = this.anchor;
@@ -893,7 +897,9 @@ class Widget {
     const top = Math.round(r.bottom + 8);
     const s = this.wrap.style;
     s.setProperty("--wk-at", `${top}px`);
-    s.setProperty("--wk-ar", `${Math.max(8, Math.round(vw - r.right))}px`);
+    const fromRight = vw - r.right;
+    // The panel is up to 440px wide: if it still sits under the anchor against the side, put it there.
+    s.setProperty("--wk-ar", `${fromRight < 440 - 2 * EDGE ? EDGE : Math.max(8, Math.round(fromRight))}px`);
     s.setProperty("--wk-ah", `${Math.max(200, Math.min(640, vh - top - 12))}px`);
   }
 
@@ -944,10 +950,11 @@ class Widget {
   }
 
   private viewportListener?: () => void;
-  private pageOverflow: string | null = null;
+  /** The page's own styles and scroll position while the fullscreen chat locks it. */
+  private pageLock: { html: string; body: string; y: number } | null = null;
 
   /**
-   * On a phone the chat is fullscreen: the page behind it stops scrolling, and the panel tracks the
+   * On a phone the chat is fullscreen: the page behind it can't scroll, and the panel tracks the
    * visible area so the on-screen keyboard never covers the message box.
    */
   private fitToScreen(on: boolean) {
@@ -955,25 +962,41 @@ class Widget {
     const vv = window.visualViewport;
     const host = this.root.host as HTMLElement;
     if (on && phone) {
-      if (this.pageOverflow === null) {
-        this.pageOverflow = document.documentElement.style.overflow;
-        document.documentElement.style.overflow = "hidden";
+      if (!this.pageLock) {
+        // overflow: hidden alone doesn't stop iOS Safari scrolling the page to show the focused box,
+        // which made the chat jump while typing. Pinning the body does.
+        const html = document.documentElement;
+        const body = document.body;
+        this.pageLock = { html: html.style.cssText, body: body.style.cssText, y: window.scrollY };
+        html.style.overflow = "hidden";
+        Object.assign(body.style, { position: "fixed", top: `-${this.pageLock.y}px`, left: "0", right: "0", width: "100%", overflow: "hidden" });
       }
       if (vv && !this.viewportListener) {
-        this.viewportListener = () => {
+        let frame = 0;
+        let height = 0;
+        const update = () => {
+          frame = 0;
           host.style.setProperty("--wk-vh", `${vv.height}px`);
           host.style.setProperty("--wk-vtop", `${vv.offsetTop}px`);
-          this.scrollDown();
+          // Keep the latest message in view when the keyboard opens or closes, not on every scroll.
+          if (Math.abs(vv.height - height) > 1) this.scrollDown();
+          height = vv.height;
         };
-        this.viewportListener();
+        this.viewportListener = () => {
+          if (!frame) frame = requestAnimationFrame(update);
+        };
+        update();
         vv.addEventListener("resize", this.viewportListener);
         vv.addEventListener("scroll", this.viewportListener);
       }
       return;
     }
-    if (this.pageOverflow !== null) {
-      document.documentElement.style.overflow = this.pageOverflow;
-      this.pageOverflow = null;
+    if (this.pageLock) {
+      const { html, body, y } = this.pageLock;
+      this.pageLock = null;
+      document.documentElement.style.cssText = html;
+      document.body.style.cssText = body;
+      window.scrollTo({ top: y, behavior: "instant" as ScrollBehavior });
     }
     if (vv && this.viewportListener) {
       vv.removeEventListener("resize", this.viewportListener);
@@ -1588,7 +1611,7 @@ class Widget {
     }
     if (this.turnstileId !== "") this.turnstileId = null;
     this.turnstileToken = null;
-    this.checkEl.classList.remove("on", "ask");
+    this.checkEl.classList.remove("on", "ask", "passed");
   }
 
   /**
@@ -1637,7 +1660,13 @@ class Widget {
           size: "flexible",
           appearance: "interaction-only",
           "refresh-expired": "auto",
+          // Turnstile keeps showing "Success" after a challenge, so hide the check once it passes and
+          // show it again only when Turnstile needs the visitor. It stays rendered (just collapsed) so it can
+          // get the next token in the background.
+          "before-interactive-callback": () => this.checkEl.classList.remove("passed"),
           callback: (t: string) => {
+            this.checkEl.classList.add("passed");
+            this.checkEl.classList.remove("ask");
             if (this.turnstileWait) this.turnstileWait.resolve(t);
             else this.turnstileToken = t;
           },
@@ -1831,7 +1860,6 @@ class Widget {
       for (const btn of row.querySelectorAll<HTMLButtonElement>(".rate button")) {
         btn.addEventListener("click", () => void this.rate(m, btn.dataset.r as "up" | "down", row));
       }
-      for (const ref of row.querySelectorAll<HTMLElement>(".evref")) ref.addEventListener("click", () => this.showEvidence(row, ref.dataset.e!));
       this.refreshAnswer(m, row);
     }
     this.log.insertBefore(row, this.typing);
@@ -1853,13 +1881,6 @@ class Widget {
       meta ? meta.after(ev) : col.appendChild(ev);
     }
     if (row === this.lastRow && m.followUps?.length && !this.nextEl) this.showFollowUps(m.followUps);
-  }
-
-  private showEvidence(row: HTMLElement, id: string) {
-    const ev = row.querySelector<HTMLDetailsElement>(".ev");
-    if (!ev) return;
-    ev.open = true;
-    for (const li of ev.querySelectorAll<HTMLElement>("li")) li.classList.toggle("hit", li.dataset.e === id);
   }
 
   private showFollowUps(questions: string[]) {
@@ -2152,19 +2173,22 @@ export function renderMarkdown(text: string, opts: { evidence?: boolean } = {}):
   return html;
 }
 
-/** [E1] in an answer becomes a small marker that opens "How we got this" at that item. */
+/**
+ * The assistant cites [E1] so it only quotes numbers its tools returned, but the markers just repeat the
+ * sentence for the reader, so they're left out; "How we got this" lists the basis instead.
+ */
 function evidenceRefs(html: string): string {
-  return html.replace(/[^\S\n]*\[(E\d{1,3})\](?!\()/g, '<button type="button" class="evref" data-e="$1" title="See how we got this">$1</button>');
+  return html.replace(/[^\S\n]*\[E\d{1,3}\](?!\()/g, "");
 }
 
 function evidenceEl(items: Evidence[]): HTMLDetailsElement {
   const el = document.createElement("details");
   el.className = "ev";
-  el.innerHTML = `<summary>${ICONS.caret}How we got this</summary><ol>${items
+  el.innerHTML = `<summary>${ICONS.caret}How we got this <span class="en">· ${items.length}</span></summary><ol>${items
     .map((e) => {
       const sub = [e.period, e.basis].filter(Boolean).map((x) => escapeHtml(String(x))).join(" · ");
       const caveats = (e.caveats ?? []).filter(Boolean).map((c) => escapeHtml(String(c))).join(" · ");
-      return `<li data-e="${escapeAttr(String(e.id))}"><div class="er"><span class="ei">${escapeHtml(String(e.id))}</span><span class="el">${escapeHtml(String(e.label))}</span><span class="evv">${escapeHtml(String(e.value))}</span></div>${
+      return `<li data-e="${escapeAttr(String(e.id))}"><div class="er"><span class="el">${escapeHtml(String(e.label))}</span><span class="evv">${escapeHtml(String(e.value))}</span></div>${
         sub ? `<div class="es">${sub}</div>` : ""
       }${caveats ? `<div class="ec">${caveats}</div>` : ""}</li>`;
     })
@@ -2179,6 +2203,9 @@ function inlineMarkdown(text: string): string {
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
     .replace(/`([^`\n]+)`/g, "<code>$1</code>");
 }
+
+/** Gap between a side panel and the screen edge. */
+const EDGE = 12;
 
 let instance: Widget | null = null;
 const api = {
