@@ -91,9 +91,7 @@ h2 .serif{font-size:1.08em}
 .aurora{position:absolute;inset:-64px 0 auto;height:980px;pointer-events:none;z-index:-1;overflow:hidden}
 .aurora::before{content:"";position:absolute;left:50%;top:-260px;width:1300px;height:900px;transform:translateX(-50%);background:radial-gradient(closest-side,rgba(79,70,229,.42),rgba(79,70,229,.12) 55%,transparent 75%);filter:blur(10px)}
 .aurora::after{content:"";position:absolute;inset:0;background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);background-size:64px 64px;-webkit-mask-image:radial-gradient(ellipse 60% 55% at 50% 30%,#000 20%,transparent 75%);mask-image:radial-gradient(ellipse 60% 55% at 50% 30%,#000 20%,transparent 75%);opacity:.55}
-.badge{display:inline-flex;align-items:center;gap:10px;height:32px;padding:0 14px 0 6px;border-radius:999px;background:rgba(255,255,255,.04);box-shadow:inset 0 0 0 1px var(--line2);font-size:13px;color:var(--muted);text-decoration:none}
-.badge b{display:inline-flex;align-items:center;height:22px;padding:0 9px;border-radius:999px;background:color-mix(in srgb,var(--acc) 30%,transparent);color:#d7d5ff;font-weight:600;font-size:12px}
-.hero h1{font-size:clamp(46px,8vw,96px);margin:28px auto 0;max-width:980px;line-height:.98;letter-spacing:-.045em}
+.hero h1{font-size:clamp(46px,8vw,96px);margin:24px auto 0;max-width:980px;line-height:.98;letter-spacing:-.045em}
 .hero h1 .serif{font-size:1.1em;letter-spacing:-.02em;background:linear-gradient(100deg,#c9c6ff 10%,#fff 45%,#a5a0ff 90%);-webkit-background-clip:text;background-clip:text;color:transparent;padding-right:.06em}
 .hero .lede{margin:26px auto 0;text-align:center}
 .hero .ctas{display:flex;gap:12px;justify-content:center;margin-top:36px;flex-wrap:wrap}
@@ -472,7 +470,6 @@ footer a{text-decoration:none}footer a:hover{color:var(--text)}
   <section class="hero">
     <div class="aurora" aria-hidden="true"></div>
     <div class="wrap">
-      <a class="badge rv" href="https://github.com/Stixels/wicket"><b>MIT</b>Free and open source<svg width="14" height="14" aria-hidden="true"><use href="#i-arrow"/></svg></a>
       <h1 class="rv d1">The support chat that <span class="serif">closes the loop.</span></h1>
       <p class="lede rv d2">Wicket answers from your docs, hands the rest to your team with everything they need, and logs every bug and idea. When one ships, everyone who asked hears about it.</p>
       <div class="ctas rv d3">
