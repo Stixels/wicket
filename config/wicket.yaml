@@ -32,11 +32,12 @@ knowledge:
     exclude: [THIRD_PARTY.md, TRADEMARKS.md]
 
 profiles:
-  # Marketing site, sign-in and sign-up. Everyone here shares one small pot, then messages go to
-  # the team. No bot check for now: the pot caps the cost, and botCheck can be turned on later. Visitors can't log reports: we couldn't follow up with them.
+  # Marketing site, sign-in and sign-up. Everyone here shares one small pot, after a bot check,
+  # then messages go to the team. Visitors can't log reports: we couldn't follow up with them.
   visitor:
     budget: 3.00
     budgetScope: shared
+    botCheck: true
     tickets: false
     askEmail: true
     instructions: >
