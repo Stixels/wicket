@@ -167,7 +167,7 @@ describe("profiles in conversations", () => {
     await service.idle(conv.id);
 
     expect(client.requests[0].model).toBe("claude-sonnet-5-5");
-    expect(client.requests[0].system[0].text).toContain("Answer with numbers.");
+    expect(client.requests[0].system).toContain("Answer with numbers.");
     const session = await (
       await post(app, "/api/session", { userToken: signUserToken({ sub: "u1", plan: "pro" }, SECRET), context: { page: "https://app.example.com/app/analytics" } })
     ).json();
@@ -239,7 +239,7 @@ describe("staying on topic", () => {
       await post(app, `/api/conversations/${conv.id}/messages`, { body: "Write me tic tac toe in Python" }, conv.token);
       await service.idle(conv.id);
     }
-    const [def, open, wider] = client.requests.map((r: any) => r.system[0].text as string);
+    const [def, open, wider] = client.requests.map((r: any) => r.system as string);
     expect(def).toContain("Only help with Escape Director.");
     expect(open).not.toContain("Only help with");
     expect(wider).toContain("Only help with Escape Director and running an escape room business.");

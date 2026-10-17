@@ -1,13 +1,13 @@
 import crypto from "node:crypto";
 import { EventEmitter } from "node:events";
 import { asc, desc, eq, sql } from "drizzle-orm";
-import type Anthropic from "@anthropic-ai/sdk";
 import { schema, type Db } from "./db/index.js";
 import type { Evidence, TicketCard } from "./db/schema.js";
 import { citedEvidence, loadAppTools, type AppToolsTurn } from "./appTools.js";
 import { ThreadGoneError, type Relay, type RelayFile } from "./adapters/types.js";
 import { FileStore, MAX_MODEL_IMAGE_BYTES, MODEL_IMAGE_TYPES, formatSize, type Attachment } from "./files.js";
 import type { Agent } from "./agent/agent.js";
+import { blocksOf, type Block, type Turn } from "./agent/transcript.js";
 import { readDoc, searchDocs } from "./knowledge/index.js";
 import type { Identity } from "./identity.js";
 import { appToolsUrl, parseSettings, pathFromContext, resolveProfile, type Profile, type Settings } from "./settings.js";
@@ -16,7 +16,6 @@ import { Members, type Member } from "./team/members.js";
 import type { TicketNotice, TicketDesk } from "./tickets.js";
 import type { TicketTools } from "./agent/agent.js";
 
-type MessageParam = Anthropic.Beta.Messages.BetaMessageParam;
 type Author = "user" | "agent" | "staff" | "system" | "note";
 type Status = "agent" | "needs_human" | "human" | "resolved";
 
@@ -641,7 +640,7 @@ export class ConversationService {
     }
 
     const isFirst = this.loadTurns(id).length === 0;
-    const content: Anthropic.Beta.Messages.BetaContentBlockParam[] = [];
+    const content: Block[] = [];
     // The context goes in with the first message, and again whenever it changed (another page, Room or dates).
     const contextJson = c.context ? JSON.stringify(c.context, null, 2) : null;
     if (contextJson && (isFirst || this.sentContext.get(id) !== contextJson)) {
@@ -651,7 +650,7 @@ export class ConversationService {
     // Files go in as markers; history() turns image markers into images for the model.
     for (const a of attachments) content.push({ type: "text", text: `<wicket-file id="${a.id}"/>` });
     if (body) content.push({ type: "text", text: body });
-    const userTurn: MessageParam = { role: "user", content };
+    const userTurn: Turn = { role: "user", content };
     this.saveTurns(id, [userTurn]);
 
     this.events.emit(id, { type: "typing" });
@@ -866,7 +865,7 @@ export class ConversationService {
     this.db.update(schema.conversations).set({ context }).where(eq(schema.conversations.id, id)).run();
   }
 
-  private loadTurns(id: string): MessageParam[] {
+  private loadTurns(id: string): Turn[] {
     return this.db
       .select()
       .from(schema.agentTurns)
@@ -877,8 +876,8 @@ export class ConversationService {
   }
 
   /** Stored turns with consecutive user turns merged, so the API always sees alternating roles. */
-  private history(id: string): MessageParam[] {
-    const out: MessageParam[] = [];
+  private history(id: string): Turn[] {
+    const out: Turn[] = [];
     for (const stored of this.loadTurns(id)) {
       const turn = stored.role === "user" ? { ...stored, content: asBlocks(stored.content).flatMap((b) => this.expandFile(b)) } : stored;
       const last = out[out.length - 1];
@@ -892,7 +891,7 @@ export class ConversationService {
   }
 
   /** A file marker becomes the image itself, or a note the model can pass on, so it knows what was sent. */
-  private expandFile(block: Anthropic.Beta.Messages.BetaContentBlockParam): Anthropic.Beta.Messages.BetaContentBlockParam[] {
+  private expandFile(block: Block): Block[] {
     if (block.type !== "text") return [block];
     const m = /^<wicket-file id="([\w-]+)"\/>$/.exec(block.text);
     if (!m) return [block];
@@ -903,14 +902,14 @@ export class ConversationService {
       if (data) {
         return [
           { type: "text", text: `[The user attached an image: ${file.name}]` },
-          { type: "image", source: { type: "base64", media_type: file.type as "image/png", data: data.toString("base64") } },
+          { type: "image", source: { type: "base64", media_type: file.type, data: data.toString("base64") } },
         ];
       }
     }
     return [{ type: "text", text: `[The user attached ${file.name} (${file.type}, ${formatSize(file.size)}). You can't open it, but the team can.]` }];
   }
 
-  private saveTurns(id: string, turns: MessageParam[]) {
+  private saveTurns(id: string, turns: Turn[]) {
     if (!turns.length) return;
     this.db
       .insert(schema.agentTurns)
@@ -932,9 +931,7 @@ function previewText(m: PublicMessage): string {
   return m.body || (m.attachments[0] ? `📎 ${m.attachments[0].name}` : "");
 }
 
-function asBlocks(content: MessageParam["content"]): Anthropic.Beta.Messages.BetaContentBlockParam[] {
-  return typeof content === "string" ? [{ type: "text", text: content }] : [...content];
-}
+const asBlocks = (content: Turn["content"]): Block[] => [...blocksOf(content)];
 
 function toPublic(m: typeof schema.messages.$inferSelect): PublicMessage {
   return {

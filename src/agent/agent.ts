@@ -1,11 +1,10 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { generateText, jsonSchema, tool, type LanguageModel, type LanguageModelUsage, type ToolSet } from "ai";
 import type { SearchHit } from "../knowledge/index.js";
 import type { TokenUsage } from "../usage.js";
 import type { TicketKind } from "../adapters/types.js";
+import { cachedInstructions, fromStep, textOf, toModelMessages, type Block, type Turn } from "./transcript.js";
 
-type MessageParam = Anthropic.Beta.Messages.BetaMessageParam;
-type ContentBlock = Anthropic.Beta.Messages.BetaContentBlock;
-type ToolResult = Anthropic.Beta.Messages.BetaToolResultBlockParam;
+type ToolResult = Extract<Block, { type: "tool_result" }>;
 
 export interface AgentTools {
   searchDocs(query: string): SearchHit[];
@@ -40,7 +39,7 @@ export interface AgentOptions {
   maxSteps: number;
   productName: string;
   productDescription: string;
-  /** Anthropic's server-side refusal fallback. Only available when calling Anthropic directly. */
+  /** Anthropic's server-side refusal fallback, for Anthropic models. Only available when calling Anthropic directly. */
   serverFallback?: boolean;
   /** Maps a model id from settings to what the API expects (e.g. the AI Gateway's naming). */
   modelId?: (id: string) => string;
@@ -51,8 +50,8 @@ export interface AgentOptions {
 }
 
 export interface AgentResult {
-  /** Turns to append to the stored transcript, in order, exactly as sent/received. */
-  newTurns: MessageParam[];
+  /** Turns to append to the stored transcript, in order. */
+  newTurns: Turn[];
   /** Text to show the user ("" if the agent only handed off). */
   reply: string;
   handedOff: boolean;
@@ -75,23 +74,23 @@ export interface TurnOptions {
   maxSteps?: number;
   /** Ask the model for a few questions the person might ask next. */
   followUps?: boolean;
-  /** Passed through to the AI Gateway as `providerOptions`. */
+  /** AI SDK `providerOptions` for each model request, merged over the ones the agent sets. */
   providerOptions?: Record<string, Record<string, unknown>>;
 }
 
-/** The subset of the SDK the agent uses, so tests can pass a fake. */
-export interface MessagesClient {
-  beta: { messages: { create(params: any): Promise<{ content: ContentBlock[]; stop_reason: string | null; usage?: ApiUsage | null }> } };
+/** Where models come from: the AI Gateway or Anthropic provider, or a fake in tests. */
+export interface ModelProvider {
+  languageModel(id: string): LanguageModel;
 }
 
-interface ApiUsage {
-  input_tokens?: number | null;
-  output_tokens?: number | null;
-  cache_read_input_tokens?: number | null;
-  cache_creation_input_tokens?: number | null;
+interface ToolDef {
+  name: string;
+  description: string;
+  strict?: boolean;
+  input_schema: Record<string, unknown>;
 }
 
-const TOOLS: Anthropic.Beta.Messages.BetaTool[] = [
+const TOOLS: ToolDef[] = [
   {
     name: "search_docs",
     description:
@@ -137,7 +136,7 @@ const USER_SUMMARY = {
   description: "How the user would describe it, as a short noun phrase in their words, e.g. \"the timer drifting after a pause\". Shown to them in updates about it.",
 } as const;
 
-const TICKET_TOOLS: Anthropic.Beta.Messages.BetaTool[] = [
+const TICKET_TOOLS: ToolDef[] = [
   {
     name: "find_tickets",
     description:
@@ -242,17 +241,17 @@ The app may attach context such as the page the user is on, their app version an
 
 export class Agent {
   constructor(
-    private client: MessagesClient,
+    private models: ModelProvider,
     private opts: AgentOptions,
   ) {}
 
   /**
    * Runs the tool loop for one user turn. `history` must already end with the new user turn.
-   * Every assistant response is kept unchanged in `newTurns` so the transcript can be replayed.
+   * Every model response is kept in `newTurns`, in the stored block shape, so the transcript can be replayed.
    */
-  async respond(history: MessageParam[], tools: AgentTools, turn: TurnOptions = {}): Promise<AgentResult> {
+  async respond(history: Turn[], tools: AgentTools, turn: TurnOptions = {}): Promise<AgentResult> {
     const messages = [...history];
-    const newTurns: MessageParam[] = [];
+    const newTurns: Turn[] = [];
     const usage: TokenUsage[] = [];
     let handedOff = false;
     const model = turn.model ? (this.opts.modelId?.(turn.model) ?? turn.model) : this.opts.model;
@@ -261,49 +260,44 @@ export class Agent {
     const reserved = new Set(builtIn.map((t) => t.name));
     const appTools = (tools.app?.tools ?? []).filter((t) => !reserved.has(t.name));
     const appNames = new Set(appTools.map((t) => t.name));
-    const toolDefs: Anthropic.Beta.Messages.BetaTool[] = [
-      ...builtIn,
-      ...appTools.map((t) => ({ name: t.name, description: t.description, input_schema: t.inputSchema as Anthropic.Beta.Messages.BetaTool["input_schema"] })),
-    ];
+    // Declared without execute: the loop below runs each call itself.
+    const toolSet: ToolSet = Object.fromEntries(
+      [...builtIn, ...appTools.map((t): ToolDef => ({ name: t.name, description: t.description, input_schema: t.inputSchema }))].map((t) => [
+        t.name,
+        tool({ description: t.description, inputSchema: jsonSchema(t.input_schema as Parameters<typeof jsonSchema>[0]), ...(t.strict ? { strict: true } : {}) }),
+      ]),
+    );
+    const { providerOptions, reasoning } = requestOptions(model, turn.effort ?? this.opts.effort, turn.providerOptions, this.opts.serverFallback);
     const finish = (reply: string, handedOff: boolean): AgentResult => {
       const { text, followUps } = turn.followUps ? splitFollowUps(reply) : { text: reply, followUps: [] };
       return { newTurns, reply: text, handedOff, usage, followUps: handedOff ? [] : followUps };
     };
 
     for (let step = 0; step < (turn.maxSteps ?? this.opts.maxSteps); step++) {
-      const response = await this.client.beta.messages.create({
-        model,
-        max_tokens: 16000,
-        system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
-        tools: toolDefs,
-        messages: withCacheBreakpoint(messages),
-        output_config: { effort: turn.effort ?? this.opts.effort },
-        ...(turn.providerOptions ? { providerOptions: turn.providerOptions } : {}),
-        // On a safety decline, retry on a fallback model chosen by refusal category.
-        ...(this.opts.serverFallback ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" } : {}),
+      const response = await generateText({
+        model: this.models.languageModel(model),
+        maxOutputTokens: 16000,
+        instructions: cachedInstructions(system),
+        messages: toModelMessages(messages, { cacheLast: true }),
+        tools: toolSet,
+        providerOptions: providerOptions as Parameters<typeof generateText>[0]["providerOptions"],
+        ...(reasoning ? { reasoning } : {}),
       });
 
-      usage.push({
-        model,
-        input: response.usage?.input_tokens ?? 0,
-        output: response.usage?.output_tokens ?? 0,
-        cacheRead: response.usage?.cache_read_input_tokens ?? 0,
-        cacheWrite: response.usage?.cache_creation_input_tokens ?? 0,
-      });
-      const assistant: MessageParam = { role: "assistant", content: response.content as any };
+      usage.push(tokenUsage(model, response.usage));
+      const assistant = fromStep(response.content);
       messages.push(assistant);
       newTurns.push(assistant);
 
-      if (response.stop_reason === "refusal") {
+      // A safety decline (Anthropic's "refusal", or a provider's content filter).
+      if (response.finishReason === "content-filter") {
         if (!handedOff) await tools.handoff("The assistant couldn't help with this message.");
         return finish("I can't help with that one here, so I've asked someone from the team to reply.", true);
       }
 
-      const toolUses = response.content.filter(
-        (b): b is Anthropic.Beta.Messages.BetaToolUseBlock => b.type === "tool_use",
-      );
-      if (response.stop_reason !== "tool_use" || toolUses.length === 0) {
-        return finish(textOf(response.content), handedOff);
+      const toolUses = blocksOfType(assistant, "tool_use");
+      if (response.finishReason !== "tool-calls" || toolUses.length === 0) {
+        return finish(textOf(assistant.content), handedOff);
       }
 
       const results: ToolResult[] = [];
@@ -348,7 +342,7 @@ export class Agent {
           results.push({ type: "tool_result", tool_use_id: use.id, content: `Unknown tool ${use.name}`, is_error: true });
         }
       }
-      const toolTurn: MessageParam = { role: "user", content: results };
+      const toolTurn: Turn = { role: "user", content: results };
       messages.push(toolTurn);
       newTurns.push(toolTurn);
     }
@@ -389,24 +383,39 @@ export async function answerOnce(agent: Agent, question: string, docs: Pick<Agen
   return { reply: result.reply, needsHuman: needsHuman || result.handedOff };
 }
 
+const blocksOfType = <T extends Block["type"]>(turn: Turn, type: T) =>
+  (typeof turn.content === "string" ? [] : turn.content).filter((b): b is Extract<Block, { type: T }> => b.type === type);
+
+/** "openai/gpt-6-luna" -> "openai"; bare ids are Anthropic's, as when calling Anthropic directly. */
+const providerOf = (model: string) => (model.includes("/") ? model.slice(0, model.indexOf("/")) : "anthropic");
+
 /**
- * Marks the newest block so the next call reads the conversation so far from the cache instead of
- * paying full price for it again. Returns copies; the stored transcript is left unchanged.
+ * Effort in each provider's own option (Anthropic `effort`, OpenAI `reasoningEffort`, the portable
+ * `reasoning` setting elsewhere), with the profile's `providerOptions` merged over it.
  */
-export function withCacheBreakpoint(messages: MessageParam[]): MessageParam[] {
-  const last = messages.at(-1);
-  if (!last) return messages;
-  const blocks = typeof last.content === "string" ? [{ type: "text" as const, text: last.content }] : last.content;
-  const end = blocks.at(-1);
-  if (!end || end.type === "thinking" || end.type === "redacted_thinking") return messages;
-  const marked = { ...last, content: [...blocks.slice(0, -1), { ...end, cache_control: { type: "ephemeral" } } as typeof end] };
-  return [...messages.slice(0, -1), marked];
+export function requestOptions(
+  model: string,
+  effort: AgentOptions["effort"],
+  extra: TurnOptions["providerOptions"] = {},
+  serverFallback = false,
+): { providerOptions: Record<string, Record<string, unknown>>; reasoning?: AgentOptions["effort"] } {
+  const provider = providerOf(model);
+  const own: Record<string, Record<string, unknown>> =
+    provider === "anthropic"
+      ? // On a safety decline, the API retries on a fallback model chosen by refusal category.
+        { anthropic: { effort, ...(serverFallback ? { fallbacks: "default" } : {}) } }
+      : provider === "openai"
+        ? { openai: { reasoningEffort: effort } }
+        : {};
+  const providerOptions = { ...own };
+  for (const [key, value] of Object.entries(extra)) providerOptions[key] = { ...own[key], ...value };
+  return { providerOptions, ...(provider === "anthropic" || provider === "openai" ? {} : { reasoning: effort }) };
 }
 
-function textOf(content: ContentBlock[]): string {
-  return content
-    .filter((b): b is Anthropic.Beta.Messages.BetaTextBlock => b.type === "text")
-    .map((b) => b.text)
-    .join("\n")
-    .trim();
+/** The SDK's usage in the ledger's terms; uncached input excludes cache reads and writes. */
+function tokenUsage(model: string, u: LanguageModelUsage): TokenUsage {
+  const cacheRead = u.inputTokenDetails?.cacheReadTokens ?? 0;
+  const cacheWrite = u.inputTokenDetails?.cacheWriteTokens ?? 0;
+  const input = u.inputTokenDetails?.noCacheTokens ?? Math.max(0, (u.inputTokens ?? 0) - cacheRead - cacheWrite);
+  return { model, input, output: u.outputTokens ?? 0, cacheRead, cacheWrite };
 }

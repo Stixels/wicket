@@ -7,7 +7,8 @@
 // Uses the same env as the server (.env): a model key, the docs repo and config/wicket.yaml.
 // Docs are indexed into a throwaway database, so nothing touches the real one. Results print
 // as a table and are saved to evals/results/<time>.json.
-import Anthropic from "@anthropic-ai/sdk";
+import { createAnthropic } from "@ai-sdk/anthropic";
+import { createGateway } from "@ai-sdk/gateway";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -37,9 +38,9 @@ const config = loadConfig();
 const settings = loadSettings(config.WICKET_CONFIG);
 const gateway = Boolean(config.AI_GATEWAY_API_KEY);
 const client = gateway
-  ? new Anthropic({ apiKey: config.AI_GATEWAY_API_KEY, baseURL: config.AI_GATEWAY_URL })
+  ? createGateway({ apiKey: config.AI_GATEWAY_API_KEY, ...(config.AI_GATEWAY_URL ? { baseURL: config.AI_GATEWAY_URL } : {}) })
   : config.ANTHROPIC_API_KEY
-    ? new Anthropic({ apiKey: config.ANTHROPIC_API_KEY })
+    ? createAnthropic({ apiKey: config.ANTHROPIC_API_KEY })
     : null;
 if (!client) throw new Error("Set AI_GATEWAY_API_KEY or ANTHROPIC_API_KEY to run the eval");
 
@@ -76,7 +77,7 @@ interface Run {
 
 const runs: Run[] = [];
 for (const model of models) {
-  const agent = new Agent(client as any, {
+  const agent = new Agent(client, {
     model: gateway ? gatewayModelId(model) : model,
     effort: profile.effort ?? config.AGENT_EFFORT,
     maxSteps: config.AGENT_MAX_STEPS,

@@ -39,7 +39,7 @@ const profileSchema = z
       .strict()
       .optional(),
     /**
-     * Sent as-is as `providerOptions` on each model request, for the Vercel AI Gateway: e.g.
+     * AI SDK `providerOptions` for each model request, merged over the effort the assistant sets: e.g.
      * { gateway: { only: [openai] }, openai: { store: false } } to pin a provider and turn off its storage.
      */
     providerOptions: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),

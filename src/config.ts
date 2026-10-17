@@ -21,7 +21,7 @@ const schema = z.object({
 
   // Agent: set one key. The Vercel AI Gateway takes precedence when both are set.
   AI_GATEWAY_API_KEY: z.string().optional(),
-  AI_GATEWAY_URL: z.string().default("https://ai-gateway.vercel.sh"),
+  AI_GATEWAY_URL: z.string().optional(), // the AI SDK Gateway provider's base URL; defaults to Vercel's
   ANTHROPIC_API_KEY: z.string().optional(),
   AGENT_MODEL: z.string().default("claude-haiku-5-5"), // gateway ids get an "anthropic/" prefix if missing
   AGENT_EFFORT: z.enum(["low", "medium", "high", "xhigh", "max"]).default("low"),

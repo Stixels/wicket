@@ -1,4 +1,5 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { createAnthropic } from "@ai-sdk/anthropic";
+import { createGateway } from "@ai-sdk/gateway";
 import { serve } from "@hono/node-server";
 import { loadConfig } from "./config.js";
 import { openDb } from "./db/index.js";
@@ -28,16 +29,16 @@ const db = openDb(config.DATABASE_PATH);
 const sources = knowledgeSources(config, settings);
 
 // No key means no assistant: every conversation goes straight to the team.
-// The Vercel AI Gateway speaks the Anthropic Messages API, so only the URL, key and model id change.
+// Through the Vercel AI Gateway any provider's model works ("openai/..."), with its own provider options.
 const gateway = Boolean(config.AI_GATEWAY_API_KEY);
 const model = gateway ? gatewayModelId(config.AGENT_MODEL) : config.AGENT_MODEL;
-const anthropic = gateway
-  ? new Anthropic({ apiKey: config.AI_GATEWAY_API_KEY, baseURL: config.AI_GATEWAY_URL })
+const models = gateway
+  ? createGateway({ apiKey: config.AI_GATEWAY_API_KEY, ...(config.AI_GATEWAY_URL ? { baseURL: config.AI_GATEWAY_URL } : {}) })
   : config.ANTHROPIC_API_KEY
-    ? new Anthropic({ apiKey: config.ANTHROPIC_API_KEY })
+    ? createAnthropic({ apiKey: config.ANTHROPIC_API_KEY })
     : null;
-const agent = anthropic
-  ? new Agent(anthropic as any, {
+const agent = models
+  ? new Agent(models, {
       model,
       effort: config.AGENT_EFFORT,
       maxSteps: config.AGENT_MAX_STEPS,
@@ -102,10 +103,10 @@ if (config.RELAY === "discord") {
     ],
     answerCommunityPost: agent && settings.assistant.helpForum ? (q) => answerOnce(agent, q, { searchDocs: (query) => searchDocs(db, query), readDoc: (url) => readDoc(db, url) }) : undefined,
     tickets:
-      anthropic && desk
+      models && desk
         ? {
             desk,
-            draft: (transcript, ask) => draftTicket(anthropic, model, config.PRODUCT_NAME, transcript, ask),
+            draft: (transcript, ask) => draftTicket(models.languageModel(model), config.PRODUCT_NAME, transcript, ask),
             teamRoleId: config.DISCORD_TEAM_ROLE_ID,
             conversationFor: (threadId) => service.conversationForThread(threadId),
             conversationUrl: (id) => service.dashboardUrl(id),
@@ -178,7 +179,7 @@ if (relay) {
     (threadId, deleted) => service.resolve(threadId, deleted),
     ({ threadId, authorName, authorId }) => service.typingInThread(threadId, authorName, authorId),
   );
-  console.log(`relay: ${relay.name} connected${tracker && anthropic ? `, tag the bot to file ${tracker.name === "github" ? "GitHub issues" : "Linear tickets"}` : ""}`);
+  console.log(`relay: ${relay.name} connected${tracker && models ? `, tag the bot to file ${tracker.name === "github" ? "GitHub issues" : "Linear tickets"}` : ""}`);
 }
 
 const app = createServer(service, {

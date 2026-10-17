@@ -107,8 +107,8 @@ describe("app tools", () => {
     ]);
     expect(host.calls[1]!.body).toEqual({ input: { roomName: "Cabin 13" }, context: { path: "/app/rooms/r1", roomId: "r1" }, evidenceStart: 0 });
     expect(client.requests[0].tools.map((t: any) => t.name)).toContain("get_success_rate");
-    expect(client.requests[0].system[0].text).toContain("Cite figures by their E-number.");
-    expect(client.requests[0].system[0].text).toContain("<ask_next>");
+    expect(client.requests[0].system).toContain("Cite figures by their E-number.");
+    expect(client.requests[0].system).toContain("<ask_next>");
 
     const answer = service.list(conv.id).at(-1)!;
     expect(answer).toMatchObject({
