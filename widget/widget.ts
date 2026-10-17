@@ -482,6 +482,7 @@ button { font: inherit; color: inherit; }
 /* The bot check (Cloudflare Turnstile) before a visitor's first answer. */
 .check { display: none; margin: 0 0 8px; }
 .check.on { display: block; }
+.check.passed { height: 0; margin: 0; overflow: hidden; }
 .check-t { font-size: 12.5px; color: var(--wk-muted); margin: 0 2px 6px; display: none; }
 .check.ask .check-t { display: block; }
 .row.cont { margin-top: -2px; }
@@ -1588,7 +1589,7 @@ class Widget {
     }
     if (this.turnstileId !== "") this.turnstileId = null;
     this.turnstileToken = null;
-    this.checkEl.classList.remove("on", "ask");
+    this.checkEl.classList.remove("on", "ask", "passed");
   }
 
   /**
@@ -1637,7 +1638,13 @@ class Widget {
           size: "flexible",
           appearance: "interaction-only",
           "refresh-expired": "auto",
+          // Turnstile keeps showing "Success" after a challenge, so hide the check once it passes and
+          // show it again only when Turnstile needs the visitor. It stays rendered (just collapsed) so it can
+          // get the next token in the background.
+          "before-interactive-callback": () => this.checkEl.classList.remove("passed"),
           callback: (t: string) => {
+            this.checkEl.classList.add("passed");
+            this.checkEl.classList.remove("ask");
             if (this.turnstileWait) this.turnstileWait.resolve(t);
             else this.turnstileToken = t;
           },
