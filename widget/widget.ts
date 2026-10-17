@@ -64,6 +64,13 @@ interface InitOptions {
   suggestions?: string[];
   /** Hide the floating button and open the panel yourself with Wicket.open(). */
   hideLauncher?: boolean;
+  /**
+   * Your own button that opens the chat. The panel and the closed-chat preview open just below it,
+   * right-aligned to it; without one (or while it's hidden) they sit in the bottom corner. Phones ignore it.
+   */
+  anchor?: HTMLElement | null;
+  /** No preview cards when a reply arrives while the chat is closed; the unread event still fires. */
+  quiet?: boolean;
   /** Fill the page with the chat, always open: for a page that is only the chat. */
   page?: boolean;
   /** Open this conversation, e.g. from a link in an email. */
@@ -102,6 +109,8 @@ interface Session {
   /** The signed-in user's name, from their token. */
   name: string | null;
   askEmail: boolean;
+  /** Present when this visitor must pass a Cloudflare Turnstile check before the assistant answers. */
+  botCheck?: { siteKey: string };
   theme?: Theme;
   ui: Partial<Record<UiKey, any>>;
 }
@@ -137,7 +146,55 @@ interface Message {
   card?: TicketCard;
   /** Set on news the user hasn't seen yet when the widget connects. */
   unseen?: boolean;
+  /** What an analytics answer is based on, shown folded under it. */
+  evidence?: Evidence[];
+  /** Questions to ask next, shown under the latest answer. */
+  followUps?: string[];
+  rating?: Rating;
   createdAt: number;
+}
+
+type Rating = "up" | "down" | null;
+
+interface Evidence {
+  id: string;
+  label: string;
+  value: string;
+  period?: string;
+  basis?: string;
+  caveats?: string[];
+}
+
+type Events = {
+  unread: (count: number) => void;
+  open: () => void;
+  close: () => void;
+  rating: (e: { conversationId: string; messageId: number; rating: Rating }) => void;
+};
+
+// Module level, so a host can subscribe before init().
+const listeners: Partial<Record<keyof Events, Set<(...args: never[]) => void>>> = {};
+function emit<K extends keyof Events>(event: K, ...args: Parameters<Events[K]>) {
+  for (const cb of [...(listeners[event] ?? [])]) {
+    try {
+      (cb as (...a: unknown[]) => void)(...args);
+    } catch (err) {
+      console.error(err);
+    }
+  }
+}
+
+/** An API error that keeps the status and body, so callers can react to a 403 bot check. */
+class ApiError extends Error {
+  constructor(message: string, readonly status: number, readonly data: Record<string, unknown>) {
+    super(message);
+  }
+}
+
+interface TurnstileApi {
+  render(el: HTMLElement, opts: Record<string, unknown>): string;
+  reset(id: string): void;
+  remove(id: string): void;
 }
 
 /** A report's progress: "logged" when it reaches the team, "done" when it ships. */
@@ -250,6 +307,9 @@ button { font: inherit; color: inherit; }
   transition: opacity .2s ease, transform .25s cubic-bezier(.2,.8,.2,1), visibility 0s linear .25s;
 }
 .left .panel { right: auto; left: var(--wk-x); transform-origin: bottom left; }
+/* Under the host's own button (theme anchor): drops down from it, right edges aligned. */
+.wk.anchored .panel, .wk.left.anchored .panel { top: var(--wk-at); right: var(--wk-ar); left: auto; bottom: auto;
+  width: min(440px, calc(100vw - var(--wk-ar) - 8px)); height: var(--wk-ah); transform: translateY(-8px) scale(.98); transform-origin: top right; }
 .wk.open .panel { opacity: 1; transform: none; pointer-events: auto; visibility: visible; transition-delay: 0s; }
 
 /* An animated halftone pattern in the brand color behind the header, fading into the conversation. */
@@ -379,7 +439,51 @@ button { font: inherit; color: inherit; }
 .wk.dropping .panel::after { content: "Drop files to attach"; position: absolute; inset: 8px; z-index: 5; display: grid; place-items: center;
   border: 2px dashed var(--wk-accent); border-radius: calc(var(--wk-radius) * .8); background: color-mix(in srgb, var(--wk-bg) 85%, transparent);
   color: var(--wk-text); font-size: 14px; font-weight: 600; pointer-events: none; }
-.meta { font-size: 11.5px; color: var(--wk-muted); margin: 5px 0 6px 4px; }
+.meta { font-size: 11.5px; color: var(--wk-muted); margin: 5px 0 6px 4px; display: flex; align-items: center; gap: 8px; min-height: 22px; }
+/* Thumbs on the assistant's name line: quiet until used, then they stay lit. */
+.rate { margin-left: auto; display: inline-flex; gap: 2px; }
+.rate button { width: 22px; height: 22px; padding: 0; border: 0; border-radius: 7px; background: transparent; cursor: pointer;
+  display: grid; place-items: center; color: color-mix(in srgb, var(--wk-muted) 75%, transparent); transition: color .15s, background .15s; }
+.rate button:hover { color: var(--wk-text); background: color-mix(in srgb, var(--wk-text) 7%, transparent); }
+.rate button[aria-pressed="true"] { color: var(--wk-text); background: color-mix(in srgb, var(--wk-text) 10%, transparent); }
+.rate button:focus-visible { outline: 2px solid color-mix(in srgb, var(--wk-accent) 45%, transparent); outline-offset: 1px; }
+.rate svg { width: 13px; height: 13px; }
+.rate button[aria-pressed="true"] svg { fill: currentColor; fill-opacity: .18; }
+.ask-team { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; margin: -2px 0 6px 4px; font-size: 12.5px; color: var(--wk-muted);
+  animation: wk-in .2s ease; }
+.ask-team button { font: inherit; font-size: 12.5px; font-weight: 600; padding: 4px 10px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--wk-border); background: var(--wk-bubble); color: var(--wk-text); }
+.ask-team button:hover { border-color: color-mix(in srgb, var(--wk-text) 25%, var(--wk-border)); }
+.ask-team button:disabled { opacity: .6; cursor: default; }
+/* "How we got this": the numbers behind an analytics answer, folded by default. */
+.ev { margin: 6px 0 0; font-size: 12.5px; color: var(--wk-muted); }
+.ev summary { cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 5px; padding: 2px 4px; border-radius: 6px; font-weight: 550; }
+.ev summary::-webkit-details-marker { display: none; }
+.ev summary:hover { color: var(--wk-text); }
+.ev summary svg { width: 12px; height: 12px; transition: transform .15s; }
+.ev[open] summary svg { transform: rotate(90deg); }
+.ev ol { list-style: none; margin: 6px 0 2px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.ev li { padding: 8px 10px; border-radius: 10px; background: color-mix(in srgb, var(--wk-text) 4%, transparent); border: 1px solid var(--wk-border); }
+.ev li.hit { border-color: color-mix(in srgb, var(--wk-accent) 55%, var(--wk-border)); }
+.ev .er { display: flex; align-items: baseline; gap: 8px; }
+.ev .ei { flex: none; font-size: 10.5px; font-weight: 650; color: var(--wk-muted); }
+.ev .el { flex: 1; min-width: 0; color: var(--wk-text); }
+.ev .evv { flex: none; font-weight: 650; color: var(--wk-text); font-variant-numeric: tabular-nums; }
+.ev .es { margin-top: 2px; padding-left: 24px; font-size: 11.5px; }
+.ev .ec { margin-top: 3px; padding-left: 24px; font-size: 11.5px; color: color-mix(in srgb, #f59e0b 80%, var(--wk-text)); }
+.evref { font-size: .68em; font-weight: 650; vertical-align: super; line-height: 0; margin-left: 1px; padding: 0 2px; border: 0; background: none;
+  color: var(--wk-muted); cursor: pointer; font-family: inherit; }
+.evref:hover { color: var(--wk-text); }
+/* Follow-up questions under the latest answer. */
+.next { display: flex; flex-direction: column; gap: 6px; margin: 2px 0 6px 4px; animation: wk-in .25s ease; }
+.next-h { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--wk-muted); }
+.next-c { display: flex; flex-wrap: wrap; gap: 6px; }
+.next .chip { padding: 6px 12px; font-size: 12.5px; text-align: left; }
+/* The bot check (Cloudflare Turnstile) before a visitor's first answer. */
+.check { display: none; margin: 0 0 8px; }
+.check.on { display: block; }
+.check-t { font-size: 12.5px; color: var(--wk-muted); margin: 0 2px 6px; display: none; }
+.check.ask .check-t { display: block; }
 .row.cont { margin-top: -2px; }
 .avatar.person { display: grid; place-items: center; font-size: 15px; font-weight: 650; letter-spacing: .02em;
   background: color-mix(in srgb, var(--wk-text) 88%, transparent); color: var(--wk-bg); }
@@ -403,7 +507,8 @@ button { font: inherit; color: inherit; }
 .msg pre { margin: 0; padding: 10px 12px; overflow-x: auto; white-space: pre; overflow-wrap: normal; font-size: 12.5px; line-height: 1.55; }
 .msg pre code { padding: 0; background: none; font-size: inherit; border-radius: 0; }
 .col:has(.code) { width: 100%; } .col:has(.code) .msg { min-width: 0; }
-.row.user .msg { background: var(--wk-accent); color: var(--wk-on-accent); border-bottom-right-radius: 6px; }
+.row.user .msg { background: var(--wk-user, var(--wk-accent)); color: var(--wk-user-text, var(--wk-on-accent)); border-bottom-right-radius: 6px;
+  box-shadow: inset 0 0 0 1px var(--wk-user-border, transparent); }
 .row.agent .msg, .row.staff .msg { background: var(--wk-bubble); border: 1px solid var(--wk-border);
   box-shadow: 0 1px 2px rgba(15,15,30,.04); }
 .row.agent a, .row.staff a { color: var(--wk-accent); }
@@ -517,6 +622,42 @@ textarea::placeholder { color: var(--wk-muted); }
 .brand { text-align: center; font-size: 11px; color: var(--wk-muted); padding-top: 8px; }
 .brand a { color: inherit; text-decoration: none; font-weight: 600; }
 
+/* Preview of a reply that arrived while the chat was closed. */
+.pv { position: fixed; z-index: var(--wk-z); right: var(--wk-x); bottom: calc(var(--wk-y) + 72px); width: min(360px, calc(100vw - 16px));
+  padding: 12px 12px 10px 14px; border-radius: calc(var(--wk-radius) * .8); background: var(--wk-bg); color: var(--wk-text);
+  border: 1px solid var(--wk-border); box-shadow: var(--wk-shadow); display: none; flex-direction: column; gap: 8px;
+  transform-origin: bottom right; }
+.pv.on { display: flex; animation: wk-pv-up .3s cubic-bezier(.2,.8,.2,1) both; }
+.wk.no-launcher .pv { bottom: var(--wk-y); }
+.left .pv { right: auto; left: var(--wk-x); transform-origin: bottom left; }
+.wk.p-anchored .pv, .wk.left.p-anchored .pv { top: var(--wk-at); right: var(--wk-ar); left: auto; bottom: auto; transform-origin: top right;
+  width: min(360px, calc(100vw - var(--wk-ar) - 8px)); }
+.wk.p-anchored .pv.on { animation-name: wk-pv-down; }
+.pv-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.pv-av { width: 24px; height: 24px; flex: none; border-radius: 8px; display: grid; place-items: center; overflow: hidden; font-size: 10.5px; font-weight: 700;
+  background: var(--wk-accent); color: var(--wk-on-accent); position: relative; }
+.pv-av img { width: 100%; height: 100%; object-fit: cover; }
+.pv-av.person { background: color-mix(in srgb, var(--wk-text) 88%, transparent); color: var(--wk-bg); }
+.pv-av.bot { font-size: 24px; }
+.pv-who { flex: 1; min-width: 0; font-size: 12.5px; color: var(--wk-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pv-who b { color: var(--wk-text); font-weight: 650; }
+.pv .icon-btn { width: 26px; height: 26px; margin: -4px -4px -4px 0; }
+.pv .icon-btn svg { width: 15px; height: 15px; }
+.pv-body { all: unset; cursor: pointer; font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; white-space: pre-line;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
+.pv-body:focus-visible { outline: 2px solid color-mix(in srgb, var(--wk-accent) 45%, transparent); outline-offset: 2px; border-radius: 4px; }
+.pv-reply { display: flex; align-items: center; gap: 6px; padding: 3px 3px 3px 12px; border-radius: 12px; border: 1px solid var(--wk-border);
+  background: var(--wk-surface); transition: border-color .15s; }
+.pv-reply:focus-within { border-color: color-mix(in srgb, var(--wk-accent) 60%, transparent); }
+.pv-reply input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--wk-text); font: inherit; font-size: 13.5px; padding: 6px 0; }
+.pv-reply input::placeholder { color: var(--wk-muted); }
+.pv-reply .send { width: 30px; height: 30px; border-radius: 9px; }
+.pv-reply .send svg { width: 15px; height: 15px; }
+.pv-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 18px; }
+.pv-err { font-size: 12px; color: #dc2626; }
+.pv .linkish { margin-left: auto; font-size: 12.5px; }
+@keyframes wk-pv-down { from { opacity: 0; transform: translateY(-8px) scale(.98); } }
+@keyframes wk-pv-up { from { opacity: 0; transform: translateY(8px) scale(.98); } }
 @keyframes wk-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 @keyframes wk-sheen { 0%, 80% { background-position: 150% 0; } 100% { background-position: -50% 0; } }
 @keyframes wk-spin { to { transform: rotate(360deg); } }
@@ -540,11 +681,12 @@ textarea::placeholder { color: var(--wk-muted); }
   .wk.open .launcher { display: none; }
   .head { padding-top: env(safe-area-inset-top); }
   .composer { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
-  textarea, .email input { font-size: 16px; }
+  textarea, .email input, .pv-reply input { font-size: 16px; }
+  .pv, .left .pv { right: 8px; left: auto; }
   .log { overscroll-behavior: contain; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .launcher, .panel, .row, .system, .chip, .send, .launcher svg, .glow, .hero, .ticket, .tk-bar::after { transition: none !important; animation: none !important; }
+  .launcher, .panel, .row, .system, .chip, .send, .launcher svg, .glow, .hero, .ticket, .tk-bar::after, .pv, .next, .ask-team { transition: none !important; animation: none !important; }
   .typing i, .avatar, .avatar::after, .mini, .bot .orb::before, .bot .orb2::before, .bot .eyes, .bot .eyes i, .typing .think { animation: none !important; }
 }
 `;
@@ -562,6 +704,9 @@ const ICONS = {
   file: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5Z"/><path d="M14 2v6h6"/></svg>`,
   send: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>`,
   history: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg>`,
+  up: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v11"/><path d="M15 5.9 14 10h5.8a2 2 0 0 1 1.9 2.6l-2.3 7A2 2 0 0 1 17.5 21H4a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1h2.8a2 2 0 0 0 1.8-1.1L12 2a3.1 3.1 0 0 1 3 3.9Z"/></svg>`,
+  down: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 14V3"/><path d="M9 18.1 10 14H4.2a2 2 0 0 1-1.9-2.6l2.3-7A2 2 0 0 1 6.5 3H20a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-2.8a2 2 0 0 0-1.8 1.1L12 22a3.1 3.1 0 0 1-3-3.9Z"/></svg>`,
+  caret: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>`,
   spark: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5c.4 3.9 1.9 6.3 4.3 7.6 1.2.7 2.6 1.1 4.2 1.4v1c-3.9.4-6.3 1.9-7.6 4.3-.7 1.2-1.1 2.6-1.4 4.2h-1c-.4-3.9-1.9-6.3-4.3-7.6-1.2-.7-2.6-1.1-4.2-1.4v-1c3.9-.4 6.3-1.9 7.6-4.3.7-1.2 1.1-2.6 1.4-4.2Z"/></svg>`,
 };
 
@@ -598,6 +743,15 @@ class Widget {
   private replyAnyway = false;
   private unread = 0;
   private media = window.matchMedia?.("(prefers-color-scheme: dark)");
+  private anchor: HTMLElement | null = null;
+  private quiet = false;
+  private preview!: HTMLElement;
+  /** Follow-up chips under the latest answer. */
+  private nextEl: HTMLElement | null = null;
+  private checkEl!: HTMLElement;
+  private turnstileId: string | null = null;
+  private turnstileToken: string | null = null;
+  private turnstileWait: { resolve: (t: string) => void; reject: (e: Error) => void } | null = null;
 
   constructor(options: InitOptions) {
     options = defined(options);
@@ -614,6 +768,11 @@ class Widget {
     this.root = host.attachShadow({ mode: "open" });
     this.render();
     this.applyTheme();
+    this.quiet = Boolean(options.quiet);
+    this.setAnchor(options.anchor ?? null);
+    const place = () => this.schedulePlace();
+    window.addEventListener("resize", place, { passive: true });
+    window.addEventListener("scroll", place, { passive: true, capture: true });
     this.media?.addEventListener?.("change", () => this.applyTheme());
     document.addEventListener("visibilitychange", () => this.sendPresence());
     if (options.conversation) {
@@ -639,20 +798,127 @@ class Widget {
 
   open() {
     if (location.pathname !== this.sessionPath) void this.refreshSession();
+    const was = this.isOpen();
+    this.hidePreview();
+    this.place();
     this.wrap.classList.add("open");
     this.fitToScreen(true);
     this.halftone.play();
     this.setUnread(0);
     this.sendPresence();
+    if (this.session?.botCheck && !this.conv) this.renderBotCheck(false);
     setTimeout(() => this.input.focus(), 50);
+    if (!was) emit("open");
   }
 
   close() {
     if (this.opts.page) return;
+    const was = this.isOpen();
     this.wrap.classList.remove("open");
     this.sendPresence();
     this.fitToScreen(false);
     this.halftone.pause();
+    if (was) emit("close");
+  }
+
+  private isOpen() {
+    return this.wrap.classList.contains("open");
+  }
+
+  /** Opens the chat and sends this as the person's message. */
+  ask(text: string) {
+    const body = String(text ?? "").trim();
+    this.open();
+    if (!body) return;
+    // A fresh question doesn't belong in a resolved conversation or the history list.
+    if ((this.status === "resolved" && !this.replyAnyway && this.conv) || this.wrap.classList.contains("list")) this.reset();
+    void this.send(body);
+  }
+
+  setQuiet(quiet: boolean) {
+    this.quiet = Boolean(quiet);
+    if (this.quiet) this.hidePreview();
+  }
+
+  setAnchor(el: HTMLElement | null) {
+    this.anchor = el instanceof HTMLElement ? el : null;
+    this.place();
+  }
+
+  private placeFrame = 0;
+  private schedulePlace() {
+    if (this.placeFrame || (!this.anchor && !this.wrap.classList.contains("p-anchored"))) return;
+    this.placeFrame = requestAnimationFrame(() => {
+      this.placeFrame = 0;
+      this.place();
+    });
+  }
+
+  /**
+   * Puts the panel and the preview just below the anchor, right edges aligned and kept 8px inside the
+   * screen. Without a visible anchor they fall back to the corner; on phones the panel stays full screen.
+   */
+  private place() {
+    const a = this.anchor;
+    const r = a?.isConnected && !this.opts.page ? a.getBoundingClientRect() : null;
+    const vw = document.documentElement.clientWidth || innerWidth;
+    const vh = innerHeight;
+    const visible = Boolean(r && (r.width || r.height) && r.bottom > 0 && r.top < vh && r.right > 0 && r.left < vw);
+    const phone = Boolean(window.matchMedia?.("(max-width: 640px)").matches);
+    this.wrap.classList.toggle("p-anchored", visible);
+    this.wrap.classList.toggle("anchored", visible && !phone);
+    if (!visible || !r) return;
+    const top = Math.round(r.bottom + 8);
+    const s = this.wrap.style;
+    s.setProperty("--wk-at", `${top}px`);
+    s.setProperty("--wk-ar", `${Math.max(8, Math.round(vw - r.right))}px`);
+    s.setProperty("--wk-ah", `${Math.max(200, Math.min(640, vh - top - 12))}px`);
+  }
+
+  /** A card with the reply, dropping from under the anchor (or above the launcher), when the chat is closed. */
+  private showPreview(m: Message) {
+    if (this.quiet || this.opts.page || this.isOpen() || !this.conv) return;
+    const text = previewText(m);
+    if (!text) return;
+    const staff = m.author === "staff";
+    const name = staff ? m.authorName || "Team" : this.opts.assistantName || "Assistant";
+    const av = staff
+      ? `<div class="pv-av person" aria-hidden="true">${escapeHtml(initials(name))}</div>`
+      : this.avatarHtml("pv-av");
+    const pv = this.preview;
+    pv.querySelector(".pv-av")!.outerHTML = av;
+    pv.querySelector(".pv-who")!.innerHTML = `<b>${escapeHtml(name)}</b> · ${timeAgo(m.createdAt)}`;
+    pv.querySelector(".pv-body")!.textContent = text;
+    pv.querySelector(".pv-err")!.textContent = "";
+    this.place();
+    // Restart the drop-in animation for each new reply.
+    pv.classList.remove("on");
+    void pv.offsetWidth;
+    pv.classList.add("on");
+  }
+
+  private hidePreview() {
+    this.preview?.classList.remove("on");
+  }
+
+  private async quickReply() {
+    const input = this.preview.querySelector<HTMLInputElement>(".pv-reply input")!;
+    const err = this.preview.querySelector(".pv-err")!;
+    const body = input.value.trim();
+    if (!body || input.disabled) return;
+    input.disabled = true;
+    err.textContent = "";
+    try {
+      await this.post(body, []);
+      input.value = "";
+      this.hidePreview();
+      // Replying means they read it.
+      this.setUnread(0);
+    } catch (e) {
+      err.textContent = e instanceof Error ? e.message : "Couldn't send. Please try again.";
+    } finally {
+      input.disabled = false;
+    }
   }
 
   private viewportListener?: () => void;
@@ -757,6 +1023,7 @@ class Widget {
     this.renderWelcome();
     this.renderChips();
     this.updateEmailAsk();
+    if (s.botCheck && !this.conv && this.isOpen()) this.renderBotCheck(false);
   }
 
   private async userToken(): Promise<string | undefined> {
@@ -862,6 +1129,7 @@ class Widget {
           <div class="error" role="alert"></div>
           <form class="email"><span>Leave your email so the team can follow up if you're away.</span><input type="email" placeholder="you@example.com" aria-label="Email" autocomplete="email"><button type="submit">Save</button><button class="skip" type="button">No thanks</button></form>
           <div class="tray" aria-label="Attachments"></div>
+          <div class="check"><div class="check-t">One quick check before the assistant answers.</div><div class="check-w"></div></div>
           <div class="closed">
             <button class="new-conv" type="button">${ICONS.plus}<span>Start a new conversation</span></button>
             <button class="linkish reopen" type="button">Reply here instead</button>
@@ -878,11 +1146,31 @@ class Widget {
       <button class="launcher${o.launcherLabel ? "" : " icon-only"}" aria-label="${escapeAttr(o.title!)}">
         ${ICONS.chat}${ICONS.close}${o.launcherLabel ? `<span class="label">${escapeHtml(o.launcherLabel)}</span>` : ""}
         <span class="badge" aria-hidden="true"></span>
-      </button>`;
+      </button>
+      <div class="pv" role="status" aria-live="polite">
+        <div class="pv-head"><div class="pv-av"></div><div class="pv-who"></div>
+          <button class="icon-btn pv-x" type="button" title="Dismiss" aria-label="Dismiss">${ICONS.x}</button></div>
+        <button class="pv-body" type="button" title="Open chat"></button>
+        <form class="pv-reply"><input type="text" placeholder="Reply…" aria-label="Reply" autocomplete="off" maxlength="4000">
+          <button class="send" type="submit" aria-label="Send reply">${ICONS.send}</button></form>
+        <div class="pv-foot"><span class="pv-err" role="alert"></span><button class="linkish pv-open" type="button">Open chat</button></div>
+      </div>`;
     this.root.append(style, this.wrap);
 
     const launcher = this.wrap.querySelector<HTMLButtonElement>(".launcher")!;
-    if (o.hideLauncher) launcher.style.display = "none";
+    if (o.hideLauncher) {
+      launcher.style.display = "none";
+      this.wrap.classList.add("no-launcher");
+    }
+    this.preview = this.wrap.querySelector(".pv")!;
+    this.preview.querySelector(".pv-x")!.addEventListener("click", () => this.hidePreview());
+    this.preview.querySelector(".pv-body")!.addEventListener("click", () => this.open());
+    this.preview.querySelector(".pv-open")!.addEventListener("click", () => this.open());
+    this.preview.querySelector(".pv-reply")!.addEventListener("submit", (e) => {
+      e.preventDefault();
+      void this.quickReply();
+    });
+    this.checkEl = this.wrap.querySelector(".check")!;
     this.badge = this.wrap.querySelector(".badge")!;
     this.log = this.wrap.querySelector(".log")!;
     this.halftone = new Halftone(this.wrap.querySelector("canvas")!);
@@ -962,7 +1250,7 @@ class Widget {
       this.addFiles([...((e as DragEvent).dataTransfer?.files ?? [])]);
     });
     this.wrap.addEventListener("keydown", (e) => {
-      if (e.key === "Escape") this.close();
+      if (e.key === "Escape") this.isOpen() ? this.close() : this.hidePreview();
     });
     this.showGreeting();
   }
@@ -1193,49 +1481,163 @@ class Widget {
     return data.file.id as string;
   }
 
-  private async send() {
-    const body = this.input.value.trim();
-    if ((!body && !this.pending.length) || this.input.disabled) return;
+  /** Sends what's in the message box, or the given text (a quick start, a follow-up, Wicket.ask). */
+  private async send(text?: string) {
+    const typed = text === undefined;
+    const body = typed ? this.input.value.trim() : text.trim();
+    if ((!body && !(typed && this.pending.length)) || this.input.disabled) return;
     this.input.disabled = true;
     this.sendBtn.disabled = true;
     this.showError("");
     this.leaveHome();
+    const files = typed ? [...this.pending] : [];
     try {
-      if (!this.conv) {
-        const res = await this.api("/api/conversations", {
-          reporter: this.opts.user ?? {},
-          userToken: await this.userToken(),
-          context: this.collectContext(),
-        });
-        this.conv = { id: res.id, token: res.token };
-        this.store();
-        this.saveList([this.conv, ...this.loadList()]);
-        this.connect();
-        this.updateEmailAsk();
+      if (typed) {
+        this.input.value = "";
+        this.autosize();
       }
-      this.input.value = "";
-      this.autosize();
-      const files = [...this.pending];
       if (files.length) this.tray.classList.add("busy");
-      const attachments: string[] = [];
-      for (const p of files) attachments.push(await this.upload(p.file));
-      const { message } = await this.api(`/api/conversations/${this.conv.id}/messages`, {
-        body,
-        attachments,
-        context: { page: location.href },
-      });
+      await this.post(body, files.map((p) => p.file));
       for (const p of files) if (p.preview) URL.revokeObjectURL(p.preview);
-      this.pending = [];
-      this.renderTray();
-      this.appendBubble(message);
+      if (files.length) {
+        this.pending = this.pending.filter((p) => !files.includes(p));
+        this.renderTray();
+      }
     } catch (err) {
-      this.input.value = this.input.value || body;
+      if (typed) this.input.value = this.input.value || body;
       this.showError(err instanceof Error ? err.message : "Couldn't send. Please try again.");
     } finally {
       this.tray.classList.remove("busy");
       this.input.disabled = false;
       this.autosize();
       this.input.focus();
+    }
+  }
+
+  /** Starts the conversation if needed, uploads files, posts the message and shows it. */
+  private async post(body: string, files: File[]) {
+    if (!this.conv) await this.createConversation();
+    const conv = this.conv!;
+    const attachments: string[] = [];
+    for (const f of files) attachments.push(await this.upload(f));
+    const payload = {
+      body,
+      attachments,
+      // The latest page context and a fresh sign-in token go with every message, for the assistant's app tools.
+      context: { page: location.href, ...(this.opts.context ?? {}) },
+      userToken: await this.userToken(),
+    };
+    let res;
+    try {
+      res = await this.api(`/api/conversations/${conv.id}/messages`, payload);
+    } catch (err) {
+      if (!isBotCheck(err)) throw err;
+      res = await this.api(`/api/conversations/${conv.id}/messages`, { ...payload, turnstileToken: await this.passBotCheck() });
+    }
+    this.appendBubble(res.message);
+  }
+
+  private async createConversation() {
+    const body = { reporter: this.opts.user ?? {}, userToken: await this.userToken(), context: this.collectContext() };
+    let res;
+    try {
+      res = await this.api("/api/conversations", {
+        ...body,
+        turnstileToken: this.session?.botCheck ? await this.passBotCheck() : undefined,
+      });
+    } catch (err) {
+      if (!isBotCheck(err)) throw err;
+      res = await this.api("/api/conversations", { ...body, turnstileToken: await this.passBotCheck() });
+    }
+    this.conv = { id: res.id, token: res.token };
+    this.store();
+    this.saveList([this.conv, ...this.loadList()]);
+    this.connect();
+    this.updateEmailAsk();
+    this.removeBotCheck();
+  }
+
+  private removeBotCheck() {
+    const ts = (window as unknown as { turnstile?: TurnstileApi }).turnstile;
+    if (ts && this.turnstileId) {
+      try {
+        ts.remove(this.turnstileId);
+      } catch {}
+    }
+    if (this.turnstileId !== "") this.turnstileId = null;
+    this.turnstileToken = null;
+    this.checkEl.classList.remove("on", "ask");
+  }
+
+  /**
+   * Waits for a Cloudflare Turnstile token. The check renders in the panel; most visitors pass without
+   * doing anything, and it only shows a challenge when one is needed. A token works once.
+   */
+  private passBotCheck(): Promise<string> {
+    const token = this.turnstileToken;
+    if (token) {
+      this.turnstileToken = null;
+      this.resetBotCheck();
+      return Promise.resolve(token);
+    }
+    this.renderBotCheck(true);
+    return new Promise<string>((resolve, reject) => {
+      this.turnstileWait?.reject(new Error("Please complete the check."));
+      this.turnstileWait = {
+        resolve: (t) => {
+          this.turnstileWait = null;
+          this.turnstileToken = null;
+          this.checkEl.classList.remove("ask");
+          this.resetBotCheck();
+          resolve(t);
+        },
+        reject: (e) => {
+          this.turnstileWait = null;
+          reject(e);
+        },
+      };
+    });
+  }
+
+  /** Renders the check (once). `ask` shows the line explaining it, for when a message is waiting on it. */
+  private renderBotCheck(ask: boolean) {
+    const siteKey = this.session?.botCheck?.siteKey;
+    if (!siteKey) return;
+    this.checkEl.classList.add("on");
+    this.checkEl.classList.toggle("ask", ask);
+    if (this.turnstileId !== null) return;
+    this.turnstileId = "";
+    void loadTurnstile()
+      .then((ts) => {
+        this.turnstileId = ts.render(this.checkEl.querySelector<HTMLElement>(".check-w")!, {
+          sitekey: siteKey,
+          theme: this.wrap.classList.contains("dark") ? "dark" : "light",
+          size: "flexible",
+          appearance: "interaction-only",
+          "refresh-expired": "auto",
+          callback: (t: string) => {
+            if (this.turnstileWait) this.turnstileWait.resolve(t);
+            else this.turnstileToken = t;
+          },
+          "expired-callback": () => (this.turnstileToken = null),
+          "error-callback": () => {
+            this.turnstileWait?.reject(new Error("The check didn't load. Please try again."));
+          },
+        });
+      })
+      .catch(() => {
+        this.turnstileId = null;
+        this.turnstileWait?.reject(new Error("The check didn't load. Please try again."));
+      });
+  }
+
+  /** Gets a fresh token ready for the next time the server asks. */
+  private resetBotCheck() {
+    const ts = (window as unknown as { turnstile?: TurnstileApi }).turnstile;
+    if (ts && this.turnstileId) {
+      try {
+        ts.reset(this.turnstileId);
+      } catch {}
     }
   }
 
@@ -1250,8 +1652,9 @@ class Widget {
       const m = JSON.parse((e as MessageEvent).data).message as Message;
       const fresh = !this.seen.has(m.id);
       this.appendBubble(m);
-      if (fresh && m.author !== "user" && !this.wrap.classList.contains("open") && (Date.now() - m.createdAt < 60_000 || m.unseen)) {
+      if (fresh && m.author !== "user" && !this.isOpen() && (Date.now() - m.createdAt < 60_000 || m.unseen)) {
         this.setUnread(this.unread + 1);
+        this.showPreview(m);
       }
     });
     es.addEventListener("status", (e) => {
@@ -1329,7 +1732,11 @@ class Widget {
 
   private appendBubble(m: Message) {
     if (m.id > 0) this.leaveHome();
-    if (m.id && this.seen.has(m.id)) return;
+    if (m.id && this.seen.has(m.id)) {
+      // The same message again (e.g. a rating saved elsewhere): refresh what can change on it.
+      if (m.author === "agent") this.refreshAnswer(m);
+      return;
+    }
     if (m.id) {
       this.seen.add(m.id);
       this.lastId = Math.max(this.lastId, m.id);
@@ -1338,6 +1745,9 @@ class Widget {
       this.typing.classList.remove("on");
       this.stopThinking();
     }
+    // Follow-ups belong to the latest answer only.
+    this.nextEl?.remove();
+    this.nextEl = null;
 
     if (m.card?.type === "ticket") {
       const el = document.createElement("div");
@@ -1373,10 +1783,17 @@ class Widget {
 
     const row = document.createElement("div");
     row.className = `row ${m.author}${continued ? " cont" : " gap"}`;
+    if (m.id) row.dataset.id = String(m.id);
     const name = m.author === "agent" ? this.opts.assistantName || "Assistant" : m.author === "staff" ? m.authorName || "Team" : "";
-    const meta = m.author === "user" ? "" : `<div class="meta">${escapeHtml(name)} · <time data-t="${m.createdAt}">${timeAgo(m.createdAt, true)}</time></div>`;
+    const rate =
+      m.author === "agent" && m.id > 0
+        ? `<span class="rate">${(["up", "down"] as const)
+            .map((r) => `<button type="button" data-r="${r}" aria-pressed="false" title="${r === "up" ? "Good answer" : "Not helpful"}" aria-label="${r === "up" ? "Good answer" : "Not helpful"}">${ICONS[r]}</button>`)
+            .join("")}</span>`
+        : "";
+    const meta = m.author === "user" ? "" : `<div class="meta"><span>${escapeHtml(name)} · <time data-t="${m.createdAt}">${timeAgo(m.createdAt, true)}</time></span>${rate}</div>`;
     const files = (m.attachments ?? []).map((a) => this.attachmentHtml(a)).join("");
-    const text = m.body ? renderMarkdown(m.body) : "";
+    const text = m.body ? renderMarkdown(m.body, { evidence: Boolean(m.evidence?.length) }) : "";
     const onlyImages = !m.body && (m.attachments ?? []).every((a) => a.type.startsWith("image/"));
     row.innerHTML = `<div class="col"><div class="msg${onlyImages ? " bare" : ""}">${files ? `<div class="atts">${files}</div>` : ""}${text}</div>${meta}</div>`;
     for (const btn of row.querySelectorAll<HTMLButtonElement>(".code .copy")) {
@@ -1388,10 +1805,98 @@ class Widget {
         });
       });
     }
+    if (m.author === "agent") {
+      for (const btn of row.querySelectorAll<HTMLButtonElement>(".rate button")) {
+        btn.addEventListener("click", () => void this.rate(m, btn.dataset.r as "up" | "down", row));
+      }
+      for (const ref of row.querySelectorAll<HTMLElement>(".evref")) ref.addEventListener("click", () => this.showEvidence(row, ref.dataset.e!));
+      this.refreshAnswer(m, row);
+    }
     this.log.insertBefore(row, this.typing);
     this.lastRow = row;
     if (m.author === "staff") this.setAgent(m.authorName || "Team");
+    if (m.author === "agent" && m.followUps?.length) this.showFollowUps(m.followUps);
     this.scrollDown();
+  }
+
+  /** Brings an answer's rating and evidence up to date. */
+  private refreshAnswer(m: Message, row = this.log.querySelector<HTMLElement>(`.row[data-id="${m.id}"]`)) {
+    if (!row) return;
+    if (m.rating !== undefined) this.showRating(row, m.rating, false);
+    if (m.evidence?.length) {
+      row.querySelector(".ev")?.remove();
+      const meta = row.querySelector(".meta");
+      const col = row.querySelector(".col")!;
+      const ev = evidenceEl(m.evidence);
+      meta ? meta.after(ev) : col.appendChild(ev);
+    }
+    if (row === this.lastRow && m.followUps?.length && !this.nextEl) this.showFollowUps(m.followUps);
+  }
+
+  private showEvidence(row: HTMLElement, id: string) {
+    const ev = row.querySelector<HTMLDetailsElement>(".ev");
+    if (!ev) return;
+    ev.open = true;
+    for (const li of ev.querySelectorAll<HTMLElement>("li")) li.classList.toggle("hit", li.dataset.e === id);
+  }
+
+  private showFollowUps(questions: string[]) {
+    const el = document.createElement("div");
+    el.className = "next";
+    el.innerHTML = `<span class="next-h">Ask next</span><div class="next-c"></div>`;
+    for (const q of questions.slice(0, 4)) {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "chip";
+      chip.textContent = q;
+      chip.addEventListener("click", () => void this.send(q));
+      el.lastElementChild!.appendChild(chip);
+    }
+    this.nextEl?.remove();
+    this.nextEl = el;
+    this.log.insertBefore(el, this.typing);
+  }
+
+  /** Shows a rating on its thumbs; a thumbs down offers to pass the conversation to the team. */
+  private showRating(row: HTMLElement, rating: Rating, offer: boolean) {
+    for (const b of row.querySelectorAll<HTMLButtonElement>(".rate button")) b.setAttribute("aria-pressed", String(b.dataset.r === rating));
+    const col = row.querySelector(".col")!;
+    const existing = col.querySelector(".ask-team");
+    if (rating !== "down") return existing?.remove();
+    if (!offer || existing || this.status !== "agent" || this.staffName) return;
+    const ask = document.createElement("div");
+    ask.className = "ask-team";
+    ask.innerHTML = `<span>Want a person to look at this?</span><button type="button">Tell the team</button>`;
+    const btn = ask.querySelector("button")!;
+    btn.addEventListener("click", () => void this.handoff(ask, btn));
+    row.querySelector(".meta")?.after(ask);
+    this.scrollDown();
+  }
+
+  private async rate(m: Message, tapped: "up" | "down", row: HTMLElement) {
+    if (!this.conv) return;
+    const before = (row.querySelector<HTMLElement>('.rate [aria-pressed="true"]')?.dataset.r ?? null) as Rating;
+    const rating: Rating = before === tapped ? null : tapped;
+    this.showRating(row, rating, true);
+    const conversationId = this.conv.id;
+    try {
+      await this.api(`/api/conversations/${conversationId}/messages/${m.id}/rating`, { rating }, true);
+      emit("rating", { conversationId, messageId: m.id, rating });
+    } catch {
+      this.showRating(row, before, false);
+    }
+  }
+
+  private async handoff(ask: HTMLElement, btn: HTMLButtonElement) {
+    if (!this.conv) return;
+    btn.disabled = true;
+    try {
+      await this.api(`/api/conversations/${this.conv.id}/handoff`, { reason: "Thumbs down on an answer" }, true);
+      ask.innerHTML = `<span>Sent to the team. They'll reply here.</span>`;
+    } catch (err) {
+      btn.disabled = false;
+      this.showError(err instanceof Error ? err.message : "Couldn't reach the team. Please try again.");
+    }
   }
 
   private attachmentHtml(a: Attachment): string {
@@ -1430,7 +1935,9 @@ class Widget {
   }
 
   private setUnread(n: number) {
+    const changed = n !== this.unread;
     this.unread = n;
+    if (changed) emit("unread", n);
     this.badge.textContent = n > 9 ? "9+" : String(n);
     this.badge.classList.toggle("on", n > 0);
   }
@@ -1447,7 +1954,8 @@ class Widget {
     };
   }
 
-  private async api(path: string, body: unknown) {
+  /** `keep` leaves the conversation alone on a 404 (only messages decide that it's gone). */
+  private async api(path: string, body: unknown, keep = false) {
     const res = await fetch(`${this.opts.apiUrl}${path}`, {
       method: "POST",
       headers: {
@@ -1457,11 +1965,11 @@ class Widget {
       body: JSON.stringify(body),
     });
     const data = await res.json().catch(() => ({}));
-    if (res.status === 404 && this.conv) {
+    if (res.status === 404 && this.conv && !keep) {
       this.reset();
       throw new Error("That conversation expired. Please send your message again.");
     }
-    if (!res.ok) throw new Error(data.error || "Couldn't send. Please try again.");
+    if (!res.ok) throw new ApiError(data.error || "Couldn't send. Please try again.", res.status, data);
     return data;
   }
 
@@ -1600,7 +2108,7 @@ export function readableOn(color: string): string {
 }
 
 /** Minimal, safe markdown: escape everything, then allow code blocks, links, bold and inline code. */
-export function renderMarkdown(text: string): string {
+export function renderMarkdown(text: string, opts: { evidence?: boolean } = {}): string {
   // Fenced code blocks first, so nothing inside them is treated as markdown. An unclosed fence runs to the end.
   const parts = text.split(/^```[^\S\n]*([\w+#.-]*)[^\S\n]*\n([\s\S]*?)(?:^```[^\S\n]*$\n?|$(?![\s\S]))/m);
   let html = "";
@@ -1609,7 +2117,7 @@ export function renderMarkdown(text: string): string {
     let prose = parts[i]!;
     if (i > 0) prose = prose.replace(/^\n+/, "");
     if (i + 3 < parts.length) prose = prose.replace(/\n+$/, "");
-    html += inlineMarkdown(prose);
+    html += opts.evidence ? evidenceRefs(inlineMarkdown(prose)) : inlineMarkdown(prose);
     if (i + 2 < parts.length) {
       const lang = parts[i + 1] ?? "";
       const code = (parts[i + 2] ?? "").replace(/\n$/, "");
@@ -1620,6 +2128,26 @@ export function renderMarkdown(text: string): string {
     }
   }
   return html;
+}
+
+/** [E1] in an answer becomes a small marker that opens "How we got this" at that item. */
+function evidenceRefs(html: string): string {
+  return html.replace(/[^\S\n]*\[(E\d{1,3})\](?!\()/g, '<button type="button" class="evref" data-e="$1" title="See how we got this">$1</button>');
+}
+
+function evidenceEl(items: Evidence[]): HTMLDetailsElement {
+  const el = document.createElement("details");
+  el.className = "ev";
+  el.innerHTML = `<summary>${ICONS.caret}How we got this</summary><ol>${items
+    .map((e) => {
+      const sub = [e.period, e.basis].filter(Boolean).map((x) => escapeHtml(String(x))).join(" · ");
+      const caveats = (e.caveats ?? []).filter(Boolean).map((c) => escapeHtml(String(c))).join(" · ");
+      return `<li data-e="${escapeAttr(String(e.id))}"><div class="er"><span class="ei">${escapeHtml(String(e.id))}</span><span class="el">${escapeHtml(String(e.label))}</span><span class="evv">${escapeHtml(String(e.value))}</span></div>${
+        sub ? `<div class="es">${sub}</div>` : ""
+      }${caveats ? `<div class="ec">${caveats}</div>` : ""}</li>`;
+    })
+    .join("")}</ol>`;
+  return el;
 }
 
 function inlineMarkdown(text: string): string {
@@ -1643,6 +2171,15 @@ const api = {
   setUserToken: (token: InitOptions["userToken"]) => instance?.setUserToken(token),
   setContext: (context: Record<string, unknown>) => instance?.setContext(context),
   setTheme: (theme: Theme) => instance?.setTheme(theme),
+  setAnchor: (el: HTMLElement | null) => instance?.setAnchor(el),
+  setQuiet: (quiet: boolean) => instance?.setQuiet(quiet),
+  ask: (text: string) => instance?.ask(text),
+  /** Subscribe to "unread" (count), "open", "close" or "rating". Returns a function that unsubscribes. */
+  on<K extends keyof Events>(event: K, cb: Events[K]): () => void {
+    const set = (listeners[event] ??= new Set());
+    set.add(cb);
+    return () => void set.delete(cb);
+  },
 };
 (window as any).Wicket = api;
 
@@ -1656,6 +2193,43 @@ if (scriptEl?.hasAttribute("data-auto-init")) {
       theme: { accentColor: d.accentColor, mode: d.theme as Theme["mode"], position: d.position as Theme["position"] },
     });
   document.readyState === "loading" ? document.addEventListener("DOMContentLoaded", start) : start();
+}
+
+let turnstileLoad: Promise<TurnstileApi> | null = null;
+/** Loads Cloudflare Turnstile once, into the host page (it renders its iframe into our panel). */
+function loadTurnstile(): Promise<TurnstileApi> {
+  const w = window as unknown as { turnstile?: TurnstileApi };
+  if (w.turnstile) return Promise.resolve(w.turnstile);
+  turnstileLoad ??= new Promise<TurnstileApi>((resolve, reject) => {
+    const el = document.createElement("script");
+    el.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+    el.async = true;
+    el.onload = () => (w.turnstile ? resolve(w.turnstile) : reject(new Error("Turnstile missing")));
+    el.onerror = () => {
+      turnstileLoad = null;
+      el.remove();
+      reject(new Error("Turnstile didn't load"));
+    };
+    document.head.appendChild(el);
+  });
+  return turnstileLoad;
+}
+
+function isBotCheck(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 403 && err.data.botCheck === true;
+}
+
+/** A message as one short plain line for the preview card. */
+function previewText(m: Message): string {
+  if (m.author !== "staff" && m.author !== "agent") return "";
+  const text = (m.body ?? "")
+    .replace(/```[^\n]*\n?/g, "")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/[^\S\n]*\[E\d{1,3}\]/g, "")
+    .replace(/\*\*|`/g, "")
+    .trim();
+  if (text) return text;
+  return m.attachments?.length ? (m.attachments.length === 1 ? "Sent a file" : `Sent ${m.attachments.length} files`) : "";
 }
 
 /** The note the server adds when the team resolves a conversation (older ones were a full sentence). */
