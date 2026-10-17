@@ -35,7 +35,7 @@ The demo indexes the Escape Director docs, uses a scripted assistant and simulat
 </script>
 ```
 
-You can also call `Wicket.open()`, `Wicket.close()`, `Wicket.toggle()`, `Wicket.ask("question")` (opens the chat and sends it), `Wicket.setContext({ roomId })`, `Wicket.setUser({...})`, `Wicket.setUserToken(...)`, `Wicket.setTheme({...})`, `Wicket.setAnchor(element)` and `Wicket.setQuiet(true)` at any time. The latest context and a fresh `userToken` go with every message.
+You can also call `Wicket.open()`, `Wicket.close()`, `Wicket.toggle()`, `Wicket.ask("question")` (opens the chat and sends it), `Wicket.setContext({ roomId })`, `Wicket.setUser({...})`, `Wicket.setUserToken(...)`, `Wicket.setTheme({...})`, `Wicket.setAnchor(element)`, `Wicket.setQuiet(true)` and `Wicket.destroy()` (removes the widget, for example on sign-out; `init` brings it back) at any time. The latest context and a fresh `userToken` go with every message.
 
 ### Your own button
 

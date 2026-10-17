@@ -753,6 +753,9 @@ class Widget {
   private turnstileToken: string | null = null;
   private turnstileWait: { resolve: (t: string) => void; reject: (e: Error) => void } | null = null;
 
+  private host!: HTMLElement;
+  private teardown: (() => void)[] = [];
+
   constructor(options: InitOptions) {
     options = defined(options);
     const apiUrl = (options.apiUrl ?? (scriptSrc ? new URL(scriptSrc).origin : location.origin)).replace(/\/$/, "");
@@ -770,11 +773,20 @@ class Widget {
     this.applyTheme();
     this.quiet = Boolean(options.quiet);
     this.setAnchor(options.anchor ?? null);
+    this.host = host;
     const place = () => this.schedulePlace();
+    const theme = () => this.applyTheme();
+    const presence = () => this.sendPresence();
     window.addEventListener("resize", place, { passive: true });
     window.addEventListener("scroll", place, { passive: true, capture: true });
-    this.media?.addEventListener?.("change", () => this.applyTheme());
-    document.addEventListener("visibilitychange", () => this.sendPresence());
+    this.media?.addEventListener?.("change", theme);
+    document.addEventListener("visibilitychange", presence);
+    this.teardown.push(
+      () => window.removeEventListener("resize", place),
+      () => window.removeEventListener("scroll", place, { capture: true }),
+      () => this.media?.removeEventListener?.("change", theme),
+      () => document.removeEventListener("visibilitychange", presence),
+    );
     if (options.conversation) {
       this.conv = options.conversation;
       this.store();
@@ -791,9 +803,19 @@ class Widget {
       this.open();
     }
     void this.refreshSession();
-    setInterval(() => {
+    const tick = setInterval(() => {
       for (const t of this.log.querySelectorAll<HTMLElement>("time[data-t]")) t.textContent = timeAgo(Number(t.dataset.t), true);
     }, 30_000);
+    this.teardown.push(() => clearInterval(tick));
+  }
+
+  /** Removes the widget from the page and stops all its connections (e.g. when the person signs out). */
+  destroy() {
+    this.source?.close();
+    this.source = null;
+    for (const undo of this.teardown.splice(0)) undo();
+    this.setAnchor(null);
+    this.host.remove();
   }
 
   open() {
@@ -2174,6 +2196,11 @@ const api = {
   setAnchor: (el: HTMLElement | null) => instance?.setAnchor(el),
   setQuiet: (quiet: boolean) => instance?.setQuiet(quiet),
   ask: (text: string) => instance?.ask(text),
+  /** Removes the widget. Call init again to bring it back (for example, for the next person to sign in). */
+  destroy() {
+    instance?.destroy();
+    instance = null;
+  },
   /** Subscribe to "unread" (count), "open", "close" or "rating". Returns a function that unsubscribes. */
   on<K extends keyof Events>(event: K, cb: Events[K]): () => void {
     const set = (listeners[event] ??= new Set());
