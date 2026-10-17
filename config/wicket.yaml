@@ -77,7 +77,9 @@ profiles:
     instructions: >
       The person is on the Analytics page. Questions like "this Room" mean the Room and dates in
       <app_context>. Use the app's tools for any number about their games, and the docs for what a
-      metric means.
+      metric means. The reader doesn't see the [E1] markers, so when the basis changes
+      how much to trust a number (only a few games, or games left out), say that in plain words, such as
+      "based on 12 games, so treat it as rough". Otherwise don't mention it.
     suggestions:
       - What stands out about this Room?
       - Are any Puzzles taking too long to solve?

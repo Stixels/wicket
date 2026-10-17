@@ -308,7 +308,7 @@ button { font: inherit; color: inherit; }
 }
 .left .panel { right: auto; left: var(--wk-x); transform-origin: bottom left; }
 /* No launcher (the host has its own button): nothing to leave room for, so the panel sits in the corner. */
-.wk.no-launcher .panel { bottom: var(--wk-y); height: min(760px, calc(100vh - var(--wk-y) * 2)); }
+@media (min-width: 641px) { .wk.no-launcher .panel { bottom: var(--wk-y); height: min(760px, calc(100vh - var(--wk-y) * 2)); } }
 /* Under the host's own button (theme anchor): drops down from it, right edges aligned. */
 .wk.anchored .panel, .wk.left.anchored .panel { top: var(--wk-at); right: var(--wk-ar); left: auto; bottom: auto;
   width: min(440px, calc(100vw - var(--wk-ar) - 8px)); height: var(--wk-ah); transform: translateY(-8px) scale(.98); transform-origin: top right; }
@@ -467,16 +467,11 @@ button { font: inherit; color: inherit; }
 .ev[open] summary svg { transform: rotate(90deg); }
 .ev ol { list-style: none; margin: 6px 0 2px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .ev li { padding: 8px 10px; border-radius: 10px; background: color-mix(in srgb, var(--wk-text) 4%, transparent); border: 1px solid var(--wk-border); }
-.ev li.hit { border-color: color-mix(in srgb, var(--wk-accent) 55%, var(--wk-border)); }
 .ev .er { display: flex; align-items: baseline; gap: 8px; }
-.ev .ei { flex: none; font-size: 10.5px; font-weight: 650; color: var(--wk-muted); }
 .ev .el { flex: 1; min-width: 0; color: var(--wk-text); }
 .ev .evv { flex: none; font-weight: 650; color: var(--wk-text); font-variant-numeric: tabular-nums; }
-.ev .es { margin-top: 2px; padding-left: 24px; font-size: 11.5px; }
-.ev .ec { margin-top: 3px; padding-left: 24px; font-size: 11.5px; color: color-mix(in srgb, #f59e0b 80%, var(--wk-text)); }
-.evref { font-size: .68em; font-weight: 650; vertical-align: super; line-height: 0; margin-left: 1px; padding: 0 2px; border: 0; background: none;
-  color: var(--wk-muted); cursor: pointer; font-family: inherit; }
-.evref:hover { color: var(--wk-text); }
+.ev .es { margin-top: 2px; font-size: 11.5px; }
+.ev .ec { margin-top: 3px; font-size: 11.5px; color: color-mix(in srgb, #f59e0b 80%, var(--wk-text)); }
 /* Follow-up questions under the latest answer. */
 .next { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 6px 4px; animation: wk-in .25s ease; }
 .next-h { font-size: 11.5px; font-weight: 550; color: var(--wk-muted); }
@@ -820,6 +815,7 @@ class Widget {
     this.source?.close();
     this.source = null;
     for (const undo of this.teardown.splice(0)) undo();
+    this.fitToScreen(false);
     this.setAnchor(null);
     this.host.remove();
   }
@@ -952,10 +948,11 @@ class Widget {
   }
 
   private viewportListener?: () => void;
-  private pageOverflow: string | null = null;
+  /** The page's own styles and scroll position while the fullscreen chat locks it. */
+  private pageLock: { html: string; body: string; y: number } | null = null;
 
   /**
-   * On a phone the chat is fullscreen: the page behind it stops scrolling, and the panel tracks the
+   * On a phone the chat is fullscreen: the page behind it can't scroll, and the panel tracks the
    * visible area so the on-screen keyboard never covers the message box.
    */
   private fitToScreen(on: boolean) {
@@ -963,25 +960,41 @@ class Widget {
     const vv = window.visualViewport;
     const host = this.root.host as HTMLElement;
     if (on && phone) {
-      if (this.pageOverflow === null) {
-        this.pageOverflow = document.documentElement.style.overflow;
-        document.documentElement.style.overflow = "hidden";
+      if (!this.pageLock) {
+        // overflow: hidden alone doesn't stop iOS Safari scrolling the page to show the focused box,
+        // which made the chat jump while typing. Pinning the body does.
+        const html = document.documentElement;
+        const body = document.body;
+        this.pageLock = { html: html.style.cssText, body: body.style.cssText, y: window.scrollY };
+        html.style.overflow = "hidden";
+        Object.assign(body.style, { position: "fixed", top: `-${this.pageLock.y}px`, left: "0", right: "0", width: "100%", overflow: "hidden" });
       }
       if (vv && !this.viewportListener) {
-        this.viewportListener = () => {
+        let frame = 0;
+        let height = 0;
+        const update = () => {
+          frame = 0;
           host.style.setProperty("--wk-vh", `${vv.height}px`);
           host.style.setProperty("--wk-vtop", `${vv.offsetTop}px`);
-          this.scrollDown();
+          // Keep the latest message in view when the keyboard opens or closes, not on every scroll.
+          if (Math.abs(vv.height - height) > 1) this.scrollDown();
+          height = vv.height;
         };
-        this.viewportListener();
+        this.viewportListener = () => {
+          if (!frame) frame = requestAnimationFrame(update);
+        };
+        update();
         vv.addEventListener("resize", this.viewportListener);
         vv.addEventListener("scroll", this.viewportListener);
       }
       return;
     }
-    if (this.pageOverflow !== null) {
-      document.documentElement.style.overflow = this.pageOverflow;
-      this.pageOverflow = null;
+    if (this.pageLock) {
+      const { html, body, y } = this.pageLock;
+      this.pageLock = null;
+      document.documentElement.style.cssText = html;
+      document.body.style.cssText = body;
+      window.scrollTo(0, y);
     }
     if (vv && this.viewportListener) {
       vv.removeEventListener("resize", this.viewportListener);
@@ -1845,7 +1858,6 @@ class Widget {
       for (const btn of row.querySelectorAll<HTMLButtonElement>(".rate button")) {
         btn.addEventListener("click", () => void this.rate(m, btn.dataset.r as "up" | "down", row));
       }
-      for (const ref of row.querySelectorAll<HTMLElement>(".evref")) ref.addEventListener("click", () => this.showEvidence(row, ref.dataset.e!));
       this.refreshAnswer(m, row);
     }
     this.log.insertBefore(row, this.typing);
@@ -1867,13 +1879,6 @@ class Widget {
       meta ? meta.after(ev) : col.appendChild(ev);
     }
     if (row === this.lastRow && m.followUps?.length && !this.nextEl) this.showFollowUps(m.followUps);
-  }
-
-  private showEvidence(row: HTMLElement, id: string) {
-    const ev = row.querySelector<HTMLDetailsElement>(".ev");
-    if (!ev) return;
-    ev.open = true;
-    for (const li of ev.querySelectorAll<HTMLElement>("li")) li.classList.toggle("hit", li.dataset.e === id);
   }
 
   private showFollowUps(questions: string[]) {
@@ -2166,9 +2171,12 @@ export function renderMarkdown(text: string, opts: { evidence?: boolean } = {}):
   return html;
 }
 
-/** [E1] in an answer becomes a small marker that opens "How we got this" at that item. */
+/**
+ * The assistant cites [E1] so it only quotes numbers its tools returned, but the markers just repeat the
+ * sentence for the reader, so they're left out; "How we got this" lists the basis instead.
+ */
 function evidenceRefs(html: string): string {
-  return html.replace(/[^\S\n]*\[(E\d{1,3})\](?!\()/g, '<button type="button" class="evref" data-e="$1" title="See how we got this">$1</button>');
+  return html.replace(/[^\S\n]*\[E\d{1,3}\](?!\()/g, "");
 }
 
 function evidenceEl(items: Evidence[]): HTMLDetailsElement {
@@ -2178,7 +2186,7 @@ function evidenceEl(items: Evidence[]): HTMLDetailsElement {
     .map((e) => {
       const sub = [e.period, e.basis].filter(Boolean).map((x) => escapeHtml(String(x))).join(" · ");
       const caveats = (e.caveats ?? []).filter(Boolean).map((c) => escapeHtml(String(c))).join(" · ");
-      return `<li data-e="${escapeAttr(String(e.id))}"><div class="er"><span class="ei">${escapeHtml(String(e.id))}</span><span class="el">${escapeHtml(String(e.label))}</span><span class="evv">${escapeHtml(String(e.value))}</span></div>${
+      return `<li data-e="${escapeAttr(String(e.id))}"><div class="er"><span class="el">${escapeHtml(String(e.label))}</span><span class="evv">${escapeHtml(String(e.value))}</span></div>${
         sub ? `<div class="es">${sub}</div>` : ""
       }${caveats ? `<div class="ec">${caveats}</div>` : ""}</li>`;
     })
