@@ -680,7 +680,7 @@ textarea::placeholder { color: var(--wk-muted); }
   .left .panel { left: 0; }
   .wk.page .panel { inset: auto 0 auto 0; top: var(--wk-vtop, 0px); margin: 0; width: 100%; height: var(--wk-vh, 100dvh); }
   .wk.open .launcher { display: none; }
-  .head { padding-top: env(safe-area-inset-top); }
+  .head { padding-top: max(18px, env(safe-area-inset-top)); }
   .composer { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
   textarea, .email input, .pv-reply input { font-size: 16px; }
   .pv, .left .pv { right: 8px; left: auto; }
