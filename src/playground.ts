@@ -1,6 +1,7 @@
-/** The test page at /, standing in for a host app. It follows the system's light or dark setting. */
-export function playgroundPage(opts: { title: string; mode: "signed-in" | "visitor" | "unsigned"; plan?: string; initUser: string }): string {
+/** The test page at / (or /playground beside the marketing site), standing in for a host app. It follows the system's light or dark setting. */
+export function playgroundPage(opts: { title: string; mode: "signed-in" | "visitor" | "unsigned"; plan?: string; initUser: string; base?: string }): string {
   const { mode, plan } = opts;
+  const base = opts.base ?? "/";
   const current = mode === "visitor" ? "visitor" : plan === "pro" ? "pro" : "signed-in";
   const status =
     mode === "visitor"
@@ -45,7 +46,7 @@ footer{margin-top:28px;font-size:13px;color:var(--muted)}
 <p>This page stands in for your app. Open the chat button in the corner and send a message.</p>
 <div class="card">
 <div class="label">View as</div>
-<nav class="seg">${tab("signed-in", "/", "Signed in")}${tab("pro", "/?plan=pro", "Pro plan")}${tab("visitor", "/?as=visitor", "Visitor")}</nav>
+<nav class="seg">${tab("signed-in", base, "Signed in")}${tab("pro", `${base}?plan=pro`, "Pro plan")}${tab("visitor", `${base}?as=visitor`, "Visitor")}</nav>
 <p class="status">${status}.</p>
 </div>
 <div class="card">
