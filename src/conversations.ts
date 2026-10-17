@@ -3,13 +3,14 @@ import { EventEmitter } from "node:events";
 import { asc, desc, eq, sql } from "drizzle-orm";
 import type Anthropic from "@anthropic-ai/sdk";
 import { schema, type Db } from "./db/index.js";
-import type { TicketCard } from "./db/schema.js";
+import type { Evidence, TicketCard } from "./db/schema.js";
+import { citedEvidence, loadAppTools, type AppToolsTurn } from "./appTools.js";
 import { ThreadGoneError, type Relay, type RelayFile } from "./adapters/types.js";
 import { FileStore, MAX_MODEL_IMAGE_BYTES, MODEL_IMAGE_TYPES, formatSize, type Attachment } from "./files.js";
 import type { Agent } from "./agent/agent.js";
 import { readDoc, searchDocs } from "./knowledge/index.js";
 import type { Identity } from "./identity.js";
-import { parseSettings, pathFromContext, resolveProfile, type Profile, type Settings } from "./settings.js";
+import { appToolsUrl, parseSettings, pathFromContext, resolveProfile, type Profile, type Settings } from "./settings.js";
 import { UsageLedger, dollarsToMicros } from "./usage.js";
 import { Members, type Member } from "./team/members.js";
 import type { TicketNotice, TicketDesk } from "./tickets.js";
@@ -29,6 +30,12 @@ export interface PublicMessage {
   event?: string;
   /** What the widget draws for an event; `body` is the plain-text version. */
   card?: TicketCard;
+  /** On assistant answers: the figures behind it, from the app's tools. */
+  evidence?: Evidence[];
+  /** On assistant answers: questions to offer next. */
+  followUps?: string[];
+  /** On assistant answers: the person's thumbs up or down. */
+  rating?: "up" | "down" | null;
   createdAt: number;
 }
 
@@ -45,7 +52,8 @@ export type TeamEvent =
   | { type: "message"; conversationId: string; message: TeamMessage; who?: string | null; status?: Status }
   | { type: "status"; conversationId: string; status: Status; who?: string | null }
   | { type: "typing"; conversationId: string; memberId: string | null; name: string; source: string }
-  | { type: "presence"; conversationId: string; presence: Presence };
+  | { type: "presence"; conversationId: string; presence: Presence }
+  | { type: "rating"; conversationId: string; messageId: number; rating: "up" | "down" | null };
 
 /**
  * Whether the user is around: "viewing" has the chat open in a visible tab, "online" has the page
@@ -81,6 +89,10 @@ export interface ServiceOptions {
   tickets?: TicketDesk | null;
   /** Where the dashboard lives, for links in tickets. */
   publicUrl?: string;
+  /** Step limit for answers that can use the app's tools. */
+  appToolSteps?: number;
+  /** For tests: how app tools are fetched. */
+  fetch?: typeof fetch;
 }
 
 export const MESSAGES = {
@@ -93,6 +105,8 @@ export const MESSAGES = {
   overBudget: "You've reached this month's limit for the assistant, so I've passed your message to the team. Someone will reply here.",
   overTotal: "The assistant is unavailable right now, so I've passed your message to the team. Someone will reply here.",
   nearBudget: "Heads up: you've used most of this month's assistant allowance. After that, your messages go straight to the team.",
+  /** After a thumbs down, when the person asks for someone to look at it. */
+  askedForPerson: "Thanks for letting us know. I've passed this to the team.",
   logged: (what: string, kind: string | null) =>
     kind === "bug" || kind === "docs"
       ? `Logged for the team: ${what}. You'll hear back here when it's ${kind === "bug" ? "fixed" : "updated"}.`
@@ -128,6 +142,12 @@ export class ConversationService {
   private emailReplies: boolean;
   readonly tickets: TicketDesk | null;
   private publicUrl: string | null;
+  private appToolSteps: number;
+  private fetchImpl: typeof fetch;
+  /** The newest verified user token per conversation, kept in memory only, for app tool calls during an answer. */
+  private userTokens = new Map<string, { token: string; env: string | null }>();
+  /** The context last shown to the model per conversation, so a change (another page) is sent again. */
+  private sentContext = new Map<string, string>();
 
   constructor(
     private db: Db,
@@ -145,6 +165,8 @@ export class ConversationService {
     this.emailReplies = Boolean(o.emailReplies);
     this.tickets = o.tickets ?? null;
     this.publicUrl = o.publicUrl?.replace(/\/$/, "") ?? null;
+    this.appToolSteps = o.appToolSteps ?? 20;
+    this.fetchImpl = o.fetch ?? fetch;
   }
 
   /**
@@ -152,7 +174,11 @@ export class ConversationService {
    * the widget says about the reporter. `visitorKey` (e.g. the IP) is what an anonymous
    * person's spend counts against; it is stored hashed.
    */
-  create(reporter: Reporter, context: Record<string, unknown> | undefined, opts: { identity?: Identity | null; visitorKey?: string } = {}) {
+  create(
+    reporter: Reporter,
+    context: Record<string, unknown> | undefined,
+    opts: { identity?: Identity | null; visitorKey?: string; userToken?: string; verified?: boolean } = {},
+  ) {
     const now = new Date();
     const id = opts.identity;
     const row = {
@@ -164,13 +190,16 @@ export class ConversationService {
       reporterEmail: clip(id?.email ?? reporter.email, 320),
       userId: id ? clip(id.id, 200) : null,
       plan: id ? clip(id.plan, 100) : null,
-      payer: id ? `user:${clip(id.id, 200)}` : `visitor:${hash(opts.visitorKey ?? "unknown")}`,
+      payer: id ? (id.account ? `account:${clip(id.account, 200)}` : `user:${clip(id.id, 200)}`) : `visitor:${hash(opts.visitorKey ?? "unknown")}`,
+      budgetMicros: id?.budget != null ? dollarsToMicros(id.budget) : null,
+      verified: opts.verified ?? false,
       context: sanitizeContext(context),
       relayThreadId: null,
       createdAt: now,
       updatedAt: now,
     };
     this.db.insert(schema.conversations).values(row).run();
+    if (id && opts.userToken) this.userTokens.set(row.id, { token: opts.userToken, env: id.env });
     return { id: row.id, token: row.token };
   }
 
@@ -264,13 +293,55 @@ export class ConversationService {
   }
 
   /** Accepts a user message and processes it in the background (one at a time per conversation). */
-  async postUserMessage(id: string, body: string, contextUpdate?: Record<string, unknown>, attachmentIds: string[] = []): Promise<PublicMessage> {
+  async postUserMessage(
+    id: string,
+    body: string,
+    contextUpdate?: Record<string, unknown>,
+    attachmentIds: string[] = [],
+    signedIn?: { identity: Identity; token: string } | null,
+  ): Promise<PublicMessage> {
     const text = body.trim().slice(0, MAX_BODY);
     if (contextUpdate) this.mergeContext(id, contextUpdate);
+    if (signedIn) this.refreshIdentity(id, signedIn.identity, signedIn.token);
     const msg = this.addMessage(id, "user", text, null, (messageId) => this.files.claim(id, attachmentIds, messageId));
     this.enqueue(id, () => this.handleUserMessage(id, msg.body, msg.attachments));
     const { memberId: _member, mentions: _mentions, ...pub } = msg;
     return pub;
+  }
+
+  /** A fresh token from the same person: keep it for this answer's app tools and take the newest allowance. */
+  private refreshIdentity(id: string, identity: Identity, token: string) {
+    const c = this.get(id);
+    if (!c || !c.userId || c.userId !== identity.id) return;
+    this.userTokens.set(id, { token, env: identity.env });
+    if (identity.budget != null) {
+      this.db.update(schema.conversations).set({ budgetMicros: dollarsToMicros(identity.budget) }).where(eq(schema.conversations.id, id)).run();
+    }
+  }
+
+  /** A thumbs up or down on one of the assistant's answers; null clears it. */
+  rate(id: string, messageId: number, rating: "up" | "down" | null): boolean {
+    const row = this.db.select().from(schema.messages).where(eq(schema.messages.id, messageId)).get();
+    if (!row || row.conversationId !== id || row.author !== "agent") return false;
+    this.db.update(schema.messages).set({ rating }).where(eq(schema.messages.id, messageId)).run();
+    const c = this.get(id);
+    this.events.emit(TEAM_EVENTS, { type: "rating", conversationId: id, messageId, rating } satisfies TeamEvent);
+    if (rating && c?.relayThreadId && this.relay) {
+      const line = `${rating === "up" ? "👍" : "👎"} Rated this answer: "${previewText(toPublic(row)).slice(0, 120)}"`;
+      void this.relay.post(c.relayThreadId, "system", line).catch((err) => this.log("relay post failed", err));
+    }
+    return true;
+  }
+
+  /** "Tell the team" after a thumbs down: a person takes over, as with any handoff. */
+  async askForPerson(id: string, reason = "The person asked for someone to look at an answer they rated down."): Promise<boolean> {
+    const c = this.get(id);
+    if (!c) return false;
+    if (c.status !== "agent") return true;
+    this.addMessage(id, "system", MESSAGES.askedForPerson, null);
+    await this.handoff(id, reason);
+    this.addMessage(id, "system", this.waitingText(id), null);
+    return true;
   }
 
   /**
@@ -548,8 +619,18 @@ export class ConversationService {
       return;
     }
 
-    const payer = c.payer ?? `conversation:${id}`;
-    const limit = profile.budget !== undefined ? dollarsToMicros(profile.budget) : null;
+    if (profile.botCheck && !c.userId && !c.verified) {
+      await this.handoff(id, "New message (didn't pass the bot check).");
+      this.addMessage(id, "system", this.waitingText(id), null);
+      return;
+    }
+
+    // A shared profile (e.g. all visitors) spends from one pot; otherwise the person or their account pays.
+    const payer = profile.budgetScope === "shared" ? `shared:${profile.name}` : (c.payer ?? `conversation:${id}`);
+    const limits = [profile.budget !== undefined ? dollarsToMicros(profile.budget) : null, profile.budgetScope === "shared" ? null : (c.budgetMicros ?? null)].filter(
+      (n): n is number => n !== null,
+    );
+    const limit = limits.length ? Math.min(...limits) : null;
     const total = this.settings.budgets.monthlyTotal;
     const overTotal = total !== undefined && this.ledger.spentThisMonth(null) >= dollarsToMicros(total);
     const spent = limit !== null ? this.ledger.spentThisMonth(payer) : 0;
@@ -561,9 +642,12 @@ export class ConversationService {
 
     const isFirst = this.loadTurns(id).length === 0;
     const content: Anthropic.Beta.Messages.BetaContentBlockParam[] = [];
-    if (isFirst && c.context) {
-      content.push({ type: "text", text: `<app_context>\n${JSON.stringify(c.context, null, 2)}\n</app_context>` });
+    // The context goes in with the first message, and again whenever it changed (another page, Room or dates).
+    const contextJson = c.context ? JSON.stringify(c.context, null, 2) : null;
+    if (contextJson && (isFirst || this.sentContext.get(id) !== contextJson)) {
+      content.push({ type: "text", text: `<app_context>\n${contextJson}\n</app_context>` });
     }
+    if (contextJson) this.sentContext.set(id, contextJson);
     // Files go in as markers; history() turns image markers into images for the model.
     for (const a of attachments) content.push({ type: "text", text: `<wicket-file id="${a.id}"/>` });
     if (body) content.push({ type: "text", text: body });
@@ -574,20 +658,35 @@ export class ConversationService {
     const stopTyping = this.relayTyping(id);
     const cards: TicketCard[] = []; // shown after the reply, so the chat reads "thanks" then "logged"
     try {
+      const app = await this.appToolsFor(id, profile);
       const result = await this.agent.respond(
         this.history(id),
         {
           searchDocs: (q) => searchDocs(this.db, q),
           readDoc: (url) => readDoc(this.db, url),
           handoff: (reason) => this.handoff(id, reason),
-          tickets: this.ticketTools(id, cards),
+          tickets: profile.tickets ? this.ticketTools(id, cards) : undefined,
+          ...(app ? { app: app.tools } : {}),
         },
-        { instructions: profile.instructions, model: profile.model, effort: profile.effort, topics: profile.topics, offTopic: profile.offTopic },
+        {
+          instructions: profile.instructions,
+          model: profile.model,
+          effort: profile.effort,
+          topics: profile.topics,
+          offTopic: profile.offTopic,
+          followUps: profile.followUps,
+          providerOptions: profile.providerOptions,
+          ...(app ? { maxSteps: this.appToolSteps } : {}),
+        },
       );
       this.saveTurns(id, result.newTurns);
       const cost = this.ledger.record(id, payer, profile.name, result.usage);
       if (result.reply) {
-        this.addMessage(id, "agent", result.reply, null);
+        const evidence = app ? citedEvidence(result.reply, app.evidence) : [];
+        this.addMessage(id, "agent", result.reply, null, undefined, {
+          ...(evidence.length ? { evidence } : {}),
+          ...(result.followUps.length ? { followUps: result.followUps } : {}),
+        });
         await this.mirror(id, "agent", result.reply);
       }
       for (const card of cards) {
@@ -609,6 +708,19 @@ export class ConversationService {
     } finally {
       stopTyping();
       this.events.emit(id, { type: "idle" });
+    }
+  }
+
+  /** The host app's tools for this answer, when the profile has them and the person is signed in. */
+  private async appToolsFor(id: string, profile: Profile): Promise<AppToolsTurn | null> {
+    const signedIn = this.userTokens.get(id);
+    const url = signedIn ? appToolsUrl(profile, signedIn.env) : null;
+    if (!signedIn || !url) return null;
+    try {
+      return await loadAppTools(url, signedIn.token, this.get(id)?.context ?? null, this.fetchImpl);
+    } catch (err) {
+      this.log(`app tools unavailable for ${id}`, err);
+      return null;
     }
   }
 
@@ -703,7 +815,7 @@ export class ConversationService {
     body: string,
     authorName: string | null,
     attach?: (messageId: number) => Attachment[],
-    team: { memberId?: string | null; mentions?: string[]; event?: string; card?: TicketCard } = {},
+    team: { memberId?: string | null; mentions?: string[]; event?: string; card?: TicketCard; evidence?: Evidence[]; followUps?: string[] } = {},
   ): TeamMessage {
     let row = this.db
       .insert(schema.messages)
@@ -716,6 +828,8 @@ export class ConversationService {
         mentions: team.mentions?.length ? team.mentions : null,
         event: team.event ?? null,
         card: team.card ?? null,
+        evidence: team.evidence ?? null,
+        followUps: team.followUps ?? null,
         createdAt: new Date(),
       })
       .returning()
@@ -831,6 +945,9 @@ function toPublic(m: typeof schema.messages.$inferSelect): PublicMessage {
     attachments: m.attachments ?? [],
     ...(m.event ? { event: m.event } : {}),
     ...(m.card ? { card: m.card } : {}),
+    ...(m.evidence?.length ? { evidence: m.evidence } : {}),
+    ...(m.followUps?.length ? { followUps: m.followUps } : {}),
+    ...(m.author === "agent" ? { rating: m.rating ?? null } : {}),
     createdAt: m.createdAt.getTime(),
   };
 }

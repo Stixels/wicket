@@ -27,6 +27,9 @@ export interface Message {
   createdAt: number;
   memberId: string | null;
   mentions: string[];
+  /** On assistant answers: the figures behind it, and the person's thumbs up or down. */
+  evidence?: { id: string; label: string; value: string; period?: string; basis?: string; caveats?: string[] }[];
+  rating?: "up" | "down" | null;
 }
 
 export interface InboxItem {
@@ -70,7 +73,8 @@ export type TeamEvent =
   | { type: "message"; conversationId: string; message: Message; who?: string | null; status?: Status }
   | { type: "status"; conversationId: string; status: Status; who?: string | null }
   | { type: "typing"; conversationId: string; memberId: string | null; name: string; source: string }
-  | { type: "presence"; conversationId: string; presence: Presence };
+  | { type: "presence"; conversationId: string; presence: Presence }
+  | { type: "rating"; conversationId: string; messageId: number; rating: "up" | "down" | null };
 
 export class ApiError extends Error {
   constructor(

@@ -19,6 +19,16 @@ export interface TicketCard {
   reason?: string;
 }
 
+/** One figure behind an answer, from a host app tool. */
+export interface Evidence {
+  id: string;
+  label: string;
+  value: string;
+  period?: string;
+  basis?: string;
+  caveats?: string[];
+}
+
 /**
  * status:
  *  - "agent": the agent answers
@@ -38,8 +48,12 @@ export const conversations = sqliteTable(
     /** Set only from a valid signed user token. */
     userId: text("user_id"),
     plan: text("plan"),
-    /** Who the assistant's spend counts against: "user:<id>" or "visitor:<hash of IP>". */
+    /** Who the assistant's spend counts against: "account:<id>", "user:<id>" or "visitor:<hash of IP>". */
     payer: text("payer"),
+    /** The monthly allowance from the newest signed token, in micro-dollars, when the host sets one. */
+    budgetMicros: integer("budget_micros"),
+    /** A visitor passed the bot check when starting this conversation. */
+    verified: integer("verified", { mode: "boolean" }),
     context: text("context", { mode: "json" }).$type<Record<string, unknown>>(),
     relayThreadId: text("relay_thread_id"),
     /** When the user last had the widget connected. */
@@ -78,6 +92,12 @@ export const messages = sqliteTable(
     event: text("event"),
     /** What the widget draws for an event message; `body` is the plain-text version. */
     card: text("card", { mode: "json" }).$type<TicketCard>(),
+    /** On assistant answers: what the app's tools returned, shown folded under the answer. */
+    evidence: text("evidence", { mode: "json" }).$type<Evidence[]>(),
+    /** On assistant answers: questions the person might ask next. */
+    followUps: text("follow_ups", { mode: "json" }).$type<string[]>(),
+    /** On assistant answers: the person's thumbs up or down. */
+    rating: text("rating", { enum: ["up", "down"] }),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   },
   (t) => [index("messages_conversation").on(t.conversationId, t.id)],

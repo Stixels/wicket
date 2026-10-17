@@ -10,6 +10,12 @@ export interface Identity {
   name: string | null;
   email: string | null;
   plan: string | null;
+  /** The account that pays, when the host bills per account rather than per person. */
+  account: string | null;
+  /** The account's monthly AI allowance in dollars, when the host sets one. Lower than a profile's budget wins. */
+  budget: number | null;
+  /** Which of the host's environments signed it (e.g. "staging"), when one Wicket serves several. */
+  env: string | null;
 }
 
 /** The furthest out a token's expiry may be. Hosts should sign tokens for minutes, not days. */
@@ -39,12 +45,13 @@ export function verifyUserToken(token: string | undefined | null, secret: string
 
   const id = str(claims.sub) ?? str(claims.userId) ?? str(claims.id);
   if (!id) return null;
-  return { id, name: str(claims.name), email: str(claims.email), plan: str(claims.plan) };
+  const budget = typeof claims.budget === "number" && Number.isFinite(claims.budget) && claims.budget >= 0 ? claims.budget : null;
+  return { id, name: str(claims.name), email: str(claims.email), plan: str(claims.plan), account: str(claims.account), budget, env: str(claims.env) };
 }
 
 /** Signs a user token. The host's backend does this; Wicket uses it for the playground and tests. */
 export function signUserToken(
-  claims: { sub: string; name?: string; email?: string; plan?: string },
+  claims: { sub: string; name?: string; email?: string; plan?: string; account?: string; budget?: number; env?: string },
   secret: string,
   ttlSeconds = 300,
   now = Date.now(),

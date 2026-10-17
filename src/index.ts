@@ -122,6 +122,7 @@ const service = new ConversationService(db, agent, relay, {
   emailReplies: Boolean(mailer),
   tickets: desk,
   publicUrl: config.PUBLIC_URL,
+  appToolSteps: config.AGENT_MAX_STEPS_WITH_APP_TOOLS,
 });
 const replyEmails = mailer
   ? new ReplyEmails(db, service, mailer, { productName: config.PRODUCT_NAME, publicUrl: config.PUBLIC_URL!, replyDomain: config.EMAIL_REPLY_DOMAIN })
@@ -186,6 +187,7 @@ const app = createServer(service, {
   maxConversationsPerIpPerHour: config.MAX_CONVERSATIONS_PER_IP_PER_HOUR,
   playground: config.PLAYGROUND ? { title: `${config.PRODUCT_NAME} Support` } : undefined,
   identitySecret: config.IDENTITY_SECRET,
+  turnstile: config.TURNSTILE_SITE_KEY && config.TURNSTILE_SECRET_KEY ? { siteKey: config.TURNSTILE_SITE_KEY, secretKey: config.TURNSTILE_SECRET_KEY } : undefined,
   productName: config.PRODUCT_NAME,
   email: replyEmails ? { replies: replyEmails, webhookSecret: config.RESEND_WEBHOOK_SECRET } : undefined,
   team: {
@@ -226,11 +228,14 @@ function describeSettings() {
   for (const name of names) {
     const prof = settings.profiles[name] ?? {};
     const ai = prof.ai === false || !agent ? "goes to the team" : `assistant on ${prof.model ?? config.AGENT_MODEL}`;
-    const budget = prof.budget !== undefined ? `, $${prof.budget}/person/month` : "";
+    const budget = prof.budget !== undefined ? `, $${prof.budget}/${prof.budgetScope === "shared" ? "month shared by everyone" : "person/month"}` : "";
     console.log(`profiles: ${name}: ${ai}${budget}`);
     if (prof.budget !== undefined && agent && prof.ai !== false && !priceFor(prof.model ?? model, settings.budgets.prices)) {
       console.log(`profiles: needs you: no price known for ${prof.model ?? model}; counting it at a high rate. Add it under budgets.prices.`);
     }
+  }
+  if (Object.values(settings.profiles).some((p) => p.botCheck) && !(config.TURNSTILE_SITE_KEY && config.TURNSTILE_SECRET_KEY)) {
+    console.log("profiles: needs you: a profile has botCheck, but TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY aren't set, so its visitors go straight to the team");
   }
   const usesSignIn = settings.rules.some((r) => r.when.signedIn !== undefined || r.when.plan);
   if (usesSignIn && !config.IDENTITY_SECRET) {

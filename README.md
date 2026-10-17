@@ -35,7 +35,25 @@ The demo indexes the Escape Director docs, uses a scripted assistant and simulat
 </script>
 ```
 
-You can also call `Wicket.open()`, `Wicket.close()`, `Wicket.setContext({ roomId })`, `Wicket.setUser({...})`, `Wicket.setUserToken(...)` and `Wicket.setTheme({...})` at any time.
+You can also call `Wicket.open()`, `Wicket.close()`, `Wicket.toggle()`, `Wicket.ask("question")` (opens the chat and sends it), `Wicket.setContext({ roomId })`, `Wicket.setUser({...})`, `Wicket.setUserToken(...)`, `Wicket.setTheme({...})`, `Wicket.setAnchor(element)` and `Wicket.setQuiet(true)` at any time. The latest context and a fresh `userToken` go with every message.
+
+### Your own button
+
+To open the chat from a button in your app's header, hide the launcher and pass the button as `anchor`:
+
+```js
+const button = document.querySelector("#help-chat");
+Wicket.init({ hideLauncher: true, anchor: button });
+button.addEventListener("click", () => Wicket.toggle());
+const off = Wicket.on("unread", (count) => (button.dataset.count = count || ""));
+```
+
+- The panel opens just below the anchor, right-aligned to it, floating over the page. On phones it opens full screen as usual. If the anchor is gone or hidden, the panel uses the bottom corner.
+- When a reply arrives while the chat is closed, a preview drops from under the anchor (or sits above the launcher) with the reply, a one-line reply box and **Open chat**. It never plays a sound.
+- `quiet: true` (or `Wicket.setQuiet(true)`) turns the previews off, for screens other people can see; `unread` still fires so you can show the count yourself.
+- `Wicket.on(event, callback)` returns a function that unsubscribes. Events: `unread` (the count, on every change, including back to 0 when the chat opens), `open`, `close`, and `rating` (`{ conversationId, messageId, rating }` when someone rates an answer; `rating` is `"up"`, `"down"` or `null` when they take it back). You can subscribe before `init`.
+
+Each assistant answer has thumbs up and down on its name line. A thumbs down offers to pass the conversation to the team. Answers can come with **How we got this** (the numbers behind them) and **Ask next** questions under the latest one. When the server asks for a bot check, visitors pass a Cloudflare Turnstile check in the panel before their first answer.
 
 ### Signed-in users
 
@@ -50,7 +68,32 @@ jwt.sign({ sub: user.id, name: user.name, email: user.email, plan: user.plan }, 
 Wicket.init({ userToken: () => fetch("/api/wicket-token").then((r) => r.json()).then((d) => d.token) });
 ```
 
-`userToken` takes the token or a function that returns one. Without a valid token, the person counts as a visitor. Tokens must have an expiry (`exp`) no more than 24 hours out; a few minutes is best.
+`userToken` takes the token or a function that returns one. Without a valid token, the person counts as a visitor. Tokens must have an expiry (`exp`) no more than 24 hours out; a few minutes is best. The widget asks for a fresh one with every message.
+
+Optional claims:
+
+| Claim | What it does |
+|---|---|
+| `account` | Bill per account instead of per person: everyone with the same `account` spends from one budget. |
+| `budget` | The account's (or person's) monthly AI allowance in dollars. When a profile also has a `budget`, the lower one applies, so your app stays in charge of the amount. |
+| `env` | Which of your environments signed it (`staging`, `production`), when one Wicket serves several. Picks the app-tools URL. |
+
+### App tools
+
+Let the assistant read the signed-in person's own data, such as their results or settings, through tools your backend offers. Wicket calls them with the person's token, so your backend checks who they are on every call and Wicket never sees data they couldn't see in your app.
+
+```yaml
+profiles:
+  default:
+    appTools:
+      url: https://api.example.com/wicket/tools   # or { production: ..., staging: ... } keyed by the token's env
+```
+
+- `GET {url}?context=<json>` returns `{ instructions, tools: [{ name, description, inputSchema }] }`. `instructions` are your rules for using the tools; they go into the assistant's prompt. `inputSchema` is JSON Schema.
+- `POST {url}/{name}` with `{ input, context, evidenceStart }` returns `{ content, evidence? }`. `content` is what the model reads. `evidence` items (`{ id, label, value, period?, basis?, caveats? }`) show folded under the answer as "How we got this", numbered from `evidenceStart + 1` so ids stay unique within an answer. Answer with a 4xx and `{ error }` for a problem the model should hear about.
+- `context` is what the widget last sent with `Wicket.setContext()`, for example the page, the record on screen and the date range. Wicket sends it to the model again whenever it changes.
+
+Profiles with app tools get more steps per answer (`AGENT_MAX_STEPS_WITH_APP_TOOLS`, 20 by default).
 
 ### Customizing
 
@@ -73,6 +116,7 @@ Wicket.init({ userToken: () => fetch("/api/wicket-token").then((r) => r.json()).
 | `theme.offset` | `{ x: 20, y: 20 }` | Distance from the screen edges. |
 | `theme.zIndex` | very high | Stacking order. |
 | `theme.cssVars` | none | Override any internal variable, e.g. `{ "--wk-bg": "#fffaf5" }`. |
+| `--wk-user`, `--wk-user-text`, `--wk-user-border` | accent, text on accent, none | Colors of the person's own messages, set through `theme.cssVars`. |
 
 The widget renders in a shadow DOM, so your app's CSS can't break it and its CSS can't leak into your app. On phones it opens full screen.
 
@@ -172,6 +216,8 @@ budgets:
 - **Assistant** (top level) applies everywhere, including the community help forum: `instructions` for facts every answer should know, `code` (`decline` by default: no code, it links the closest guide or example; `snippets` allows short snippets adapted from examples it has read), and `helpForum` (`false` by default; `true` answers new `#help` posts, which no per-person budget covers).
 - **Profiles** set whether the assistant answers at all, extra instructions, whether it stays on topic (`offTopic: decline` by default, so it won't do general coding or homework; `topics` widens what counts), the model and effort, a monthly budget per person, and what the widget shows (title, welcome text, placeholder, quick starts). Options passed to `Wicket.init()` still win.
 - **Rules** pick a profile from whether someone is signed in, their `plan`, and the page they're on. Signed in and plan come only from a verified token; the page comes from the widget.
+- **Visitors** can get the assistant too, without opening a hole in your budget: give their profile `budgetScope: shared` so they all spend from one pot, and `botCheck: true` so each conversation starts with a Cloudflare Turnstile check (set `TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY`; without them those visitors go straight to the team). `tickets: false` stops the assistant logging reports for people it can't follow up with.
+- **Follow-ups:** `followUps: true` has the assistant suggest two or three questions to ask next with each answer, shown as chips. They're written with the answer, so they cost no extra call.
 - **Budgets** count what each person's assistant answers cost this calendar month (UTC), from token usage and list prices. Signed-in people are counted by user id, visitors by IP. Each person has one total across all profiles; a profile's `budget` is the point where that profile stops answering, so giving every profile the same number makes it a single shared budget. Near the limit the widget says so; at the limit their messages go to the team instead. `monthlyTotal` does the same for everyone at once. Prices for current Claude models and GPT-6 Luna are built in; add others under `budgets.prices`.
 
 On boot the log lists each profile and anything that won't work as written, such as rules about sign-in without `IDENTITY_SECRET`.
@@ -191,6 +237,7 @@ See [`.env.example`](.env.example). The main settings:
 | `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `PUBLIC_URL` | Discord sign-in for the team dashboard at `/admin`. `TEAM_DISCORD_IDS` lets in people without the Team role. |
 | `RESEND_API_KEY`, `EMAIL_FROM`, `EMAIL_REPLY_DOMAIN`, `RESEND_WEBHOOK_SECRET` | Emailing unread replies to users, and replies by email. See [Email](#email). |
 | `IDENTITY_SECRET` | Shared with your backend to sign user tokens (at least 32 characters). |
+| `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile, for profiles with `botCheck: true`. |
 | `WICKET_CONFIG` | Profiles, rules, budgets and extra knowledge repos (`knowledge:`, e.g. an SDK with examples): a file path or the YAML itself. Defaults to `config/wicket.yaml`. |
 
 ## How it fits together

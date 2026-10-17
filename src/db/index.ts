@@ -145,9 +145,11 @@ export function openDb(file: string): Db {
     emailed_at: "INTEGER",
     email_opt_out: "INTEGER",
     last_seen_at: "INTEGER",
+    budget_micros: "INTEGER",
+    verified: "INTEGER",
   });
   sqlite.exec("CREATE INDEX IF NOT EXISTS conversations_user ON conversations(user_id, updated_at)");
-  addMissingColumns(sqlite, "messages", { attachments: "TEXT", member_id: "TEXT", mentions: "TEXT", event: "TEXT", card: "TEXT" });
+  addMissingColumns(sqlite, "messages", { attachments: "TEXT", member_id: "TEXT", mentions: "TEXT", event: "TEXT", card: "TEXT", evidence: "TEXT", follow_ups: "TEXT", rating: "TEXT" });
   addMissingColumns(sqlite, "files", { deleted_at: "INTEGER" });
   addMissingColumns(sqlite, "tickets", { planned_at: "INTEGER" });
   addMissingColumns(sqlite, "ticket_links", { planned_at: "INTEGER" });

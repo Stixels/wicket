@@ -103,7 +103,7 @@ describe("settings", () => {
 describe("user tokens", () => {
   it("accepts a valid token and rejects tampered, expired or unsigned ones", () => {
     const token = signUserToken({ sub: "42", plan: "pro" }, SECRET);
-    expect(verifyUserToken(token, SECRET)).toEqual({ id: "42", name: null, email: null, plan: "pro" });
+    expect(verifyUserToken(token, SECRET)).toEqual({ id: "42", name: null, email: null, plan: "pro", account: null, budget: null, env: null });
     expect(verifyUserToken(token, "another-secret-that-is-long-enough-12345")).toBeNull();
     const [h, , sig] = token.split(".");
     const forged = Buffer.from(JSON.stringify({ sub: "42", plan: "enterprise" })).toString("base64url");
