@@ -234,7 +234,7 @@ See [`.env.example`](.env.example). The main settings:
 | `DOCS_URL` | No docs repo? A hosted docs site to index instead: its home page (pages under that path are read) or its `sitemap.xml`. Pages come from the sitemap when there is one, otherwise by following links, up to 500. |
 | `RELAY`, `DISCORD_*` | Where conversations show up for the team. |
 | `ALLOWED_ORIGINS` | Sites allowed to embed the widget. |
-| `PLAYGROUND`, `SITE` | `PLAYGROUND` serves a test page with the widget at `/` (on outside production). `SITE=true` serves the Wicket marketing page (`site/index.html`) at `/` instead and moves the playground to `/playground`. |
+| `PLAYGROUND`, `SITE` | `PLAYGROUND` serves a test page with the widget at `/` (on outside production). `SITE` serves the Wicket marketing page (`site/index.html`) at `/`, and moves the playground to `/playground`. It's on by default; `SITE=false` turns it off. |
 | `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `PUBLIC_URL` | Discord sign-in for the team dashboard at `/admin`. `TEAM_DISCORD_IDS` lets in people without the Team role. |
 | `RESEND_API_KEY`, `EMAIL_FROM`, `EMAIL_REPLY_DOMAIN`, `RESEND_WEBHOOK_SECRET` | Emailing unread replies to users, and replies by email. See [Email](#email). |
 | `IDENTITY_SECRET` | Shared with your backend to sign user tokens (at least 32 characters). |
