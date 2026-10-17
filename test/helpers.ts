@@ -1,24 +1,74 @@
+import { MockLanguageModelV4 } from "ai/test";
 import { ThreadGoneError, type Relay, type RelayConversation, type RelayFile, type RelayMember, type StaffReply } from "../src/adapters/types.js";
-import type { MessagesClient } from "../src/agent/agent.js";
+import type { ModelProvider } from "../src/agent/agent.js";
 
-/** Scripted stand-in for the Anthropic client: returns queued responses and records requests. */
-export class FakeClient implements MessagesClient {
-  requests: any[] = [];
-  constructor(private responses: Array<{ content: any[]; stop_reason: string }>) {}
-  beta = {
-    messages: {
-      create: async (params: any) => {
-        this.requests.push(structuredClone(params));
-        const next = this.responses.shift();
-        if (!next) throw new Error("FakeClient: no more scripted responses");
-        return next;
-      },
-    },
-  };
+/** A scripted model reply, written as the Anthropic API would send it. */
+export interface Scripted {
+  content: any[];
+  stop_reason: string;
+  usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number };
 }
 
-export const text = (t: string) => ({ content: [{ type: "text", text: t }], stop_reason: "end_turn" });
-export const toolCall = (name: string, input: object, id = `tu_${name}`) => ({
+/** What a test reads back from one model call: the model id, system prompt, messages, tools and provider options. */
+export interface Request {
+  model: string;
+  system: string;
+  messages: any[];
+  tools: any[];
+  providerOptions: Record<string, any>;
+  raw: any;
+}
+
+const FINISH: Record<string, "stop" | "tool-calls" | "content-filter" | "length"> = {
+  end_turn: "stop",
+  tool_use: "tool-calls",
+  refusal: "content-filter",
+  max_tokens: "length",
+};
+
+/** Scripted stand-in for the model provider: returns queued responses and records requests. */
+export class FakeClient implements ModelProvider {
+  requests: Request[] = [];
+  constructor(private responses: Scripted[]) {}
+  languageModel(id: string) {
+    return new MockLanguageModelV4({
+      modelId: id,
+      doGenerate: async (options) => {
+        const prompt = structuredClone(options.prompt) as any[];
+        this.requests.push({
+          model: id,
+          system: prompt.filter((m) => m.role === "system").map((m) => m.content).join("\n"),
+          messages: prompt.filter((m) => m.role !== "system"),
+          tools: options.tools ?? [],
+          providerOptions: options.providerOptions ?? {},
+          raw: options,
+        });
+        const next = this.responses.shift();
+        if (!next) throw new Error("FakeClient: no more scripted responses");
+        const u = next.usage ?? {};
+        const [input, cacheRead, cacheWrite] = [u.input_tokens ?? 0, u.cache_read_input_tokens ?? 0, u.cache_creation_input_tokens ?? 0];
+        return {
+          content: next.content.map((b) =>
+            b.type === "thinking"
+              ? { type: "reasoning" as const, text: b.thinking, providerMetadata: { anthropic: { signature: b.signature } } }
+              : b.type === "tool_use"
+                ? { type: "tool-call" as const, toolCallId: b.id, toolName: b.name, input: JSON.stringify(b.input) }
+                : { type: "text" as const, text: b.text },
+          ),
+          finishReason: { unified: FINISH[next.stop_reason] ?? "other", raw: next.stop_reason },
+          usage: {
+            inputTokens: { total: input + cacheRead + cacheWrite, noCache: input, cacheRead, cacheWrite },
+            outputTokens: { total: u.output_tokens ?? 0, text: undefined, reasoning: undefined },
+          },
+          warnings: [],
+        };
+      },
+    });
+  }
+}
+
+export const text = (t: string): Scripted => ({ content: [{ type: "text", text: t }], stop_reason: "end_turn" });
+export const toolCall = (name: string, input: object, id = `tu_${name}`): Scripted => ({
   content: [
     { type: "thinking", thinking: "", signature: "sig" },
     { type: "tool_use", id, name, input },

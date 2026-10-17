@@ -11,6 +11,10 @@ theme:
     --wk-border: "rgba(255,255,255,0.07)"
     --wk-text: "#EDEDEF"
     --wk-muted: "#8A8F98"
+    # Your own messages are a quiet gray; red stays for buttons and the brand.
+    --wk-user: "#2a2424"
+    --wk-user-text: "#EDEDEF"
+    --wk-user-border: "rgba(255,255,255,0.09)"
 
 team:
   replyTime: a few hours
@@ -28,24 +32,51 @@ knowledge:
     exclude: [THIRD_PARTY.md, TRADEMARKS.md]
 
 profiles:
-  # Marketing site, sign-in and sign-up: no assistant, so nothing to abuse.
+  # Marketing site, sign-in and sign-up. Everyone here shares one small pot, after a bot check,
+  # then messages go to the team. Visitors can't log reports: we couldn't follow up with them.
   visitor:
-    ai: false
+    budget: 3.00
+    budgetScope: shared
+    botCheck: true
+    tickets: false
     askEmail: true
-    welcomeSubtitle: Send us a message and the team will reply here.
-
-  # Budgets are one pot per person: spend in any profile counts toward it,
-  # and each profile's number is where that profile stops answering.
-  default:
-    budget: 3.00
-
-  analytics:
-    budget: 3.00
     instructions: >
-      The person is on the Analytics page. Explain what a metric or chart means using the docs.
-      You can't see their numbers; for questions about their own results, point them to the
-      Ask Analytics assistant on this page.
-    suggestions: ["What does Success Rate mean?", "How is Average Time calculated?", "Something looks wrong"]
+      This person isn't signed in. If they report a bug or share an idea, thank them and point them to
+      the #ideas forum in the Escape Director Discord (https://discord.gg/tRDXj9x6SF), or ask them to
+      sign in if they're a customer, so the team can follow up.
+
+  # Signed in, any page. ED's token carries the account's allowance ($3 per Location a month), and
+  # every answer from everyone on the account counts toward it.
+  default:
+    followUps: true
+    appTools:
+      url:
+        production: https://api.escapedirector.com/api/v1/integrations/wicket/tools
+        staging: https://staging-api.escapedirector.com/api/v1/integrations/wicket/tools
+
+  # The Analytics page: the model benchmarked for analytics questions (ED-399), and today's five questions.
+  analytics:
+    model: openai/gpt-6-luna
+    effort: medium
+    # As the old Analytics assistant did: OpenAI only, and OpenAI doesn't store the response.
+    providerOptions:
+      gateway: { only: [openai] }
+      openai: { store: false }
+    followUps: true
+    appTools:
+      url:
+        production: https://api.escapedirector.com/api/v1/integrations/wicket/tools
+        staging: https://staging-api.escapedirector.com/api/v1/integrations/wicket/tools
+    instructions: >
+      The person is on the Analytics page. Questions like "this Room" mean the Room and dates in
+      <app_context>. Use the app's tools for any number about their games, and the docs for what a
+      metric means.
+    suggestions:
+      - What stands out about this Room?
+      - Are any Puzzles taking too long to solve?
+      - Are any Puzzles using too many Clues?
+      - How are my Game Masters performing?
+      - Is this Room's Success Rate improving or declining?
 
 rules:
   - when: { signedIn: false }
@@ -55,4 +86,4 @@ rules:
 
 budgets:
   warnAt: 0.8
-  monthlyTotal: 20
+  monthlyTotal: 20  # every account's own allowance is checked first

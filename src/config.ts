@@ -21,11 +21,13 @@ const schema = z.object({
 
   // Agent: set one key. The Vercel AI Gateway takes precedence when both are set.
   AI_GATEWAY_API_KEY: z.string().optional(),
-  AI_GATEWAY_URL: z.string().default("https://ai-gateway.vercel.sh"),
+  AI_GATEWAY_URL: z.string().optional(), // the AI SDK Gateway provider's base URL; defaults to Vercel's
   ANTHROPIC_API_KEY: z.string().optional(),
   AGENT_MODEL: z.string().default("claude-haiku-5-5"), // gateway ids get an "anthropic/" prefix if missing
   AGENT_EFFORT: z.enum(["low", "medium", "high", "xhigh", "max"]).default("low"),
   AGENT_MAX_STEPS: z.coerce.number().default(6),
+  /** Steps for profiles with app tools, which often need several queries per answer. */
+  AGENT_MAX_STEPS_WITH_APP_TOOLS: z.coerce.number().default(20),
 
   // Knowledge: a markdown docs repo on GitHub (GitBook Git Sync, Docusaurus, Mintlify, ...)
   DOCS_GITHUB_REPO: z.string().optional(), // "owner/repo"
@@ -80,6 +82,9 @@ const schema = z.object({
   // Signed-in users: the host app's backend signs a short-lived HS256 JWT with this secret
   // (claims: sub, name, email, plan). Only a valid token counts as signed in.
   IDENTITY_SECRET: z.string().min(32, "IDENTITY_SECRET should be at least 32 characters").optional(),
+  // Bot check for visitors (profiles with botCheck: true): a Cloudflare Turnstile widget's keys.
+  TURNSTILE_SITE_KEY: z.string().optional(),
+  TURNSTILE_SECRET_KEY: z.string().optional(),
   // Profiles, rules and budgets: a YAML file path, or the YAML itself. Defaults to config/wicket.yaml.
   WICKET_CONFIG: z.string().optional(),
 

@@ -57,6 +57,12 @@ profiles:
     # model: claude-sonnet-5-5   # defaults to AGENT_MODEL
     # effort: low                # low | medium | high | xhigh | max
     # askEmail: false            # offer an email field so the team can follow up
+    # budgetScope: person        # person (default) | shared: everyone in this profile spends from one pot
+    # botCheck: false            # visitors pass a Cloudflare Turnstile check first (TURNSTILE_* keys)
+    # tickets: true              # false: the assistant doesn't log bugs or ideas here
+    # followUps: false           # suggest two or three questions to ask next with each answer
+    # appTools:                  # tools from your backend, called with the person's token (see README)
+    #   url: https://api.acme.com/wicket/tools   # or { production: ..., staging: ... } by the token's env claim
     # What the widget shows (options passed to Wicket.init() win over these):
     # title: Help & feedback
     # assistantName: Assistant   # the name under the assistant's messages

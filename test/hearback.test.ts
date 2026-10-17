@@ -112,7 +112,7 @@ describe("everyone hears back", () => {
     expect(ticket.title).toBe("Timer drifts after pausing");
     expect(ticket.description).toContain(`Reported by Sam in chat (https://wicket.test/admin/c/${sam.id})`);
     // The model was told the person will hear back.
-    expect(s.client.requests[2].messages.at(-1).content[0].content).toContain("Filed ED-1. They'll also see a card saying it's logged");
+    expect(s.client.requests[2].messages.at(-1).content[0].output.value).toContain("Filed ED-1. They'll also see a card saying it's logged");
     // After the reply, Sam sees a card: logged, with the team, and they'll hear back.
     const samLogged = s.service.list(sam.id).at(-1)!;
     expect(samLogged).toMatchObject({ author: "system", event: "logged", body: "Logged for the team: the timer drifting after a pause. You'll hear back here when it's fixed." });
@@ -120,10 +120,10 @@ describe("everyone hears back", () => {
     expect(s.service.list(sam.id).at(-2)!.author).toBe("agent");
     // The ticket tools and instructions were offered.
     expect(s.client.requests[0].tools.map((t: any) => t.name)).toEqual(expect.arrayContaining(["find_tickets", "file_ticket", "add_to_ticket"]));
-    expect(s.client.requests[0].system[0].text).toContain("use find_tickets");
+    expect(s.client.requests[0].system).toContain("use find_tickets");
 
     const alex = await chat(s, "Alex", "My timer runs fast after a pause");
-    expect(s.client.requests[4].messages.at(-1).content[0].content).toBe("ED-1: Timer drifts after pausing (1 report from chat)");
+    expect(s.client.requests[4].messages.at(-1).content[0].output.value).toBe("ED-1: Timer drifts after pausing (1 report from chat)");
     expect(ticket.comments).toHaveLength(1);
     expect(ticket.comments[0]).toContain("Another report from Alex in chat");
     expect(ticket.comments[0]).toContain("Also happens on v1.5.");
@@ -272,7 +272,7 @@ describe("everyone hears back", () => {
     const s = setup([text("Thanks, I'll pass that on.")], "tickets:\n  assistant: false\n");
     await chat(s, "Sam", "Please add dark mode");
     expect(s.client.requests[0].tools.map((t: any) => t.name)).not.toContain("file_ticket");
-    expect(s.client.requests[0].system[0].text).not.toContain("find_tickets");
+    expect(s.client.requests[0].system).not.toContain("find_tickets");
   });
 
   it("reads ticket keys and links from a teammate's message", () => {

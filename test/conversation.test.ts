@@ -56,8 +56,8 @@ describe("conversation flow", () => {
 
     // The docs search result went back to the model.
     const toolResult = client.requests[1].messages.at(-1).content[0];
-    expect(toolResult.type).toBe("tool_result");
-    expect(toolResult.content).toContain("https://docs/live-view#add-a-timer");
+    expect(toolResult).toMatchObject({ type: "tool-result", toolCallId: "tu_search_docs", toolName: "search_docs" });
+    expect(toolResult.output.value).toContain("https://docs/live-view#add-a-timer");
     // App context rides along with the first message only, as data.
     expect(client.requests[0].messages[0].content[0].text).toContain("<app_context>");
 
@@ -66,11 +66,13 @@ describe("conversation flow", () => {
 
     // Second turn replays the first turn unchanged, thinking blocks included.
     const second = client.requests[2].messages;
-    expect(second.map((m: any) => m.role)).toEqual(["user", "assistant", "user", "assistant", "user"]);
-    expect(second[1].content[0]).toEqual({ type: "thinking", thinking: "", signature: "sig" });
+    expect(second.map((m: any) => m.role)).toEqual(["user", "assistant", "tool", "assistant", "user"]);
+    expect(second[1].content[0]).toEqual({ type: "reasoning", text: "", providerOptions: { anthropic: { signature: "sig" } } });
     // Only the newest block carries the cache breakpoint; the stored turns stay unmarked.
-    expect(second[4].content).toEqual([{ type: "text", text: "Thanks, that worked", cache_control: { type: "ephemeral" } }]);
-    expect(JSON.stringify(second.slice(0, 4))).not.toContain("cache_control");
+    expect(second[4].content).toEqual([{ type: "text", text: "Thanks, that worked", providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } } }]);
+    expect(JSON.stringify(second.slice(0, 4))).not.toContain("cacheControl");
+    // So does the system prompt.
+    expect(client.requests[2].raw.prompt[0].providerOptions).toEqual({ anthropic: { cacheControl: { type: "ephemeral" } } });
 
     const res = await app.request(`/api/conversations/${conv.id}/messages`, { headers: { Authorization: `Bearer ${conv.token}` } });
     const { messages, status } = (await res.json()) as any;

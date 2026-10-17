@@ -55,7 +55,7 @@ describe("attachments", () => {
 
     // The model saw the image itself.
     const content = client.requests[0].messages[0].content;
-    expect(content.some((b: any) => b.type === "image" && b.source.data === PNG.toString("base64"))).toBe(true);
+    expect(content.some((b: any) => b.type === "file" && b.mediaType === "image/png" && b.data.data === PNG.toString("base64"))).toBe(true);
 
     // The team got the file in the thread.
     expect([...relay.threads.values()][0]!.posts).toContain(`user:  [file error.png ${PNG.length}B]`);

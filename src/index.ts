@@ -1,4 +1,5 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { createAnthropic } from "@ai-sdk/anthropic";
+import { createGateway } from "@ai-sdk/gateway";
 import { serve } from "@hono/node-server";
 import { loadConfig } from "./config.js";
 import { openDb } from "./db/index.js";
@@ -28,16 +29,16 @@ const db = openDb(config.DATABASE_PATH);
 const sources = knowledgeSources(config, settings);
 
 // No key means no assistant: every conversation goes straight to the team.
-// The Vercel AI Gateway speaks the Anthropic Messages API, so only the URL, key and model id change.
+// Through the Vercel AI Gateway any provider's model works ("openai/..."), with its own provider options.
 const gateway = Boolean(config.AI_GATEWAY_API_KEY);
 const model = gateway ? gatewayModelId(config.AGENT_MODEL) : config.AGENT_MODEL;
-const anthropic = gateway
-  ? new Anthropic({ apiKey: config.AI_GATEWAY_API_KEY, baseURL: config.AI_GATEWAY_URL })
+const models = gateway
+  ? createGateway({ apiKey: config.AI_GATEWAY_API_KEY, ...(config.AI_GATEWAY_URL ? { baseURL: config.AI_GATEWAY_URL } : {}) })
   : config.ANTHROPIC_API_KEY
-    ? new Anthropic({ apiKey: config.ANTHROPIC_API_KEY })
+    ? createAnthropic({ apiKey: config.ANTHROPIC_API_KEY })
     : null;
-const agent = anthropic
-  ? new Agent(anthropic as any, {
+const agent = models
+  ? new Agent(models, {
       model,
       effort: config.AGENT_EFFORT,
       maxSteps: config.AGENT_MAX_STEPS,
@@ -102,10 +103,10 @@ if (config.RELAY === "discord") {
     ],
     answerCommunityPost: agent && settings.assistant.helpForum ? (q) => answerOnce(agent, q, { searchDocs: (query) => searchDocs(db, query), readDoc: (url) => readDoc(db, url) }) : undefined,
     tickets:
-      anthropic && desk
+      models && desk
         ? {
             desk,
-            draft: (transcript, ask) => draftTicket(anthropic, model, config.PRODUCT_NAME, transcript, ask),
+            draft: (transcript, ask) => draftTicket(models.languageModel(model), config.PRODUCT_NAME, transcript, ask),
             teamRoleId: config.DISCORD_TEAM_ROLE_ID,
             conversationFor: (threadId) => service.conversationForThread(threadId),
             conversationUrl: (id) => service.dashboardUrl(id),
@@ -122,6 +123,7 @@ const service = new ConversationService(db, agent, relay, {
   emailReplies: Boolean(mailer),
   tickets: desk,
   publicUrl: config.PUBLIC_URL,
+  appToolSteps: config.AGENT_MAX_STEPS_WITH_APP_TOOLS,
 });
 const replyEmails = mailer
   ? new ReplyEmails(db, service, mailer, { productName: config.PRODUCT_NAME, publicUrl: config.PUBLIC_URL!, replyDomain: config.EMAIL_REPLY_DOMAIN })
@@ -177,7 +179,7 @@ if (relay) {
     (threadId, deleted) => service.resolve(threadId, deleted),
     ({ threadId, authorName, authorId }) => service.typingInThread(threadId, authorName, authorId),
   );
-  console.log(`relay: ${relay.name} connected${tracker && anthropic ? `, tag the bot to file ${tracker.name === "github" ? "GitHub issues" : "Linear tickets"}` : ""}`);
+  console.log(`relay: ${relay.name} connected${tracker && models ? `, tag the bot to file ${tracker.name === "github" ? "GitHub issues" : "Linear tickets"}` : ""}`);
 }
 
 const app = createServer(service, {
@@ -186,6 +188,7 @@ const app = createServer(service, {
   maxConversationsPerIpPerHour: config.MAX_CONVERSATIONS_PER_IP_PER_HOUR,
   playground: config.PLAYGROUND ? { title: `${config.PRODUCT_NAME} Support` } : undefined,
   identitySecret: config.IDENTITY_SECRET,
+  turnstile: config.TURNSTILE_SITE_KEY && config.TURNSTILE_SECRET_KEY ? { siteKey: config.TURNSTILE_SITE_KEY, secretKey: config.TURNSTILE_SECRET_KEY } : undefined,
   productName: config.PRODUCT_NAME,
   email: replyEmails ? { replies: replyEmails, webhookSecret: config.RESEND_WEBHOOK_SECRET } : undefined,
   team: {
@@ -226,11 +229,14 @@ function describeSettings() {
   for (const name of names) {
     const prof = settings.profiles[name] ?? {};
     const ai = prof.ai === false || !agent ? "goes to the team" : `assistant on ${prof.model ?? config.AGENT_MODEL}`;
-    const budget = prof.budget !== undefined ? `, $${prof.budget}/person/month` : "";
+    const budget = prof.budget !== undefined ? `, $${prof.budget}/${prof.budgetScope === "shared" ? "month shared by everyone" : "person/month"}` : "";
     console.log(`profiles: ${name}: ${ai}${budget}`);
     if (prof.budget !== undefined && agent && prof.ai !== false && !priceFor(prof.model ?? model, settings.budgets.prices)) {
       console.log(`profiles: needs you: no price known for ${prof.model ?? model}; counting it at a high rate. Add it under budgets.prices.`);
     }
+  }
+  if (Object.values(settings.profiles).some((p) => p.botCheck) && !(config.TURNSTILE_SITE_KEY && config.TURNSTILE_SECRET_KEY)) {
+    console.log("profiles: needs you: a profile has botCheck, but TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY aren't set, so its visitors go straight to the team");
   }
   const usesSignIn = settings.rules.some((r) => r.when.signedIn !== undefined || r.when.plan);
   if (usesSignIn && !config.IDENTITY_SECRET) {

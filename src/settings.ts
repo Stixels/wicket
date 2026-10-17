@@ -21,8 +21,32 @@ const profileSchema = z
     offTopic: z.enum(["decline", "allow"]).default("decline"),
     model: z.string().optional(),
     effort: effort.optional(),
-    /** Dollars per person per calendar month (UTC). Leave out for no limit. */
+    /** Dollars per person per calendar month (UTC). Leave out for no limit. A lower allowance in the signed token wins. */
     budget: z.number().min(0).optional(),
+    /** person: each person (or account, or visitor IP) has its own budget. shared: everyone in this profile shares one. */
+    budgetScope: z.enum(["person", "shared"]).default("person"),
+    /** Visitors pass a bot check (Cloudflare Turnstile) before the assistant answers. Needs TURNSTILE_* keys. */
+    botCheck: z.boolean().default(false),
+    /** Tools from the host app, called as the signed-in person. See "App tools" in the README. */
+    appTools: z
+      .object({
+        /**
+         * GET lists the tools; POST {url}/{name} runs one. With several host environments, a map from the
+         * token's `env` claim to its URL (a token with no env uses "production").
+         */
+        url: z.union([z.string().url(), z.record(z.string(), z.string().url())]),
+      })
+      .strict()
+      .optional(),
+    /**
+     * AI SDK `providerOptions` for each model request, merged over the effort the assistant sets: e.g.
+     * { gateway: { only: [openai] }, openai: { store: false } } to pin a provider and turn off its storage.
+     */
+    providerOptions: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
+    /** The assistant suggests a few questions to ask next with each answer. */
+    followUps: z.boolean().default(false),
+    /** false: the assistant can't log bugs or ideas here, e.g. for visitors it couldn't follow up with. */
+    tickets: z.boolean().default(true),
     /** After the first message, offer an email field so the team can follow up. */
     askEmail: z.boolean().default(false),
     // What the widget shows. Options passed to Wicket.init() win over these.
@@ -170,6 +194,13 @@ export interface Who {
 }
 
 export const DEFAULT_PROFILE = "default";
+
+/** The app-tools URL for a token's environment, or null when the profile has none for it. */
+export function appToolsUrl(profile: Profile, env: string | null): string | null {
+  const url = profile.appTools?.url;
+  if (!url) return null;
+  return typeof url === "string" ? url : (url[env ?? "production"] ?? null);
+}
 
 /**
  * Reads settings from WICKET_CONFIG (a file path, or the YAML itself), else config/wicket.yaml

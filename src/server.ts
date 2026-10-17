@@ -23,6 +23,8 @@ export interface ServerOptions {
   playground?: { title: string };
   /** Shared with the host app's backend, which signs user tokens with it. */
   identitySecret?: string;
+  /** Cloudflare Turnstile keys, for profiles whose visitors pass a bot check. */
+  turnstile?: { siteKey: string; secretKey: string; verify?: (token: string, ip: string) => Promise<boolean> };
   /** The team dashboard at /admin. */
   team?: TeamOptions & { db: Db };
   /** Shown on the standalone chat page that email links open. */
@@ -35,6 +37,7 @@ const createBody = z.object({
   reporter: z.object({ id: z.string().optional(), name: z.string().optional(), email: z.string().optional() }).default({}),
   userToken: z.string().max(4000).optional(),
   context: z.record(z.string(), z.unknown()).optional(),
+  turnstileToken: z.string().max(4000).optional(),
 });
 const sessionBody = z.object({
   userToken: z.string().max(4000).optional(),
@@ -42,8 +45,11 @@ const sessionBody = z.object({
 });
 const emailBody = z.object({ email: z.string().max(320) });
 const presenceBody = z.object({ cid: z.string().min(1).max(64), viewing: z.boolean() });
+const ratingBody = z.object({ rating: z.enum(["up", "down"]).nullable() });
+const handoffBody = z.object({ reason: z.string().max(300).optional() });
 const messageBody = z.object({
   body: z.string().max(4000).default(""),
+  userToken: z.string().max(4000).optional(),
   context: z.record(z.string(), z.unknown()).optional(),
   attachments: z.array(z.string().max(64)).max(10).default([]),
 });
@@ -58,6 +64,10 @@ export function createServer(service: ConversationService, opts: ServerOptions) 
   const app = new Hono();
   const limiter = new RateLimiter();
   const widgetPath = opts.widgetPath ?? path.resolve("dist/widget.js");
+  const turnstile = opts.turnstile;
+  const verifyTurnstile = turnstile ? (turnstile.verify ?? ((token: string, ip: string) => siteverify(turnstile.secretKey, token, ip))) : null;
+  /** Visitors on a profile with a bot check must pass it before the assistant answers. */
+  const needsBotCheck = (p: { ai: boolean; botCheck: boolean }, signedIn: boolean) => Boolean(turnstile && p.botCheck && p.ai && service.hasAgent && !signedIn);
 
   app.use(
     "/api/*",
@@ -110,6 +120,7 @@ export function createServer(service: ConversationService, opts: ServerOptions) 
       signedIn: Boolean(identity),
       name: identity?.name ?? null,
       askEmail: p.askEmail && !identity?.email,
+      ...(needsBotCheck(p, Boolean(identity)) ? { botCheck: { siteKey: turnstile!.siteKey } } : {}),
       theme: service.settings.theme,
       ui: { title: p.title, assistantName: p.assistantName, subtitle: p.subtitle, welcomeTitle: p.welcomeTitle, welcomeSubtitle: p.welcomeSubtitle, placeholder: p.placeholder, suggestions: p.suggestions },
     });
@@ -123,7 +134,16 @@ export function createServer(service: ConversationService, opts: ServerOptions) 
     if (!parsed.success) return c.json({ error: "Invalid request" }, 400);
     const identity = verifyUserToken(parsed.data.userToken, opts.identitySecret);
     if (parsed.data.userToken && !identity) return c.json({ error: "Your sign-in expired. Please reload the page." }, 401);
-    return c.json(service.create(parsed.data.reporter, parsed.data.context, { identity, visitorKey: clientIp(c) }), 201);
+    const p = service.profileFor({ userId: identity?.id ?? null, plan: identity?.plan ?? null, context: parsed.data.context ?? null });
+    let verified = false;
+    if (needsBotCheck(p, Boolean(identity))) {
+      verified = Boolean(parsed.data.turnstileToken) && (await verifyTurnstile!(parsed.data.turnstileToken!, clientIp(c)).catch(() => false));
+      if (!verified) return c.json({ error: "Please confirm you're not a robot.", botCheck: true }, 403);
+    }
+    return c.json(
+      service.create(parsed.data.reporter, parsed.data.context, { identity, visitorKey: clientIp(c), userToken: identity ? parsed.data.userToken : undefined, verified }),
+      201,
+    );
   });
 
   // The widget keeps the id and token of each conversation it started and asks for their summaries.
@@ -156,9 +176,31 @@ export function createServer(service: ConversationService, opts: ServerOptions) 
     }
     const parsed = messageBody.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success || (!parsed.data.body.trim() && !parsed.data.attachments.length)) return c.json({ error: "Invalid message" }, 400);
-    const message = await service.postUserMessage(conv.id, parsed.data.body, parsed.data.context, parsed.data.attachments);
+    // A fresh token with each message: the app's tools run as this person, with their current allowance.
+    const identity = verifyUserToken(parsed.data.userToken, opts.identitySecret);
+    const signedIn = identity && parsed.data.userToken ? { identity, token: parsed.data.userToken } : null;
+    const message = await service.postUserMessage(conv.id, parsed.data.body, parsed.data.context, parsed.data.attachments, signedIn);
     if (!message.body && !message.attachments.length) return c.json({ error: "Those files couldn't be attached" }, 400);
     return c.json({ message }, 201);
+  });
+
+  app.post("/api/conversations/:id/messages/:messageId/rating", async (c) => {
+    const conv = service.authorize(c.req.param("id"), bearer(c) ?? "");
+    if (!conv) return c.json({ error: "Not found" }, 404);
+    const parsed = ratingBody.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: "Invalid rating" }, 400);
+    if (!service.rate(conv.id, Number(c.req.param("messageId")), parsed.data.rating)) return c.json({ error: "Not found" }, 404);
+    return c.json({ ok: true });
+  });
+
+  // "Tell the team" after a thumbs down.
+  app.post("/api/conversations/:id/handoff", async (c) => {
+    const conv = service.authorize(c.req.param("id"), bearer(c) ?? "");
+    if (!conv) return c.json({ error: "Not found" }, 404);
+    const parsed = handoffBody.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: "Invalid request" }, 400);
+    await service.askForPerson(conv.id, parsed.data.reason);
+    return c.json({ ok: true });
   });
 
   // Upload one file; the message that uses it lists its id. Multipart form with a "file" field.
@@ -321,6 +363,18 @@ function fileUrl(f: { id: string; name: string }): string {
 
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]!);
+}
+
+/** Asks Cloudflare whether a Turnstile token is good. */
+async function siteverify(secret: string, token: string, ip: string): Promise<boolean> {
+  const res = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ secret, response: token, ...(ip !== "unknown" ? { remoteip: ip } : {}) }),
+    signal: AbortSignal.timeout(10_000),
+  });
+  const data = (await res.json().catch(() => ({}))) as { success?: boolean };
+  return data.success === true;
 }
 
 function bearer(c: Context): string | null {

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GitHubIssuesTracker } from "../src/adapters/tracker/github.js";
 import { LinearTracker } from "../src/adapters/tracker/linear.js";
+import { MockLanguageModelV4 } from "ai/test";
 import { draftTicket } from "../src/agent/tickets.js";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -28,11 +29,20 @@ describe("LinearTracker", () => {
 });
 
 describe("draftTicket", () => {
-  it("forces the create_ticket tool and returns its input", async () => {
-    const create = vi.fn(async () => ({ content: [{ type: "tool_use", id: "t", name: "create_ticket", input: { title: "Timer stops", kind: "bug", description: "x" } }] }));
-    const draft = await draftTicket({ messages: { create } } as any, "m", "Escape Director", "Sam: the timer stops", "bug please");
+  it("asks for a ticket as structured output and returns it", async () => {
+    const model = new MockLanguageModelV4({
+      doGenerate: {
+        content: [{ type: "text", text: JSON.stringify({ title: "Timer stops", kind: "bug", description: "x" }) }],
+        finishReason: { unified: "stop", raw: "end_turn" },
+        usage: { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: undefined } },
+        warnings: [],
+      },
+    });
+    const draft = await draftTicket(model, "Escape Director", "Sam: the timer stops", "bug please");
     expect(draft).toEqual({ title: "Timer stops", kind: "bug", description: "x" });
-    expect((create.mock.calls[0] as any)[0].tool_choice).toEqual({ type: "tool", name: "create_ticket" });
+    const call = model.doGenerateCalls[0]!;
+    expect(call.responseFormat).toMatchObject({ type: "json", name: "ticket" });
+    expect(JSON.stringify(call.prompt)).toContain("bug please");
   });
 });
 

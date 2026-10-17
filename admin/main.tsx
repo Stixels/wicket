@@ -546,7 +546,25 @@ function Bubble({
       <div className={`bubble ${m.author}`}>
         {m.body && <RichText text={m.body} />}
         {m.attachments.length > 0 && <Files files={m.attachments} conversationId={conversationId} />}
+        {m.evidence && m.evidence.length > 0 && (
+          <details className="evidence">
+            <summary>How we got this</summary>
+            <ul>
+              {m.evidence.map((e) => (
+                <li key={e.id}>
+                  <b>{e.id}</b> {e.label}: {e.value}
+                  {[e.period, e.basis, ...(e.caveats ?? [])].filter(Boolean).length > 0 && <small> · {[e.period, e.basis, ...(e.caveats ?? [])].filter(Boolean).join(" · ")}</small>}
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
       </div>
+      {m.rating && (
+        <div className={`rating ${m.rating}`} title={m.rating === "up" ? "They found this helpful" : "They found this unhelpful"}>
+          {m.rating === "up" ? "👍 Helpful" : "👎 Not helpful"}
+        </div>
+      )}
     </div>
   );
 }
