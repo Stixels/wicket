@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { api, ApiError, fileUrl, type Attachment, type ConversationDetail, type InboxItem, type Member, type Message, type Presence, type TeamEvent, type View } from "./api.js";
+import { connectLive } from "./live.js";
 import { EMOJI, GROUPS, recentEmoji, rememberEmoji, searchEmoji } from "./emoji.js";
 import { RichText } from "./text.js";
 import * as notifications from "./notify.js";
@@ -88,6 +89,7 @@ function Dashboard({ me, onSignOut }: { me: Member; onSignOut: () => void }) {
   const [typing, setTyping] = useState<Record<string, Typing[]>>({});
   const [live, setLive] = useState<TeamEvent | null>(null);
   const [connected, setConnected] = useState(true);
+  const [resync, setResync] = useState(0);
 
   const refresh = useCallback(() => {
     api<{ conversations: InboxItem[]; counts: Record<View, number> }>(`/api/conversations?view=${view}`)
@@ -116,9 +118,8 @@ function Dashboard({ me, onSignOut }: { me: Member; onSignOut: () => void }) {
       clearTimeout(timer);
       timer = window.setTimeout(() => refreshRef.current(), 250);
     };
-    const es = new EventSource("/admin/api/events");
-    const on = (e: MessageEvent) => {
-      const event = JSON.parse(e.data) as TeamEvent;
+    const on = (data: string) => {
+      const event = JSON.parse(data) as TeamEvent;
       setLive(event);
       notifications.notify(event, me, (id) => openRef.current(id));
       if (event.type === "typing") {
@@ -139,11 +140,20 @@ function Dashboard({ me, onSignOut }: { me: Member; onSignOut: () => void }) {
       }
       soon();
     };
-    for (const type of ["message", "status", "typing", "presence"]) es.addEventListener(type, on as EventListener);
-    es.addEventListener("ready", () => setConnected(true));
-    es.onerror = () => setConnected(false);
+    const stop = connectLive({
+      url: "/admin/api/events",
+      types: ["message", "status", "typing", "presence"],
+      onEvent: (_type, data) => on(data),
+      onStatus: (up, resumed) => {
+        setConnected(up);
+        // Events sent while we were away are gone, so catch up from the server. A dropped
+        // connection can also mean the session ended; the list fetch signs out on a 401.
+        if (resumed || !up) soon();
+        if (resumed) setResync((n) => n + 1);
+      },
+    });
     return () => {
-      es.close();
+      stop();
       clearTimeout(timer);
     };
   }, [me.id]);
@@ -262,7 +272,7 @@ function Dashboard({ me, onSignOut }: { me: Member; onSignOut: () => void }) {
 
       <main className="detail">
         {selected ? (
-          <Conversation key={selected} id={selected} me={me} members={members} live={live} typing={typing[selected] ?? []} onBack={() => open(null)} onChange={refresh} />
+          <Conversation key={selected} id={selected} me={me} members={members} live={live} resync={resync} typing={typing[selected] ?? []} onBack={() => open(null)} onChange={refresh} />
         ) : (
           <div className="empty big">
             <Logo size={56} muted />
@@ -343,6 +353,7 @@ function Conversation({
   me,
   members,
   live,
+  resync,
   typing,
   onBack,
   onChange,
@@ -351,6 +362,7 @@ function Conversation({
   me: Member;
   members: Member[];
   live: TeamEvent | null;
+  resync: number;
   typing: Typing[];
   onBack: () => void;
   onChange: () => void;
@@ -370,7 +382,8 @@ function Conversation({
       })
       .catch((e) => setError(e.message));
   }, [id]);
-  useEffect(load, [load]);
+  // Reload after a reconnect too, since live events may have been missed.
+  useEffect(load, [load, resync]);
 
   useEffect(() => {
     if (!live || live.conversationId !== id) return;
