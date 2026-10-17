@@ -1,0 +1,989 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#09090b">
+<title>Wicket · The support chat that closes the loop</title>
+<meta name="description" content="Wicket is a help and feedback chat for your app. It answers from your docs, hands the rest to your team, logs every bug and idea, and tells each person when it ships.">
+<meta property="og:title" content="Wicket · The support chat that closes the loop">
+<meta property="og:description" content="Answers from your docs. Hands off to your team. Logs every bug and idea, and tells each person when it ships.">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3CradialGradient id='g' cx='.32' cy='.26' r='.9'%3E%3Cstop offset='0' stop-color='%23a5a0ff'/%3E%3Cstop offset='.55' stop-color='%234f46e5'/%3E%3Cstop offset='1' stop-color='%232a2490'/%3E%3C/radialGradient%3E%3C/defs%3E%3Ccircle cx='32' cy='32' r='30' fill='url(%23g)'/%3E%3Crect x='22' y='24' width='7' height='14' rx='3.5' fill='%23fff'/%3E%3Crect x='35' y='24' width='7' height='14' rx='3.5' fill='%23fff'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#09090b;--bg2:#0d0d11;--panel:#111115;--card:#141419;--card2:#18181d;--bubble:#222229;
+  --line:rgba(255,255,255,.07);--line2:rgba(255,255,255,.12);
+  --text:#ededf2;--muted:#9a9aa6;--dim:#686874;
+  --acc:#4f46e5;--acc-hi:#8b85ff;--green:#22c55e;--blue:#60a5fa;--amber:#f5a524;
+  --serif:"Instrument Serif",ui-serif,Georgia,serif;
+  --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  --ease:cubic-bezier(.2,.8,.2,1);
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:72px}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.6 var(--sans);-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;overflow-x:hidden}
+a{color:inherit}
+img,svg{display:block}
+::selection{background:color-mix(in srgb,var(--acc) 55%,transparent)}
+.wrap{max-width:1160px;margin:0 auto;padding:0 24px}
+.serif{font-family:var(--serif);font-style:italic;font-weight:400;letter-spacing:-.01em}
+.eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--acc-hi)}
+.eyebrow::before{content:"";width:18px;height:1px;background:currentColor;opacity:.6}
+h1,h2,h3{margin:0;font-weight:640;letter-spacing:-.035em;line-height:1.05}
+h2{font-size:clamp(34px,5vw,56px)}
+h2 .serif{font-size:1.08em}
+.lede{font-size:clamp(17px,1.6vw,19px);line-height:1.6;color:var(--muted);max-width:620px}
+.sec{padding:140px 0 0}
+.sec-head{display:grid;gap:20px;margin-bottom:56px}
+
+/* Buttons */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:46px;padding:0 20px;border-radius:999px;font-size:15px;font-weight:600;text-decoration:none;border:0;cursor:pointer;transition:transform .2s var(--ease),background .2s,box-shadow .2s,color .2s;white-space:nowrap}
+.btn:active{transform:scale(.97)}
+.btn-primary{background:#f4f4f7;color:#0b0b0f;box-shadow:0 0 0 1px rgba(255,255,255,.2) inset,0 10px 30px -10px rgba(139,133,255,.6)}
+.btn-primary:hover{background:#fff;box-shadow:0 0 0 1px rgba(255,255,255,.3) inset,0 14px 40px -10px rgba(139,133,255,.85)}
+.btn-ghost{background:rgba(255,255,255,.04);color:var(--text);box-shadow:inset 0 0 0 1px var(--line2)}
+.btn-ghost:hover{background:rgba(255,255,255,.08)}
+.btn svg{width:16px;height:16px}
+:focus-visible{outline:2px solid var(--acc-hi);outline-offset:3px;border-radius:8px}
+
+/* Nav */
+.nav{position:sticky;top:0;z-index:50;transition:background .3s,border-color .3s;border-bottom:1px solid transparent}
+.nav.scrolled{background:rgba(9,9,11,.72);-webkit-backdrop-filter:saturate(1.4) blur(18px);backdrop-filter:saturate(1.4) blur(18px);border-bottom-color:var(--line)}
+.nav .wrap{display:flex;align-items:center;height:64px;gap:28px}
+.logo{display:flex;align-items:center;gap:10px;font-weight:650;font-size:17px;letter-spacing:-.02em;text-decoration:none}
+.nav-links{display:flex;gap:26px;margin-left:auto;font-size:14px;color:var(--muted)}
+.nav-links a{text-decoration:none;transition:color .2s}
+.nav-links a:hover{color:var(--text)}
+.nav .btn{height:36px;padding:0 16px;font-size:14px}
+@media (max-width:760px){.nav-links{display:none}.nav .btn{margin-left:auto}}
+
+/* The orb: the assistant's face, same as the widget's */
+.orb{--s:28px;display:inline-block;position:relative;width:var(--s);height:var(--s);border-radius:50%;flex:none;isolation:isolate;font-size:var(--s)}
+.orb .sw{position:absolute;inset:0;border-radius:50%;overflow:hidden;z-index:-2}
+.orb .sw::before{content:"";position:absolute;inset:-35%;filter:blur(2px);background:conic-gradient(from 0deg,var(--acc),color-mix(in srgb,var(--acc) 50%,white),var(--acc),color-mix(in srgb,var(--acc) 60%,black),var(--acc));animation:spin 8s linear infinite}
+.orb::before{content:"";position:absolute;inset:0;z-index:-1;border-radius:50%;background:radial-gradient(circle at 32% 26%,rgba(255,255,255,.55),transparent 48%)}
+.orb .eyes{display:flex;align-items:center;justify-content:center;width:100%;height:100%;animation:look 9s infinite ease-in-out}
+.orb .eyes i{width:.12em;height:.2em;margin:0 .06em;border-radius:999px;background:#fff;animation:blink 4.6s infinite}
+.orb.still .sw::before,.orb.still .eyes,.orb.still .eyes i{animation:none}
+.orb.think .eyes i{width:.11em;height:.11em;margin:0 .035em;animation:hop .9s infinite ease-in-out}
+.orb.think .eyes i:nth-child(2){animation-delay:.12s}
+.orb.think .eyes i:nth-child(3){animation-delay:.24s}
+.orb .eyes i:nth-child(3){width:0;margin:0;opacity:0}
+.orb.think .eyes i:nth-child(3){width:.11em;margin:0 .035em;opacity:1}
+.orb.think .sw::before{animation-duration:1.6s}
+@keyframes spin{to{transform:rotate(1turn)}}
+@keyframes blink{0%,92%,100%{transform:scaleY(1)}95%{transform:scaleY(.12)}}
+@keyframes look{0%,30%,100%{transform:translate(0,0)}36%,52%{transform:translate(.08em,-.03em)}60%,78%{transform:translate(-.08em,.02em)}}
+@keyframes hop{0%,100%{transform:translateY(0)}40%{transform:translateY(-.08em)}}
+
+/* Hero */
+.hero{position:relative;padding:88px 0 0;text-align:center}
+.aurora{position:absolute;inset:-64px 0 auto;height:980px;pointer-events:none;z-index:-1;overflow:hidden}
+.aurora::before{content:"";position:absolute;left:50%;top:-260px;width:1300px;height:900px;transform:translateX(-50%);background:radial-gradient(closest-side,rgba(79,70,229,.42),rgba(79,70,229,.12) 55%,transparent 75%);filter:blur(10px)}
+.aurora::after{content:"";position:absolute;inset:0;background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);background-size:64px 64px;-webkit-mask-image:radial-gradient(ellipse 60% 55% at 50% 30%,#000 20%,transparent 75%);mask-image:radial-gradient(ellipse 60% 55% at 50% 30%,#000 20%,transparent 75%);opacity:.55}
+.badge{display:inline-flex;align-items:center;gap:10px;height:32px;padding:0 14px 0 6px;border-radius:999px;background:rgba(255,255,255,.04);box-shadow:inset 0 0 0 1px var(--line2);font-size:13px;color:var(--muted);text-decoration:none}
+.badge b{display:inline-flex;align-items:center;height:22px;padding:0 9px;border-radius:999px;background:color-mix(in srgb,var(--acc) 30%,transparent);color:#d7d5ff;font-weight:600;font-size:12px}
+.hero h1{font-size:clamp(46px,8vw,96px);margin:28px auto 0;max-width:980px;line-height:.98;letter-spacing:-.045em}
+.hero h1 .serif{font-size:1.1em;letter-spacing:-.02em;background:linear-gradient(100deg,#c9c6ff 10%,#fff 45%,#a5a0ff 90%);-webkit-background-clip:text;background-clip:text;color:transparent;padding-right:.06em}
+.hero .lede{margin:26px auto 0;text-align:center}
+.hero .ctas{display:flex;gap:12px;justify-content:center;margin-top:36px;flex-wrap:wrap}
+.hero .note{margin-top:18px;font-size:13px;color:var(--dim)}
+
+/* Demo */
+.demo{margin-top:80px;position:relative}
+.tabs{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin-bottom:18px}
+.tab{position:relative;overflow:hidden;height:38px;padding:0 16px;border-radius:999px;border:0;background:rgba(255,255,255,.035);box-shadow:inset 0 0 0 1px var(--line);color:var(--muted);font:500 14px var(--sans);cursor:pointer;transition:color .2s,background .2s,box-shadow .2s}
+.tab:hover{color:var(--text)}
+.tab[aria-selected=true]{color:var(--text);background:rgba(255,255,255,.07);box-shadow:inset 0 0 0 1px var(--line2)}
+.tab .prog{position:absolute;left:0;bottom:0;height:2px;width:0;background:linear-gradient(90deg,transparent,var(--acc-hi))}
+.tab span{position:relative}
+.stage{position:relative;height:660px;border-radius:28px;overflow:hidden;background:linear-gradient(180deg,#121218,#0c0c10);box-shadow:inset 0 0 0 1px var(--line2),0 50px 120px -40px rgba(0,0,0,.9),0 0 0 1px rgba(0,0,0,.6);text-align:left}
+.stage::before{content:"";position:absolute;inset:0;background:radial-gradient(600px 400px at 85% 100%,rgba(79,70,229,.22),transparent 70%),radial-gradient(500px 300px at 10% 0%,rgba(255,255,255,.04),transparent 70%);pointer-events:none}
+/* A quiet stand-in for the host app behind the chat */
+.app{position:absolute;inset:0;display:grid;grid-template-columns:220px 1fr;opacity:.9}
+.app-side{border-right:1px solid var(--line);padding:22px 18px;display:flex;flex-direction:column;gap:10px}
+.app-brand{display:flex;align-items:center;gap:9px;font-weight:650;font-size:14px;color:#cfcfd8;margin-bottom:14px}
+.app-brand i{width:22px;height:22px;border-radius:7px;background:linear-gradient(135deg,#3a3a46,#24242c);box-shadow:inset 0 0 0 1px var(--line2)}
+.sk{height:9px;border-radius:5px;background:rgba(255,255,255,.06)}
+.app-nav{display:flex;align-items:center;gap:10px;height:30px;padding:0 10px;border-radius:8px;font-size:13px;color:var(--dim)}
+.app-nav.on{background:rgba(255,255,255,.05);color:#cfcfd8}
+.app-nav::before{content:"";width:14px;height:14px;border-radius:4px;background:rgba(255,255,255,.08)}
+.app-main{padding:26px 30px;display:flex;flex-direction:column;gap:18px}
+.app-top{display:flex;align-items:center;justify-content:space-between}
+.app-title{font-size:20px;font-weight:650;letter-spacing:-.02em;color:#d6d6de}
+.app-pill{height:28px;width:92px;border-radius:8px;background:rgba(255,255,255,.05)}
+.cal{flex:1;display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
+.cal div{border-radius:12px;background:rgba(255,255,255,.025);box-shadow:inset 0 0 0 1px var(--line);padding:10px;display:flex;flex-direction:column;gap:7px}
+.cal div::before{content:"";width:36%;height:7px;border-radius:4px;background:rgba(255,255,255,.07)}
+.cal em{display:block;height:34px;border-radius:7px;background:rgba(255,255,255,.04)}
+.cal em.a{background:color-mix(in srgb,var(--acc) 24%,transparent)}
+
+/* The widget, as it looks in your app */
+.panel{position:absolute;right:28px;bottom:28px;width:384px;height:600px;border-radius:20px;background:#111115;box-shadow:inset 0 0 0 1px rgba(255,255,255,.1),0 30px 80px -20px rgba(0,0,0,.85),0 0 0 1px rgba(0,0,0,.5);display:flex;flex-direction:column;overflow:hidden;z-index:3}
+.panel::before{content:"";position:absolute;inset:0 0 auto;height:240px;background:linear-gradient(180deg,color-mix(in srgb,var(--acc) 16%,transparent),transparent);pointer-events:none}
+.p-head{position:relative;display:flex;align-items:center;gap:12px;padding:18px 16px 14px 18px;border-bottom:1px solid var(--line)}
+.p-head .orb{--s:36px}
+.p-title{font-size:16px;font-weight:650;letter-spacing:-.015em;line-height:1.2}
+.p-sub{font-size:12.5px;color:var(--muted);margin-top:3px;display:flex;align-items:center;gap:6px}
+.p-sub i{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 0 3px color-mix(in srgb,var(--green) 20%,transparent)}
+.p-x{margin-left:auto;width:32px;height:32px;border-radius:10px;display:grid;place-items:center;color:var(--muted)}
+.log{position:relative;flex:1;overflow:hidden;padding:16px 16px 8px;display:flex;flex-direction:column;gap:6px;justify-content:flex-end;-webkit-mask-image:linear-gradient(transparent,#000 28px);mask-image:linear-gradient(transparent,#000 28px)}
+.log-inner{display:flex;flex-direction:column;gap:6px;transition:transform .45s var(--ease)}
+.row{display:flex;gap:8px;align-items:flex-end;animation:rin .35s var(--ease) both}
+.row.u{justify-content:flex-end}
+.row+.row.gap{margin-top:8px}
+.mini{width:26px;height:26px;border-radius:9px;flex:none;display:grid;place-items:center;font-size:11px;font-weight:700}
+.mini.orb{--s:26px;border-radius:50%}
+.mini.staff{background:linear-gradient(135deg,#f1c27d,#d68a54);color:#2a1606}
+.col{display:flex;flex-direction:column;max-width:82%;min-width:0}
+.name{font-size:11.5px;color:var(--dim);margin:0 0 4px 2px;display:flex;gap:8px;align-items:center}
+.msg{padding:10px 14px;border-radius:16px;font-size:14.5px;line-height:1.5;word-wrap:break-word}
+.row.u .msg{background:var(--acc);color:#fff;border-bottom-right-radius:6px}
+.row.a .msg,.row.s .msg{background:var(--bubble);border:1px solid var(--line2);border-bottom-left-radius:6px}
+.msg b{font-weight:650}
+.msg a{color:var(--acc-hi);text-decoration:none}
+.src{display:inline-flex;align-items:center;gap:6px;margin-top:8px;padding:5px 9px 5px 7px;border-radius:9px;background:rgba(255,255,255,.05);font-size:12px;color:#cfcfd8;box-shadow:inset 0 0 0 1px var(--line)}
+.src svg{width:13px;height:13px;color:var(--acc-hi)}
+.rate{display:inline-flex;gap:2px;margin-left:auto}
+.rate span{width:18px;height:18px;display:grid;place-items:center;border-radius:5px;color:var(--dim);transition:color .25s,background .25s,transform .3s var(--ease)}
+.rate span svg{width:12px;height:12px}
+.rate span.on{color:var(--green);background:color-mix(in srgb,var(--green) 14%,transparent);transform:scale(1.15)}
+.sys{align-self:center;font-size:12px;color:var(--muted);padding:5px 12px;border-radius:999px;background:rgba(255,255,255,.04);box-shadow:inset 0 0 0 1px var(--line);margin:8px 0;animation:rin .35s var(--ease) both;display:flex;gap:7px;align-items:center}
+.sys svg{width:12px;height:12px}
+.sys.time{background:none;box-shadow:none;color:var(--dim);font-size:11.5px;letter-spacing:.04em;text-transform:uppercase;gap:10px}
+.sys.time::before,.sys.time::after{content:"";width:40px;height:1px;background:var(--line2)}
+.typing .msg{display:inline-flex;gap:4px;padding:14px}
+.typing .msg i{width:6px;height:6px;border-radius:50%;background:var(--muted);animation:dot 1.1s infinite ease-in-out}
+.typing .msg i:nth-child(2){animation-delay:.15s}.typing .msg i:nth-child(3){animation-delay:.3s}
+@keyframes dot{0%,60%,100%{opacity:.35;transform:translateY(0)}30%{opacity:1;transform:translateY(-3px)}}
+@keyframes rin{from{opacity:0;transform:translateY(8px) scale(.98)}to{opacity:1;transform:none}}
+.ticket{--tk:#c8c8d2;position:relative;overflow:hidden;align-self:flex-start;max-width:88%;margin:6px 0 2px 34px;display:grid;grid-template-columns:auto 1fr;align-items:center;gap:0 10px;padding:9px 14px 11px 10px;border-radius:14px;background:var(--bubble);border:1px solid var(--line2);animation:rin .45s var(--ease) both;transition:border-color .4s}
+.ticket.done{--tk:var(--green)}.ticket.planned{--tk:var(--blue)}
+.tk-ic{grid-row:span 2;display:grid;place-items:center;width:26px;height:26px;border-radius:50%;color:var(--tk);background:color-mix(in srgb,var(--tk) 14%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--tk) 28%,transparent);transition:all .4s}
+.ticket.done .tk-ic{color:#fff;background:var(--tk);box-shadow:0 0 14px color-mix(in srgb,var(--tk) 45%,transparent)}
+.tk-ic svg{width:13px;height:13px}
+.tk-t{font-size:13.5px;font-weight:600;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tk-s{font-size:11.5px;color:var(--muted);line-height:1.3;margin-top:1px}
+.tk-s b{color:var(--tk);font-weight:600;transition:color .4s}
+.tk-bar{position:absolute;left:0;right:0;bottom:0;height:2px;background:color-mix(in srgb,var(--tk) 12%,transparent)}
+.tk-bar::after{content:"";position:absolute;inset:0 auto 0 0;width:var(--at,33%);background:linear-gradient(90deg,color-mix(in srgb,var(--tk) 55%,transparent),var(--tk));transition:width .9s var(--ease)}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 0 34px;animation:rin .45s .1s var(--ease) both}
+.chip{font-size:12.5px;padding:6px 11px;border-radius:999px;box-shadow:inset 0 0 0 1px var(--line2);color:#d4d4dc;background:rgba(255,255,255,.02)}
+.composer{position:relative;margin:8px 12px 6px;min-height:48px;border-radius:16px;background:var(--card2);box-shadow:inset 0 0 0 1px var(--line2);display:flex;align-items:center;padding:6px 6px 6px 14px;gap:8px;transition:box-shadow .25s}
+.composer.focus{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--acc) 70%,transparent),0 0 0 4px color-mix(in srgb,var(--acc) 18%,transparent)}
+.c-text{flex:1;font-size:14.5px;color:var(--dim);min-height:22px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.c-text.on{color:var(--text)}
+.c-text.on::after{content:"";display:inline-block;width:1.5px;height:17px;margin-left:1px;vertical-align:-3px;background:var(--acc-hi);animation:caret 1s steps(1) infinite}
+@keyframes caret{50%{opacity:0}}
+.send{width:36px;height:36px;border-radius:12px;background:rgba(255,255,255,.06);display:grid;place-items:center;color:var(--dim);transition:background .2s,color .2s,transform .2s var(--ease)}
+.send.ready{background:var(--acc);color:#fff}
+.send.hit{transform:scale(.88)}
+.send svg{width:16px;height:16px}
+.powered{text-align:center;font-size:11px;color:var(--dim);padding:2px 0 10px}
+
+/* What your team sees, beside the chat */
+.team{position:absolute;left:250px;top:120px;width:360px;border-radius:18px;background:rgba(20,20,25,.86);-webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px);box-shadow:inset 0 0 0 1px var(--line2),0 30px 70px -20px rgba(0,0,0,.85);z-index:2;opacity:0;transform:translateY(12px) scale(.98);transition:opacity .5s var(--ease),transform .5s var(--ease)}
+.team.show{opacity:1;transform:none}
+.team-h{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)}
+.team-h b{color:var(--text);font-weight:600;font-size:13px}
+.team-h .where{margin-left:auto;font-size:11.5px;color:var(--dim)}
+.team-h .live{width:7px;height:7px;border-radius:50%;background:var(--acc-hi);box-shadow:0 0 0 3px color-mix(in srgb,var(--acc-hi) 22%,transparent);animation:pulse 2s infinite}
+@keyframes pulse{50%{box-shadow:0 0 0 6px transparent}}
+.team-b{padding:14px}
+.t-row{display:flex;gap:10px;align-items:flex-start}
+.av{width:30px;height:30px;border-radius:50%;flex:none;display:grid;place-items:center;font-size:12px;font-weight:700;color:#111}
+.t-who{font-size:13.5px;font-weight:600}
+.t-who span{font-weight:400;color:var(--dim);font-size:12px;margin-left:6px}
+.t-msg{font-size:13.5px;color:#d0d0d8;margin-top:2px;line-height:1.45}
+.tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+.tag{font:500 11.5px var(--mono);padding:3px 8px;border-radius:6px;background:rgba(255,255,255,.05);color:#bdbdc8;box-shadow:inset 0 0 0 1px var(--line)}
+.tag.err{color:#ffb4a8;background:rgba(239,68,68,.08);box-shadow:inset 0 0 0 1px rgba(239,68,68,.2)}
+.reply{margin-top:14px;border-radius:12px;background:rgba(255,255,255,.03);box-shadow:inset 0 0 0 1px var(--line);padding:10px 12px;font-size:13.5px;min-height:42px;color:var(--text)}
+.reply.empty{color:var(--dim)}
+.issue-id{font:600 11.5px var(--mono);color:var(--dim)}
+.issue-t{font-size:15px;font-weight:600;margin:4px 0 10px;letter-spacing:-.01em}
+.state{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;border-radius:7px;font-size:12px;font-weight:600;background:rgba(255,255,255,.05);color:#cfcfd8;transition:all .4s}
+.state i{width:8px;height:8px;border-radius:50%;border:1.5px dashed currentColor}
+.state.planned{color:var(--blue);background:color-mix(in srgb,var(--blue) 12%,transparent)}
+.state.planned i{border-style:solid;border-color:currentColor;background:linear-gradient(90deg,currentColor 50%,transparent 50%)}
+.state.done{color:var(--green);background:color-mix(in srgb,var(--green) 12%,transparent)}
+.state.done i{border:0;background:currentColor}
+.reporters{display:flex;align-items:center;gap:10px;margin-top:14px;font-size:12.5px;color:var(--muted)}
+.stack{display:flex}
+.stack .av{width:24px;height:24px;font-size:10.5px;margin-left:-7px;box-shadow:0 0 0 2px #17171c}
+.stack .av:first-child{margin-left:0}
+.stack .av.new{animation:popin .5s var(--ease) both}
+@keyframes popin{from{transform:scale(0)}60%{transform:scale(1.2)}to{transform:scale(1)}}
+.plus{font-size:11.5px;font-weight:600;color:var(--acc-hi);background:color-mix(in srgb,var(--acc) 20%,transparent);padding:2px 8px;border-radius:999px;animation:popin .5s var(--ease) both}
+.solved{display:flex;gap:12px;align-items:center}
+.solved .big{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;background:color-mix(in srgb,var(--green) 14%,transparent);color:var(--green);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--green) 30%,transparent)}
+.solved .big svg{width:20px;height:20px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin-top:14px;font-size:12.5px}
+.kv dt{color:var(--dim)}.kv dd{margin:0;color:#d0d0d8;text-align:right}
+@media (max-width:1060px){.team{left:24px;top:auto;bottom:28px;width:320px}.app{grid-template-columns:1fr}.app-side{display:none}}
+@media (max-width:820px){
+  .stage{height:auto;border-radius:22px;padding:14px;display:flex;flex-direction:column;gap:14px}
+  .works .sep{display:none}
+  .works{flex-direction:column;align-items:center;gap:8px;text-align:center}
+  .app{display:none}
+  .panel{position:relative;inset:auto;width:100%;height:540px}
+  .team{position:relative;inset:auto;width:100%;opacity:1;transform:none;order:2;min-height:172px}
+  .team:not(.show) .team-b{opacity:.3}
+  .tabs{flex-wrap:nowrap;justify-content:flex-start;overflow-x:auto;margin:0 -24px 16px;padding:0 24px;scrollbar-width:none}
+  .tabs::-webkit-scrollbar{display:none}
+  .tab{flex:none}
+}
+
+/* Works with */
+.works{margin-top:64px;display:flex;flex-wrap:wrap;justify-content:center;gap:10px 34px;color:var(--dim);font-size:14px}
+.works>span{display:inline-block}
+.works .sep{align-self:center}
+.works b{color:#b8b8c4;font-weight:600}
+.works .sep{width:4px;height:4px;border-radius:50%;background:var(--line2)}
+
+/* The loop */
+.loop{display:grid;grid-template-columns:repeat(4,1fr);gap:18px;position:relative}
+.loop-line{position:absolute;left:12.5%;right:12.5%;top:39px;height:1px;background:var(--line2);overflow:hidden}
+.loop-line::after{content:"";position:absolute;top:0;left:-30%;width:30%;height:1px;background:linear-gradient(90deg,transparent,var(--acc-hi),transparent);animation:run 4s linear infinite}
+@keyframes run{to{left:100%}}
+.step{position:relative;padding:0 6px}
+.step .n{position:relative;z-index:1;width:78px;height:78px;margin:0 auto 26px;border-radius:24px;display:grid;place-items:center;background:linear-gradient(180deg,#18181e,#111115);box-shadow:inset 0 0 0 1px var(--line2),0 20px 40px -20px rgba(0,0,0,.8);transition:box-shadow .5s,transform .5s var(--ease)}
+.step .n svg{width:28px;height:28px;color:#cfcfd8;transition:color .5s}
+.step.on .n{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--acc-hi) 60%,transparent),0 0 0 6px color-mix(in srgb,var(--acc) 12%,transparent),0 20px 50px -10px rgba(79,70,229,.55);transform:translateY(-3px)}
+.step.on .n svg{color:#fff}
+.step h3{font-size:20px;letter-spacing:-.02em;text-align:center}
+.step p{margin:10px auto 0;max-width:250px;text-align:center;color:var(--muted);font-size:15px;line-height:1.55}
+.step .k{display:block;text-align:center;font:600 11.5px var(--mono);color:var(--dim);margin-bottom:8px;letter-spacing:.06em}
+.return{margin:44px auto 0;max-width:720px;display:flex;align-items:center;gap:16px;justify-content:center;color:var(--muted);font-size:15px;text-align:center}
+.return svg{width:120px;height:28px;flex:none;color:var(--acc-hi);opacity:.7}
+@media (max-width:860px){.loop{grid-template-columns:1fr 1fr;gap:44px 18px}.loop-line{display:none}}
+@media (max-width:480px){.loop{grid-template-columns:1fr}.return svg{display:none}}
+
+/* Hear back */
+.hb{display:grid;grid-template-columns:1.05fr 1fr;gap:56px;align-items:center}
+.hb ul{list-style:none;margin:34px 0 0;padding:0;display:grid;gap:18px}
+.hb li{display:flex;gap:14px;color:var(--muted);font-size:15.5px}
+.hb li b{color:var(--text);font-weight:600}
+.hb li .ic{width:30px;height:30px;flex:none;border-radius:9px;display:grid;place-items:center;background:rgba(255,255,255,.04);box-shadow:inset 0 0 0 1px var(--line2);color:var(--acc-hi)}
+.hb li .ic svg{width:15px;height:15px}
+.track{position:relative;border-radius:24px;padding:28px;background:linear-gradient(180deg,#131318,#0e0e12);box-shadow:inset 0 0 0 1px var(--line2);overflow:hidden}
+.track::before{content:"";position:absolute;right:-120px;top:-120px;width:360px;height:360px;background:radial-gradient(closest-side,rgba(34,197,94,.14),transparent);pointer-events:none}
+.tl{position:relative;display:grid;gap:0;margin-top:22px}
+.tl-i{display:grid;grid-template-columns:28px 1fr;gap:14px;padding-bottom:22px;position:relative}
+.tl-i:not(:last-child)::before{content:"";position:absolute;left:13.5px;top:28px;bottom:0;width:1px;background:var(--line2)}
+.tl-dot{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;background:#17171c;box-shadow:inset 0 0 0 1px var(--line2);color:var(--muted)}
+.tl-dot svg{width:13px;height:13px}
+.tl-i.on .tl-dot{color:#fff;background:var(--c,var(--acc));box-shadow:0 0 18px color-mix(in srgb,var(--c,var(--acc)) 50%,transparent)}
+.tl-i h4{margin:3px 0 2px;font-size:15px;font-weight:600;letter-spacing:-.01em}
+.tl-i p{margin:0;font-size:13.5px;color:var(--muted)}
+.tl-i .bub{margin-top:10px;display:inline-block;padding:9px 13px;border-radius:14px 14px 14px 6px;background:var(--bubble);border:1px solid var(--line2);font-size:13.5px;color:#e4e4ea}
+@media (max-width:900px){.hb{grid-template-columns:1fr;gap:40px}}
+
+/* Bento */
+.bento{display:grid;grid-template-columns:repeat(6,1fr);gap:16px}
+.cell{position:relative;grid-column:span 2;border-radius:22px;padding:26px;background:linear-gradient(180deg,#131318,#0f0f13);box-shadow:inset 0 0 0 1px var(--line);overflow:hidden;min-height:250px;display:flex;flex-direction:column;transition:box-shadow .3s}
+.cell:hover{box-shadow:inset 0 0 0 1px var(--line2)}
+.cell.w3{grid-column:span 3}.cell.w4{grid-column:span 4}
+.cell h3{font-size:19px;letter-spacing:-.02em;line-height:1.25}
+.cell p{margin:8px 0 0;color:var(--muted);font-size:14.5px;line-height:1.55}
+.cell .vis{margin-top:auto;padding-top:22px}
+@media (max-width:960px){.bento{grid-template-columns:repeat(2,1fr)}.cell,.cell.w3,.cell.w4{grid-column:span 1}.cell.wide-m{grid-column:span 2}}
+@media (max-width:620px){.bento{grid-template-columns:1fr}.cell,.cell.w3,.cell.w4,.cell.wide-m{grid-column:span 1}}
+pre{margin:0;font:13px/1.7 var(--mono);color:#cfcfd8;white-space:pre;overflow-x:auto}
+.code{border-radius:14px;background:#0a0a0d;box-shadow:inset 0 0 0 1px var(--line);padding:16px 18px;position:relative}
+.t-tag{color:#8b85ff}.t-attr{color:#7dd3fc}.t-str{color:#a7f3d0}.t-key{color:#f9a8d4}.t-com{color:#5c5c68}.t-fn{color:#fde68a}
+.ctx{display:grid;gap:8px}
+.ctx div{display:flex;justify-content:space-between;gap:12px;font-size:13px;padding:8px 12px;border-radius:10px;background:rgba(255,255,255,.03);box-shadow:inset 0 0 0 1px var(--line)}
+.ctx span{color:var(--dim)}
+.ctx code{font:12.5px var(--mono);color:#d4d4dc;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ctx code.err{color:#ffb4a8}
+.meter{height:8px;border-radius:999px;background:rgba(255,255,255,.06);overflow:hidden}
+.meter i{display:block;height:100%;width:0;border-radius:999px;background:linear-gradient(90deg,var(--acc),var(--acc-hi));transition:width 1.6s var(--ease)}
+.meter.warn i{background:linear-gradient(90deg,var(--acc),var(--amber))}
+.meter-l{display:flex;justify-content:space-between;font-size:12.5px;color:var(--dim);margin-top:10px}
+.meter-l b{color:var(--text);font-weight:600}
+.warnline{margin-top:12px;font-size:12.5px;color:var(--amber);display:flex;gap:7px;align-items:center;opacity:0;transition:opacity .4s .8s}
+.in .warnline{opacity:1}
+.switch{display:flex;align-items:center;gap:12px;font-size:14px;color:var(--muted);cursor:pointer;user-select:none;border:0;background:none;padding:0;font-family:inherit}
+.switch .s{width:44px;height:26px;border-radius:999px;background:rgba(255,255,255,.1);position:relative;transition:background .25s}
+.switch .s::after{content:"";position:absolute;left:3px;top:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:transform .3s var(--ease);box-shadow:0 2px 6px rgba(0,0,0,.4)}
+.switch[aria-checked=true] .s{background:var(--acc)}
+.switch[aria-checked=true] .s::after{transform:translateX(18px)}
+.route{margin-top:16px;display:flex;align-items:center;gap:10px;font-size:13.5px}
+.route .node{padding:7px 11px;border-radius:10px;background:rgba(255,255,255,.04);box-shadow:inset 0 0 0 1px var(--line2);white-space:nowrap}
+.route .arrow{flex:1;height:1px;background:var(--line2);position:relative;min-width:14px}
+.route .arrow::after{content:"";position:absolute;right:0;top:-3px;border:3.5px solid transparent;border-left-color:var(--line2);border-right:0}
+.route .node.ai{transition:opacity .3s,filter .3s}
+.route.off .node.ai{opacity:.25;filter:grayscale(1);text-decoration:line-through}
+.handoff{display:grid;gap:10px}
+.pill-sys{justify-self:start;font-size:12.5px;color:var(--muted);padding:6px 12px;border-radius:999px;background:rgba(255,255,255,.04);box-shadow:inset 0 0 0 1px var(--line);display:flex;gap:7px;align-items:center}
+.ping{justify-self:end;display:flex;align-items:center;gap:8px;font-size:13px;padding:8px 12px;border-radius:12px;background:var(--bubble);border:1px solid var(--line2)}
+.ping b{color:var(--acc-hi);font-weight:600;background:color-mix(in srgb,var(--acc) 22%,transparent);padding:1px 6px;border-radius:5px}
+.docref{border-radius:14px;padding:14px;background:var(--bubble);border:1px solid var(--line2);font-size:13.5px;color:#d6d6de;line-height:1.5}
+.docref .src{margin-top:10px}
+
+/* Theming playground */
+.themer{display:grid;grid-template-columns:1fr 250px;gap:22px;align-items:end;margin-top:auto;padding-top:22px}
+.controls{display:grid;gap:16px}
+.ctl-l{font-size:12px;color:var(--dim);margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em;font-weight:600}
+.sw{display:flex;gap:8px;flex-wrap:wrap}
+.sw button{width:30px;height:30px;border-radius:50%;border:0;cursor:pointer;background:var(--c);box-shadow:inset 0 0 0 1px rgba(255,255,255,.18);transition:transform .2s var(--ease),box-shadow .2s}
+.sw button[aria-pressed=true]{box-shadow:0 0 0 2px #0f0f13,0 0 0 4px var(--c);transform:scale(1.05)}
+.seg{display:inline-flex;padding:3px;border-radius:10px;background:rgba(255,255,255,.05);box-shadow:inset 0 0 0 1px var(--line)}
+.seg button{border:0;background:none;color:var(--muted);font:500 13px var(--sans);padding:6px 12px;border-radius:7px;cursor:pointer}
+.seg button[aria-pressed=true]{background:rgba(255,255,255,.1);color:var(--text)}
+input[type=range]{width:100%;accent-color:var(--acc-hi)}
+.mw{--a:#4f46e5;--r:20px;--mb:#111115;--mt:#ededf2;--mm:#9a9aa6;--mbub:#222229;--ml:rgba(255,255,255,.1);border-radius:var(--r);background:var(--mb);color:var(--mt);box-shadow:inset 0 0 0 1px var(--ml),0 24px 50px -20px rgba(0,0,0,.8);overflow:hidden;transition:background .35s,color .35s,border-radius .2s}
+.mw.light{--mb:#ffffff;--mt:#16161d;--mm:#6e6e7a;--mbub:#f3f3f6;--ml:rgba(0,0,0,.08)}
+.mw-h{display:flex;align-items:center;gap:10px;padding:12px 12px 10px;background:linear-gradient(180deg,color-mix(in srgb,var(--a) 16%,var(--mb)),var(--mb))}
+.mw-h .orb{--s:28px;--acc:var(--a)}
+.mw-h b{font-size:13.5px;font-weight:650;display:block}
+.mw-h small{font-size:11px;color:var(--mm)}
+.mw-b{padding:8px 12px 12px;display:grid;gap:6px}
+.mw-b .m{font-size:12.5px;padding:7px 10px;border-radius:calc(var(--r)*.6);max-width:85%;line-height:1.4}
+.mw-b .m.a{background:var(--mbub);justify-self:start;border-bottom-left-radius:4px}
+.mw-b .m.u{background:var(--a);color:#fff;justify-self:end;border-bottom-right-radius:4px}
+.mw-in{margin:0 12px 12px;height:34px;border-radius:calc(var(--r)*.6);box-shadow:inset 0 0 0 1px var(--ml);display:flex;align-items:center;justify-content:space-between;padding:0 4px 0 11px;font-size:12px;color:var(--mm)}
+.mw-in i{width:26px;height:26px;border-radius:calc(var(--r)*.45);background:var(--a)}
+@media (max-width:620px){.themer{grid-template-columns:1fr}}
+.details{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;margin-top:16px;border-radius:22px;overflow:hidden;background:var(--line);box-shadow:inset 0 0 0 1px var(--line)}
+.details div{background:#0e0e12;padding:22px 24px}
+.details b{display:block;font-size:15px;font-weight:600;margin-bottom:4px;letter-spacing:-.01em}
+.details span{font-size:14px;color:var(--muted);line-height:1.5}
+@media (max-width:860px){.details{grid-template-columns:1fr 1fr}}
+@media (max-width:540px){.details{grid-template-columns:1fr}}
+
+/* Cost */
+.cost{border-radius:28px;padding:64px;background:radial-gradient(700px 300px at 0% 0%,rgba(79,70,229,.16),transparent 70%),linear-gradient(180deg,#121217,#0d0d11);box-shadow:inset 0 0 0 1px var(--line2);display:grid;grid-template-columns:1fr 1.1fr;gap:56px;align-items:center}
+.stats{display:grid;gap:14px}
+.stat{display:grid;grid-template-columns:auto 1fr;gap:18px;align-items:center;padding:20px 22px;border-radius:18px;background:rgba(255,255,255,.025);box-shadow:inset 0 0 0 1px var(--line)}
+.stat .v{font-size:40px;font-weight:650;letter-spacing:-.04em;line-height:1;min-width:110px;background:linear-gradient(180deg,#fff,#b9b6ff);-webkit-background-clip:text;background-clip:text;color:transparent}
+.stat .v small{font-size:.5em;letter-spacing:-.01em}
+.stat b{display:block;font-size:15.5px;font-weight:600}
+.stat span{font-size:14px;color:var(--muted)}
+@media (max-width:900px){.cost{grid-template-columns:1fr;padding:36px 24px;gap:36px}.stat .v{min-width:84px;font-size:32px}}
+
+/* FAQ */
+.faq{max-width:820px;margin:0 auto;display:grid;gap:10px}
+.faq details{border-radius:16px;background:rgba(255,255,255,.025);box-shadow:inset 0 0 0 1px var(--line);transition:background .25s}
+.faq details[open]{background:rgba(255,255,255,.04)}
+.faq summary{list-style:none;cursor:pointer;padding:20px 22px;font-size:16.5px;font-weight:600;letter-spacing:-.01em;display:flex;align-items:center;gap:16px}
+.faq summary::-webkit-details-marker{display:none}
+.faq summary::after{content:"";margin-left:auto;width:10px;height:10px;flex:none;border-right:1.5px solid var(--muted);border-bottom:1.5px solid var(--muted);transform:rotate(45deg) translate(-3px,-3px);transition:transform .3s var(--ease)}
+.faq details[open] summary::after{transform:rotate(225deg) translate(-3px,-3px)}
+.faq p{margin:0;padding:0 22px 20px;color:var(--muted);font-size:15px;line-height:1.65}
+.faq code{font:13px var(--mono);background:rgba(255,255,255,.06);padding:1px 6px;border-radius:5px;color:#d4d4dc}
+
+/* Install + final */
+.final{position:relative;margin-top:140px;padding:120px 0 0;text-align:center;overflow:hidden}
+.final::before{content:"";position:absolute;left:50%;top:0;width:1100px;height:700px;transform:translateX(-50%);background:radial-gradient(closest-side,rgba(79,70,229,.32),transparent 70%);pointer-events:none;z-index:-1}
+.final .orb{--s:84px;display:block;margin:0 auto 36px;box-shadow:0 0 80px 10px rgba(79,70,229,.45)}
+.final h2{font-size:clamp(40px,6.5vw,76px);max-width:900px;margin:0 auto}
+.final .lede{margin:22px auto 0}
+.install{max-width:760px;margin:56px auto 0;text-align:left}
+.itabs{display:flex;gap:4px;margin-bottom:-1px;position:relative;z-index:1;padding-left:10px;overflow-x:auto;scrollbar-width:none}
+.itabs button{border:0;background:none;color:var(--dim);font:500 13.5px var(--sans);padding:10px 14px;cursor:pointer;border-bottom:1.5px solid transparent;white-space:nowrap}
+.itabs button[aria-selected=true]{color:var(--text);border-bottom-color:var(--acc-hi)}
+.install .code{border-radius:18px;padding:22px 24px;box-shadow:inset 0 0 0 1px var(--line2),0 30px 80px -30px rgba(0,0,0,.9)}
+.copy{position:absolute;top:14px;right:14px;height:30px;padding:0 12px;border-radius:9px;border:0;background:rgba(255,255,255,.06);color:var(--muted);font:500 12.5px var(--sans);cursor:pointer;display:flex;align-items:center;gap:6px;transition:background .2s,color .2s}
+.copy:hover{background:rgba(255,255,255,.1);color:var(--text)}
+.copy svg{width:13px;height:13px}
+.final .ctas{display:flex;gap:12px;justify-content:center;margin-top:40px;flex-wrap:wrap}
+footer{margin-top:120px;border-top:1px solid var(--line);padding:32px 0 44px;color:var(--dim);font-size:13.5px}
+footer .wrap{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+footer .logo{font-size:15px;color:var(--muted)}
+footer .logo .orb{--s:22px}
+footer nav{margin-left:auto;display:flex;gap:22px}
+footer a{text-decoration:none}footer a:hover{color:var(--text)}
+
+/* Reveal on scroll */
+.rv{opacity:0;transform:translateY(22px);transition:opacity .9s var(--ease),transform .9s var(--ease)}
+.rv.in{opacity:1;transform:none}
+.rv.d1{transition-delay:.08s}.rv.d2{transition-delay:.16s}.rv.d3{transition-delay:.24s}
+.no-js .rv{opacity:1;transform:none}
+
+@media (max-width:620px){
+  .wrap{padding:0 16px}
+  .sec{padding-top:104px}
+  .hero{padding-top:56px}
+  .demo{margin-top:56px}
+  .tabs{margin:0 -16px 14px;padding:0 16px}
+  .panel{height:520px}
+  .cell{padding:22px;min-height:0}
+  .final{margin-top:104px;padding-top:88px}
+  footer nav{margin-left:0}
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}
+  html{scroll-behavior:auto}
+  .rv{opacity:1;transform:none}
+}
+</style>
+</head>
+<body class="no-js">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-send" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M12 19V5M5 12l7-7 7 7"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-doc" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5M9 13h6M9 17h4"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-bug" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M9 7V5a3 3 0 0 1 6 0v2M7 10h10v4a5 5 0 0 1-10 0zM4 13h3M17 13h3M5 8l2 2M19 8l-2 2M5 19l2.5-2M19 19l-2.5-2"/></symbol>
+  <symbol id="i-bulb" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.6 10.8c.8.6 1.1 1.4 1.1 2.2h5c0-.8.3-1.6 1.1-2.2A6 6 0 0 0 12 3z"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M7 11v9H4v-9zM7 11l4-8a2.5 2.5 0 0 1 2.5 2.5V9h5.2a2 2 0 0 1 2 2.3l-1.2 7A2 2 0 0 1 17.5 20H7"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><g transform="rotate(180 12 12)"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M7 11v9H4v-9zM7 11l4-8a2.5 2.5 0 0 1 2.5 2.5V9h5.2a2 2 0 0 1 2 2.3l-1.2 7A2 2 0 0 1 17.5 20H7"/></g></symbol>
+  <symbol id="i-person" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2zM4 19V5M8 7h7"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M6 8a6 6 0 1 1 12 0c0 7 3 8 3 8H3s3-1 3-8M10 20a2 2 0 0 0 4 0"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 3l9 5-9 5-9-5zM3 13l9 5 9-5"/></symbol>
+  <symbol id="i-mail" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 5h16v14H4zM4 6l8 7 8-7"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M9 9h11v11H9zM5 15H4V4h11v1"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M13 6l6 6-6 6"/></symbol>
+  <symbol id="i-warn" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 3l10 18H2zM12 10v4M12 17.5v.5"/></symbol>
+</svg>
+
+<header class="nav" id="nav">
+  <div class="wrap">
+    <a class="logo" href="#top" aria-label="Wicket home"><span class="orb" aria-hidden="true"><span class="sw"></span><span class="eyes"><i></i><i></i><i></i></span></span>Wicket</a>
+    <nav class="nav-links" aria-label="Sections">
+      <a href="#demo">Product</a>
+      <a href="#how">How it works</a>
+      <a href="#hear-back">Hear back</a>
+      <a href="#features">Features</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+    <a class="btn btn-primary" href="#start">Get started</a>
+  </div>
+</header>
+
+<main id="top">
+  <section class="hero">
+    <div class="aurora" aria-hidden="true"></div>
+    <div class="wrap">
+      <a class="badge rv" href="#hear-back"><b>New</b>Everyone hears back when it ships<svg width="14" height="14" aria-hidden="true"><use href="#i-arrow"/></svg></a>
+      <h1 class="rv d1">The support chat that <span class="serif">closes the loop.</span></h1>
+      <p class="lede rv d2">Wicket answers from your docs, hands the rest to your team with everything they need, and logs every bug and idea. When one ships, everyone who asked hears about it.</p>
+      <div class="ctas rv d3">
+        <a class="btn btn-primary" href="#start">Get started<svg aria-hidden="true"><use href="#i-arrow"/></svg></a>
+        <a class="btn btn-ghost" href="#demo">See it work</a>
+      </div>
+      <p class="note rv d3">One script tag. One small server. AI optional.</p>
+
+      <div class="demo rv" id="demo">
+        <div class="tabs" role="tablist" aria-label="Demo scenes">
+          <button class="tab" role="tab" aria-selected="true" data-i="0"><i class="prog"></i><span>Answers from your docs</span></button>
+          <button class="tab" role="tab" aria-selected="false" data-i="1"><i class="prog"></i><span>Hands off to a person</span></button>
+          <button class="tab" role="tab" aria-selected="false" data-i="2"><i class="prog"></i><span>Logs the bug</span></button>
+          <button class="tab" role="tab" aria-selected="false" data-i="3"><i class="prog"></i><span>Counts the idea</span></button>
+        </div>
+        <div class="stage" role="img" aria-label="An animated example of the Wicket chat inside an app, next to what the team sees.">
+          <div class="app" aria-hidden="true">
+            <div class="app-side">
+              <div class="app-brand"><i></i>Atlas</div>
+              <div class="app-nav">Home</div>
+              <div class="app-nav on">Calendar</div>
+              <div class="app-nav">Projects</div>
+              <div class="app-nav">Reports</div>
+              <div class="app-nav">Settings</div>
+            </div>
+            <div class="app-main">
+              <div class="app-top"><div class="app-title">This week</div><div class="app-pill"></div></div>
+              <div class="cal">
+                <div><em class="a"></em><em></em></div><div><em></em><em class="a"></em><em></em></div><div><em></em></div><div><em class="a"></em><em></em><em></em></div><div><em></em><em class="a"></em></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="team" id="team" aria-hidden="true"><div class="team-h"><span class="live"></span><b>Your team sees</b></div><div class="team-b"><div class="t-msg" style="color:var(--dim)">What reaches your team shows up here.</div></div></div>
+
+          <div class="panel" aria-hidden="true">
+            <div class="p-head">
+              <span class="orb" id="head-orb"><span class="sw"></span><span class="eyes"><i></i><i></i><i></i></span></span>
+              <div><div class="p-title">Atlas Support</div><div class="p-sub"><i></i>Usually replies in a few hours</div></div>
+              <span class="p-x"><svg width="18" height="18"><use href="#i-x"/></svg></span>
+            </div>
+            <div class="log"><div class="log-inner" id="log"></div></div>
+            <div class="composer" id="composer"><div class="c-text" id="ctext">Write a message…</div><span class="send" id="send"><svg><use href="#i-send"/></svg></span></div>
+            <div class="powered">Powered by Wicket</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="works rv" aria-label="Works with">
+        <span>Docs from <b>GitHub Markdown</b>, <b>GitBook</b>, <b>Docusaurus</b>, <b>Mintlify</b> or any docs site</span>
+        <span class="sep"></span>
+        <span>Inbox in <b>Discord</b> and the <b>dashboard</b>, replies by <b>email</b></span>
+        <span class="sep"></span>
+        <span>Tickets in <b>Linear</b> or <b>GitHub Issues</b></span>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" id="how">
+    <div class="wrap">
+      <div class="sec-head rv">
+        <span class="eyebrow">How it works</span>
+        <h2>Four steps. <span class="serif">Then it comes back around.</span></h2>
+        <p class="lede">Most support tools stop at the reply. Wicket keeps going until the person who asked knows how it ended.</p>
+      </div>
+      <div class="loop" id="loop">
+        <div class="loop-line" aria-hidden="true"></div>
+        <div class="step rv on"><div class="n"><svg><use href="#i-chat"/></svg></div><span class="k">01</span><h3>Ask</h3><p>People ask in your app, in their own words. Wicket notes the page, app version and recent errors.</p></div>
+        <div class="step rv d1"><div class="n"><svg><use href="#i-book"/></svg></div><span class="k">02</span><h3>Answer</h3><p>The assistant answers from your docs and links the exact section it used.</p></div>
+        <div class="step rv d2"><div class="n"><svg><use href="#i-person"/></svg></div><span class="k">03</span><h3>Hand off</h3><p>Anything it can't settle goes to your team, and their reply lands back in the same chat.</p></div>
+        <div class="step rv d3"><div class="n"><svg><use href="#i-bell"/></svg></div><span class="k">04</span><h3>Hear back</h3><p>Bugs and ideas become tickets. When one ships, everyone who asked is told.</p></div>
+      </div>
+      <p class="return rv"><svg viewBox="0 0 120 28" fill="none" aria-hidden="true"><path d="M116 6c0 10-12 16-56 16S4 16 4 6" stroke="currentColor" stroke-width="1.5" stroke-dasharray="3 4"/><path d="M1 10l3-5 4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>And the next question starts with someone who trusts you'll get back to them.</p>
+    </div>
+  </section>
+
+  <section class="sec" id="hear-back">
+    <div class="wrap hb">
+      <div class="rv">
+        <span class="eyebrow">Everyone hears back</span>
+        <h2 style="margin-top:20px">Nobody's report <span class="serif">disappears.</span></h2>
+        <p class="lede" style="margin-top:20px">The assistant files bugs, ideas and docs gaps itself. The same problem reported twice lands on one ticket, and every person who reported it gets the news.</p>
+        <ul>
+          <li><span class="ic"><svg><use href="#i-layers"/></svg></span><span><b>Repeat reports stack up.</b> A new report on a known problem joins the ticket that already exists, so you see how many people it hits.</span></li>
+          <li><span class="ic"><svg><use href="#i-bell"/></svg></span><span><b>Reporters get told.</b> When it's fixed, or when an idea is planned or turned down, each reporter gets a message in their chat, and by email if they're away.</span></li>
+          <li><span class="ic"><svg><use href="#i-chat"/></svg></span><span><b>Say why in one line.</b> Comment <code style="font:13px var(--mono);color:#d4d4dc">Reply:</code> on the ticket and Wicket passes your reason along.</span></li>
+        </ul>
+      </div>
+      <div class="track rv d1" id="track">
+        <div style="display:flex;align-items:center;gap:10px"><span class="issue-id">ATL-482</span><span class="state" id="tk-state"><i></i><span>Triage</span></span></div>
+        <div class="issue-t" style="font-size:19px;margin-top:10px">Calendar is blank after changing time zone</div>
+        <div class="reporters"><span class="stack"><span class="av" style="background:#f9a8d4">D</span><span class="av" style="background:#93c5fd">R</span><span class="av" style="background:#fcd34d">J</span><span class="av" style="background:#86efac">A</span></span>4 people reported this</div>
+        <div class="tl">
+          <div class="tl-i on"><span class="tl-dot"><svg><use href="#i-bug"/></svg></span><div><h4>Logged from a chat</h4><p>With the page, app version and console error.</p></div></div>
+          <div class="tl-i on" style="--c:#686874"><span class="tl-dot"><svg><use href="#i-layers"/></svg></span><div><h4>3 more people hit it</h4><p>Each one joined this ticket instead of opening a new one.</p></div></div>
+          <div class="tl-i" data-c="#22c55e"><span class="tl-dot"><svg><use href="#i-check"/></svg></span><div><h4>Fixed in 2.4</h4><p>All 4 reporters were told in their chat.</p><div class="bub">Good news: the calendar fix is out in 2.4. Thanks for reporting it!</div></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" id="features">
+    <div class="wrap">
+      <div class="sec-head rv">
+        <span class="eyebrow">Features</span>
+        <h2>Small to add. <span class="serif">Hard to outgrow.</span></h2>
+      </div>
+      <div class="bento">
+        <div class="cell w4 wide-m rv">
+          <h3>One script tag</h3>
+          <p>Drop it in and a chat button appears. Pass who's signed in and whatever context helps.</p>
+          <div class="vis"><div class="code"><pre><span class="t-tag">&lt;script</span> <span class="t-attr">src</span>=<span class="t-str">"https://support.yourapp.com/widget.js"</span><span class="t-tag">&gt;&lt;/script&gt;</span>
+<span class="t-tag">&lt;script&gt;</span>
+  Wicket.<span class="t-fn">init</span>({
+    <span class="t-key">user</span>: { id: user.id, name: user.name },
+    <span class="t-key">context</span>: { appVersion: <span class="t-str">"2.3.1"</span> },
+  });
+<span class="t-tag">&lt;/script&gt;</span></pre></div></div>
+        </div>
+        <div class="cell rv d1">
+          <h3>Answers with sources</h3>
+          <p>Reads your docs repo or site and links the section it used.</p>
+          <div class="vis"><div class="docref">Open the project, then choose <b>File › Export › PDF</b>.<br><span class="src"><svg><use href="#i-doc"/></svg>Exporting projects › PDF</span></div></div>
+        </div>
+        <div class="cell rv">
+          <h3>A person when it matters</h3>
+          <p>Hands off when someone asks, is frustrated, or the docs don't cover it.</p>
+          <div class="vis handoff"><span class="pill-sys"><svg width="12" height="12"><use href="#i-person"/></svg>Passed to the team</span><span class="ping"><b>@Support</b>new conversation from Dana</span></div>
+        </div>
+        <div class="cell rv d1">
+          <h3>Reports arrive with context</h3>
+          <p>No more "which version are you on?"</p>
+          <div class="vis ctx">
+            <div><span>Page</span><code>/calendar?view=week</code></div>
+            <div><span>Version</span><code>2.3.1</code></div>
+            <div><span>Console</span><code class="err">TypeError: tz is undefined</code></div>
+          </div>
+        </div>
+        <div class="cell rv d2" id="budget">
+          <h3>Budgets per person</h3>
+          <p>Cap AI spend per user or account each month, with a warning before it runs out.</p>
+          <div class="vis"><div class="meter warn"><i data-w="82%"></i></div><div class="meter-l"><span><b>$2.46</b> of $3.00</span><span>this month</span></div><div class="warnline"><svg width="13" height="13"><use href="#i-warn"/></svg>Warned at 80%</div></div>
+        </div>
+        <div class="cell w4 wide-m rv">
+          <h3>Make it yours</h3>
+          <p>Your color, light or dark, your corners, your font. Or open it from your own button.</p>
+          <div class="themer">
+            <div class="controls">
+              <div><div class="ctl-l">Accent</div><div class="sw" id="swatches">
+                <button style="--c:#4f46e5" aria-pressed="true" aria-label="Indigo"></button>
+                <button style="--c:#e8590c" aria-pressed="false" aria-label="Orange"></button>
+                <button style="--c:#0d9488" aria-pressed="false" aria-label="Teal"></button>
+                <button style="--c:#db2777" aria-pressed="false" aria-label="Pink"></button>
+                <button style="--c:#2563eb" aria-pressed="false" aria-label="Blue"></button>
+                <button style="--c:#16a34a" aria-pressed="false" aria-label="Green"></button>
+              </div></div>
+              <div><div class="ctl-l">Mode</div><div class="seg" id="mode"><button aria-pressed="true" data-m="dark">Dark</button><button aria-pressed="false" data-m="light">Light</button></div></div>
+              <div><div class="ctl-l">Corners</div><input type="range" id="radius" min="4" max="28" value="20" aria-label="Corner radius"></div>
+            </div>
+            <div class="mw" id="mw" aria-hidden="true">
+              <div class="mw-h"><span class="orb"><span class="sw"></span><span class="eyes"><i></i><i></i><i></i></span></span><div><b>Your App Support</b><small>We're here to help</small></div></div>
+              <div class="mw-b"><div class="m u">Can I change the colors?</div><div class="m a">Any color you like. Text on it adjusts for contrast.</div></div>
+              <div class="mw-in">Write a message…<i></i></div>
+            </div>
+          </div>
+        </div>
+        <div class="cell rv d1" id="ai">
+          <h3>AI is optional</h3>
+          <p>Leave it off and every chat goes straight to your team, with no AI bill.</p>
+          <div class="vis">
+            <button class="switch" id="aiswitch" role="switch" aria-checked="true"><span class="s"></span><span id="ailabel">Assistant on</span></button>
+            <div class="route" id="route"><span class="node">Chat</span><span class="arrow"></span><span class="node ai">Assistant</span><span class="arrow"></span><span class="node">Team</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="details rv">
+        <div><b>Signed-in users</b><span>Your backend signs a short token, so plans and budgets follow the real person.</span></div>
+        <div><b>App tools</b><span>Let the assistant look up the person's own data through your API, checked against their token.</span></div>
+        <div><b>Replies by email</b><span>Missed replies are emailed, and answering the email goes back into the chat.</span></div>
+        <div><b>Ratings</b><span>Thumbs up or down on every answer. A thumbs down offers a person.</span></div>
+        <div><b>Bot check</b><span>Cloudflare Turnstile for anonymous visitors, before their first answer.</span></div>
+        <div><b>A full JS API</b><span>Open, ask, set context, swap users and listen for unread counts from your code.</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec">
+    <div class="wrap">
+      <div class="cost rv">
+        <div>
+          <span class="eyebrow">Cheap to run</span>
+          <h2 style="margin-top:20px">Runs on <span class="serif">one small server.</span></h2>
+          <p class="lede" style="margin-top:20px">No per-seat pricing to grow into. Wicket is one Node process with SQLite, so a single small instance runs the chat, the assistant and the inbox.</p>
+        </div>
+        <div class="stats">
+          <div class="stat"><span class="v">1</span><div><b>Node process, one SQLite file</b><span>Deploy it to Railway or anywhere that runs Node.</span></div></div>
+          <div class="stat"><span class="v">$0</span><div><b>AI bill if you leave AI off</b><span>Turn the assistant on later, through the Vercel AI Gateway or Anthropic.</span></div></div>
+          <div class="stat"><span class="v">∞<small> seats</small></span><div><b>Your whole team in the inbox</b><span>Answer from the dashboard or Discord. No one needs a license.</span></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" id="faq">
+    <div class="wrap">
+      <div class="sec-head rv" style="text-align:center;justify-items:center">
+        <span class="eyebrow">Questions</span>
+        <h2>Good to <span class="serif">know.</span></h2>
+      </div>
+      <div class="faq rv">
+        <details open><summary>Do I have to pay for AI?</summary><p>No. Without an AI key, Wicket is a plain support chat: every conversation goes straight to your team. When you turn the assistant on, you can give each person or account a monthly budget and a total cap, and anonymous visitors can skip the assistant entirely.</p></details>
+        <details><summary>Where does my team answer?</summary><p>In the built-in dashboard at <code>/admin</code>, or in Discord, where each conversation becomes its own private post. Replies show up in the person's chat right away, and by email if they've left.</p></details>
+        <details><summary>Which docs can it read?</summary><p>Any GitHub repo of Markdown (GitBook Git Sync, Docusaurus, Mintlify and similar), or any hosted docs site through its sitemap. It re-indexes on a schedule and links the exact section in each answer.</p></details>
+        <details><summary>How does it know which issues to update?</summary><p>When the assistant files a report, it checks your tracker for the same problem first and adds the person to that ticket if it exists. Wicket then checks the tracker every 15 minutes and messages reporters when a ticket is fixed, planned or turned down. Linear and GitHub Issues work today.</p></details>
+        <details><summary>Can it see my users' data?</summary><p>Only if you let it. App tools are endpoints on your own backend, called with the person's signed token, so your code decides what they can see on every call.</p></details>
+      </div>
+    </div>
+  </section>
+
+  <section class="final" id="start">
+    <div class="wrap">
+      <span class="orb rv" aria-hidden="true"><span class="sw"></span><span class="eyes"><i></i><i></i><i></i></span></span>
+      <h2 class="rv d1">Close <span class="serif">every loop.</span></h2>
+      <p class="lede rv d2">Add the script, point it at your docs, and pick where your team answers.</p>
+      <div class="install rv d3">
+        <div class="itabs" role="tablist" aria-label="Install examples">
+          <button role="tab" aria-selected="true" data-k="html">Add to your app</button>
+          <button role="tab" aria-selected="false" data-k="token">Signed-in users</button>
+          <button role="tab" aria-selected="false" data-k="yaml">Profiles</button>
+        </div>
+        <div class="code"><button class="copy" id="copy"><svg><use href="#i-copy"/></svg><span>Copy</span></button><pre id="snippet"></pre></div>
+      </div>
+      <div class="ctas rv">
+        <a class="btn btn-primary" href="#demo">Watch the demo again</a>
+        <a class="btn btn-ghost" href="#faq">Read the FAQ</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <a class="logo" href="#top"><span class="orb still" aria-hidden="true"><span class="sw"></span><span class="eyes"><i></i><i></i><i></i></span></span>Wicket</a>
+    <span>The support chat that closes the loop.</span>
+    <nav aria-label="Footer"><a href="#demo">Product</a><a href="#features">Features</a><a href="#faq">FAQ</a></nav>
+  </div>
+</footer>
+
+<script>
+(function () {
+  document.body.classList.remove("no-js");
+  var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var $ = function (s, r) { return (r || document).querySelector(s); };
+  var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
+
+  // Nav background once the page scrolls
+  var nav = $("#nav");
+  var onScroll = function () { nav.classList.toggle("scrolled", window.scrollY > 8); };
+  window.addEventListener("scroll", onScroll, { passive: true }); onScroll();
+
+  // Reveal sections as they come into view
+  var io = new IntersectionObserver(function (es) {
+    es.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } });
+  }, { rootMargin: "0px 0px -8% 0px", threshold: 0.08 });
+  $$(".rv").forEach(function (el) { io.observe(el); });
+
+  // ---------- The demo ----------
+  var log = $("#log"), ctext = $("#ctext"), composer = $("#composer"), send = $("#send"), team = $("#team"), orb = $("#head-orb");
+  var tabs = $$(".tab");
+  var I = function (id, w) { return '<svg width="' + (w || 13) + '" height="' + (w || 13) + '"><use href="#i-' + id + '"/></svg>'; };
+  var ORB = '<span class="mini orb still"><span class="sw"></span><span class="eyes"><i></i><i></i><i></i></span></span>';
+  var run = 0, current = 0, inView = false, playing = false;
+
+  function wait(ms, id) {
+    return new Promise(function (res, rej) { setTimeout(function () { id === run ? res() : rej("stop"); }, reduce ? Math.min(ms, 400) : ms); });
+  }
+  function fit() {
+    // Keep the newest message in view, like the real chat scrolling.
+    var box = log.parentElement, over = log.scrollHeight - (box.clientHeight - 24);
+    log.style.transform = over > 0 ? "translateY(" + -over + "px)" : "";
+  }
+  function add(html) {
+    var t = document.createElement("div"); t.innerHTML = html.trim();
+    var el = t.firstChild; log.appendChild(el); fit(); return el;
+  }
+  function user(text) { return add('<div class="row u gap"><div class="col"><div class="msg">' + text + "</div></div></div>"); }
+  function bot(html, extra) {
+    return add('<div class="row a gap">' + ORB + '<div class="col"><div class="name">Atlas Assistant' + (extra || "") + '</div><div class="msg">' + html + "</div></div></div>");
+  }
+  function staff(html) {
+    return add('<div class="row s gap"><span class="mini staff">S</span><div class="col"><div class="name">Sam · Support team</div><div class="msg">' + html + "</div></div></div>");
+  }
+  function sys(html, cls) { return add('<div class="sys ' + (cls || "") + '">' + html + "</div>"); }
+  function typing() { return add('<div class="row a gap typing">' + ORB + '<div class="col"><div class="msg"><i></i><i></i><i></i></div></div></div>'); }
+  function ticket(kind, title, sub, at) {
+    return add('<div class="ticket ' + kind + '" style="--at:' + at + '"><span class="tk-ic">' + I(kind === "done" ? "check" : kind === "idea" ? "bulb" : "bug") + '</span><div class="tk-t">' + title + '</div><div class="tk-s">' + sub + '</div><span class="tk-bar"></span></div>');
+  }
+  function setTeam(html, where) {
+    team.innerHTML = '<div class="team-h"><span class="live"></span><b>Your team sees</b><span class="where">' + where + '</span></div><div class="team-b">' + html + "</div>";
+    team.classList.add("show");
+  }
+  async function type(text, id) {
+    composer.classList.add("focus"); ctext.classList.add("on"); ctext.textContent = "";
+    await wait(350, id);
+    if (reduce) ctext.textContent = text;
+    else for (var i = 1; i <= text.length; i++) { ctext.textContent = text.slice(0, i); send.classList.add("ready"); await wait(18 + Math.random() * 38, id); }
+    send.classList.add("ready");
+    await wait(380, id);
+    send.classList.add("hit"); await wait(140, id); send.classList.remove("hit", "ready");
+    ctext.classList.remove("on"); ctext.textContent = "Write a message…"; composer.classList.remove("focus");
+    user(text);
+  }
+  async function think(ms, id) {
+    orb.classList.add("think"); var t = typing();
+    await wait(ms, id); t.remove(); orb.classList.remove("think");
+  }
+  async function typeInto(el, text, id) {
+    el.classList.remove("empty"); el.textContent = "";
+    if (reduce) { el.textContent = text; return; }
+    for (var i = 1; i <= text.length; i++) { el.textContent = text.slice(0, i); await wait(14 + Math.random() * 26, id); }
+  }
+
+  var scenes = [
+    async function docs(id) {
+      await wait(500, id);
+      await type("How do I export a project as a PDF?", id);
+      await think(1500, id);
+      var m = bot('Open the project, then choose <b>File › Export › PDF</b>. You can pick which pages to include before saving.<br><span class="src">' + I("doc") + "Exporting projects › PDF</span>",
+        '<span class="rate"><span>' + I("up", 12) + "</span><span>" + I("down", 12) + "</span></span>");
+      await wait(500, id);
+      add('<div class="chips"><span class="chip">Export only some pages</span><span class="chip">Change the page size</span></div>');
+      await wait(900, id);
+      setTeam('<div class="solved"><span class="big">' + I("check", 20) + '</span><div><div class="t-who">Answered from your docs</div><div class="t-msg" style="color:var(--muted)">No one was paged.</div></div></div><dl class="kv"><dt>Source</dt><dd>docs / exporting.md</dd><dt>Handled by</dt><dd>the assistant</dd><dt>Rating</dt><dd id="rated">waiting</dd></dl>', "Dashboard");
+      await wait(1300, id);
+      $(".rate span", m).classList.add("on");
+      var r = $("#rated"); if (r) r.innerHTML = '<span style="color:var(--green)">Helpful</span>';
+      await wait(3200, id);
+    },
+    async function handoff(id) {
+      await wait(500, id);
+      await type("I was charged twice this month.", id);
+      await think(1300, id);
+      bot("Sorry about that. Billing needs a person, so I've passed this to the team with your account details. We'll email you when they reply.");
+      await wait(500, id);
+      sys(I("person", 12) + "Passed to the team");
+      await wait(700, id);
+      setTeam('<div class="t-row"><span class="av" style="background:#f9a8d4">DK</span><div><div class="t-who">Dana Kim<span>Pro plan · just now</span></div><div class="t-msg">I was charged twice this month.</div></div></div><div class="tags"><span class="tag">/settings/billing</span><span class="tag">v2.3.1</span><span class="tag">account: northwind</span></div><div class="reply empty" id="reply">Reply to Dana…</div>', "Dashboard or Discord");
+      await wait(1400, id);
+      await typeInto($("#reply"), "Hi Dana, I've refunded the duplicate charge. It'll show in 3 to 5 days.", id);
+      await wait(600, id);
+      $("#reply").textContent = ""; $("#reply").classList.add("empty"); $("#reply").textContent = "Sent";
+      staff("Hi Dana, I've refunded the duplicate charge. It'll show in 3 to 5 days.");
+      await wait(3600, id);
+    },
+    async function bug(id) {
+      await wait(500, id);
+      await type("The calendar goes blank after I change my time zone.", id);
+      await think(1500, id);
+      bot("Thanks, that's a bug. I've logged it with your app version and the error on this page, and let the team know.");
+      await wait(400, id);
+      var tk = ticket("logged", "Calendar blank after time zone change", "<b>Logged</b> · you'll hear when it's fixed", "33%");
+      await wait(700, id);
+      setTeam('<div style="display:flex;gap:8px;align-items:center"><span class="issue-id">ATL-482</span><span class="state" id="st"><i></i><span>Triage</span></span></div><div class="issue-t">Calendar blank after time zone change</div><div class="tags" style="margin-top:0"><span class="tag">/calendar</span><span class="tag">v2.3.1</span><span class="tag err">TypeError: tz is undefined</span></div><div class="reporters"><span class="stack" id="stk"><span class="av" style="background:#93c5fd">R</span><span class="av" style="background:#fcd34d">J</span></span><span id="cnt">2 reports</span></div>', "Linear or GitHub Issues");
+      await wait(1200, id);
+      $("#stk").insertAdjacentHTML("beforeend", '<span class="av new" style="background:#f9a8d4">D</span>');
+      $("#cnt").innerHTML = '3 reports <span class="plus">+1 joined</span>';
+      await wait(2000, id);
+      sys("Two days later", "time");
+      await wait(900, id);
+      var st = $("#st"); st.className = "state done"; st.lastChild.textContent = "Done";
+      await wait(600, id);
+      tk.className = "ticket done"; tk.style.setProperty("--at", "100%");
+      tk.querySelector(".tk-ic").innerHTML = I("check");
+      tk.querySelector(".tk-s").innerHTML = "<b>Fixed</b> · in version 2.4";
+      await wait(800, id);
+      bot("Good news: the calendar fix is out in 2.4. Thanks for reporting it!");
+      await wait(3600, id);
+    },
+    async function idea(id) {
+      await wait(500, id);
+      await type("Could the editor have a dark mode?", id);
+      await think(1400, id);
+      bot("Good idea, and you're not alone. 41 people have asked for this, so I've added you to that request.");
+      await wait(400, id);
+      var tk = ticket("idea", "Dark mode in the editor", "<b>Logged</b> · we'll tell you what we decide", "33%");
+      await wait(700, id);
+      setTeam('<div style="display:flex;gap:8px;align-items:center"><span class="issue-id">ATL-317</span><span class="state" id="st"><i></i><span>Triage</span></span></div><div class="issue-t">Dark mode in the editor</div><div class="reporters"><span class="stack" id="stk"><span class="av" style="background:#c4b5fd">M</span><span class="av" style="background:#86efac">A</span><span class="av" style="background:#fdba74">T</span></span><span id="cnt">41 asks</span></div>', "Linear or GitHub Issues");
+      await wait(1100, id);
+      $("#stk").insertAdjacentHTML("beforeend", '<span class="av new" style="background:#f9a8d4">D</span>');
+      $("#cnt").innerHTML = '42 asks <span class="plus">+1</span>';
+      await wait(1800, id);
+      sys("Next week", "time");
+      await wait(700, id);
+      var st = $("#st"); st.className = "state planned"; st.lastChild.textContent = "Planned";
+      tk.className = "ticket planned"; tk.style.setProperty("--at", "66%");
+      tk.querySelector(".tk-s").innerHTML = "<b>Planned</b> · the team is on it";
+      await wait(600, id);
+      bot("Update: the team has planned dark mode for the editor. I'll tell you when it ships.");
+      await wait(2200, id);
+      sys("A month later", "time");
+      await wait(700, id);
+      st.className = "state done"; st.lastChild.textContent = "Done";
+      tk.className = "ticket done"; tk.style.setProperty("--at", "100%");
+      tk.querySelector(".tk-ic").innerHTML = I("check");
+      tk.querySelector(".tk-s").innerHTML = "<b>Shipped</b> · in version 2.6";
+      await wait(700, id);
+      bot("Dark mode is here. Turn it on in <b>Settings › Appearance</b>.");
+      await wait(3600, id);
+    }
+  ];
+
+  function reset() {
+    log.innerHTML = ""; log.style.transform = ""; team.classList.remove("show");
+    ctext.textContent = "Write a message…"; ctext.classList.remove("on"); composer.classList.remove("focus");
+    send.classList.remove("ready", "hit"); orb.classList.remove("think");
+  }
+  function select(i) {
+    tabs.forEach(function (t, k) {
+      t.setAttribute("aria-selected", k === i ? "true" : "false");
+      var p = t.querySelector(".prog"); p.style.transition = "none"; p.style.width = "0";
+    });
+  }
+  function play(i) {
+    var id = ++run; current = i; playing = true; reset(); select(i);
+    var start = Date.now(), p = tabs[i].querySelector(".prog");
+    // An estimate for the progress bar; the scene itself decides when it ends.
+    var est = [9000, 13500, 16500, 20000][i];
+    requestAnimationFrame(function () { p.style.transition = "width " + est + "ms linear"; p.style.width = "100%"; });
+    scenes[i](id).then(function () {
+      if (id !== run) return;
+      playing = false;
+      if (inView) play((i + 1) % scenes.length);
+    }).catch(function () {});
+  }
+  tabs.forEach(function (t, k) { t.addEventListener("click", function () { play(k); }); });
+  new IntersectionObserver(function (es) {
+    inView = es[0].isIntersecting;
+    if (inView && !playing) play(current);
+  }, { threshold: 0.35 }).observe($(".stage"));
+  window.addEventListener("resize", fit);
+
+  // ---------- The loop steps take turns lighting up ----------
+  var steps = $$("#loop .step"), si = 0;
+  setInterval(function () { steps.forEach(function (s) { s.classList.remove("on"); }); si = (si + 1) % steps.length; steps[si].classList.add("on"); }, 1800);
+
+  // ---------- Hear back: the ticket reaches Fixed when scrolled to ----------
+  var track = $("#track");
+  new IntersectionObserver(function (es) {
+    if (!es[0].isIntersecting) return;
+    setTimeout(function () {
+      var last = $(".tl-i[data-c]", track); last.classList.add("on"); last.style.setProperty("--c", last.dataset.c);
+      var st = $("#tk-state"); st.className = "state done"; st.lastChild.textContent = "Done";
+    }, reduce ? 0 : 1400);
+  }, { threshold: 0.5 }).observe(track);
+
+  // ---------- Budget meter fills when seen ----------
+  var budget = $("#budget");
+  new IntersectionObserver(function (es) {
+    if (!es[0].isIntersecting) return;
+    var bar = $(".meter i", budget); bar.style.width = bar.dataset.w;
+  }, { threshold: 0.4 }).observe(budget);
+
+  // ---------- Theming ----------
+  var mw = $("#mw");
+  $$("#swatches button").forEach(function (b) {
+    b.addEventListener("click", function () {
+      $$("#swatches button").forEach(function (x) { x.setAttribute("aria-pressed", x === b ? "true" : "false"); });
+      mw.style.setProperty("--a", b.style.getPropertyValue("--c"));
+    });
+  });
+  $$("#mode button").forEach(function (b) {
+    b.addEventListener("click", function () {
+      $$("#mode button").forEach(function (x) { x.setAttribute("aria-pressed", x === b ? "true" : "false"); });
+      mw.classList.toggle("light", b.dataset.m === "light");
+    });
+  });
+  $("#radius").addEventListener("input", function (e) { mw.style.setProperty("--r", e.target.value + "px"); });
+
+  // ---------- AI switch ----------
+  var sw = $("#aiswitch");
+  sw.addEventListener("click", function () {
+    var on = sw.getAttribute("aria-checked") !== "true";
+    sw.setAttribute("aria-checked", on ? "true" : "false");
+    $("#ailabel").textContent = on ? "Assistant on" : "Assistant off";
+    $("#route").classList.toggle("off", !on);
+  });
+
+  // ---------- Install snippets ----------
+  var esc = function (s) { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); };
+  var snippets = {
+    html: '<script src="https://support.yourapp.com/widget.js" defer><\/script>\n<script>\n  window.addEventListener("load", () =>\n    Wicket.init({\n      user: { id: user.id, name: user.name, email: user.email },\n      context: { appVersion: APP_VERSION },\n      title: "Your App Support",\n      theme: { accentColor: "#4f46e5" },\n    }),\n  );\n<\/script>',
+    token: '// Your backend signs a short-lived token with the secret Wicket has\njwt.sign(\n  { sub: user.id, name: user.name, email: user.email, plan: user.plan },\n  process.env.WICKET_IDENTITY_SECRET,\n  { expiresIn: "5m" },\n);\n\n// The widget asks for a fresh one with every message\nWicket.init({\n  userToken: () => fetch("/api/wicket-token").then((r) => r.json()).then((d) => d.token),\n});',
+    yaml: '# config/wicket.yaml\nprofiles:\n  visitor:\n    ai: false          # straight to the team\n    askEmail: true     # so they can hear back\n  default:\n    budget: 3          # dollars per person, per month\nrules:\n  - when: { signedIn: false }\n    profile: visitor\nbudgets:\n  warnAt: 0.8\n  monthlyTotal: 20'
+  };
+  function hl(k, s) {
+    s = esc(s);
+    if (k === "yaml") return s.replace(/(#.*)$/gm, '<span class="t-com">$1</span>').replace(/^(\s*-?\s*)([a-zA-Z]+):/gm, '$1<span class="t-key">$2</span>:');
+    return s
+      .replace(/^(\s*\/\/.*)$/gm, '<span class="t-com">$1</span>')
+      .replace(/(&quot;|")([^"\n]*)"/g, '<span class="t-str">"$2"</span>')
+      .replace(/(&lt;\/?script)/g, '<span class="t-tag">$1</span>')
+      .replace(/\b(init|sign|fetch|addEventListener)\(/g, '<span class="t-fn">$1</span>(');
+  }
+  var snip = $("#snippet"), key = "html";
+  function show(k) {
+    key = k; snip.innerHTML = hl(k, snippets[k]);
+    $$(".itabs button").forEach(function (b) { b.setAttribute("aria-selected", b.dataset.k === k ? "true" : "false"); });
+  }
+  $$(".itabs button").forEach(function (b) { b.addEventListener("click", function () { show(b.dataset.k); }); });
+  show("html");
+  $("#copy").addEventListener("click", function () {
+    var label = $("#copy span");
+    var done = function () { label.textContent = "Copied"; setTimeout(function () { label.textContent = "Copy"; }, 1600); };
+    if (navigator.clipboard) navigator.clipboard.writeText(snippets[key]).then(done, function () {}); else done();
+  });
+})();
+</script>
+</body>
+</html>

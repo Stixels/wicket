@@ -16,6 +16,11 @@ const schema = z.object({
     .enum(["true", "false"])
     .optional()
     .transform((v) => (v ? v === "true" : process.env.NODE_ENV !== "production")),
+  /** Serve the Wicket marketing site at /, and move the playground (if on) to /playground. */
+  SITE: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => v === "true"),
   PRODUCT_NAME: z.string().default("our product"),
   PRODUCT_DESCRIPTION: z.string().default(""),
 

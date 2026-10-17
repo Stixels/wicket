@@ -19,8 +19,11 @@ export interface ServerOptions {
   maxMessagesPerConversationPerHour: number;
   maxConversationsPerIpPerHour: number;
   widgetPath?: string;
-  /** Serve a test page with the widget at /, for trying it out. */
+  /** Serve a test page with the widget at /, for trying it out (at /playground when `site` is on). */
   playground?: { title: string };
+  /** Serve the Wicket marketing site at /. */
+  site?: boolean;
+  sitePath?: string;
   /** Shared with the host app's backend, which signs user tokens with it. */
   identitySecret?: string;
   /** Cloudflare Turnstile keys, for profiles whose visitors pass a bot check. */
@@ -92,9 +95,21 @@ export function createServer(service: ConversationService, opts: ServerOptions) 
     return c.body(fs.readFileSync(widgetPath, "utf8"));
   });
 
+  if (opts.site) {
+    const sitePath = opts.sitePath ?? path.resolve("site/index.html");
+    let html: string | undefined;
+    app.get("/", (c) => {
+      html ??= fs.existsSync(sitePath) ? fs.readFileSync(sitePath, "utf8") : undefined;
+      if (!html) return c.text("site not found", 404);
+      c.header("Cache-Control", "public, max-age=300");
+      return c.html(html);
+    });
+  }
+
   if (opts.playground) {
     const { title } = opts.playground;
-    app.get("/", (c) => {
+    const base = opts.site ? "/playground" : "/";
+    app.get(base, (c) => {
       // With an identity secret, the page signs in as a test user, like a host app's backend would.
       const as = c.req.query("as");
       const plan = c.req.query("plan");
@@ -104,7 +119,7 @@ export function createServer(service: ConversationService, opts: ServerOptions) 
           : null;
       const initUser = token ? `userToken: ${JSON.stringify(token)},` : as === "visitor" ? "" : `user: { id: "local-test", name: "Local test" },`;
       const mode = as === "visitor" ? "visitor" : token ? "signed-in" : "unsigned";
-      return c.html(playgroundPage({ title, mode, plan, initUser }));
+      return c.html(playgroundPage({ title, mode, plan, initUser, base }));
     });
   }
 

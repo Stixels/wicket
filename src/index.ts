@@ -187,6 +187,7 @@ const app = createServer(service, {
   maxMessagesPerConversationPerHour: config.MAX_MESSAGES_PER_CONVERSATION_PER_HOUR,
   maxConversationsPerIpPerHour: config.MAX_CONVERSATIONS_PER_IP_PER_HOUR,
   playground: config.PLAYGROUND ? { title: `${config.PRODUCT_NAME} Support` } : undefined,
+  site: config.SITE,
   identitySecret: config.IDENTITY_SECRET,
   turnstile: config.TURNSTILE_SITE_KEY && config.TURNSTILE_SECRET_KEY ? { siteKey: config.TURNSTILE_SITE_KEY, secretKey: config.TURNSTILE_SECRET_KEY } : undefined,
   productName: config.PRODUCT_NAME,
