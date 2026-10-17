@@ -831,7 +831,9 @@ class Widget {
     this.setUnread(0);
     this.sendPresence();
     if (this.session?.botCheck && !this.conv) this.renderBotCheck(false);
-    setTimeout(() => this.input.focus(), 50);
+    // On a phone, focusing at once pops the keyboard while the panel is still opening and the page
+    // flashes; the person taps the message box when they're ready.
+    if (!window.matchMedia?.("(max-width: 640px)").matches) setTimeout(() => this.input.focus(), 50);
     if (!was) emit("open");
   }
 
@@ -994,7 +996,7 @@ class Widget {
       this.pageLock = null;
       document.documentElement.style.cssText = html;
       document.body.style.cssText = body;
-      window.scrollTo(0, y);
+      window.scrollTo({ top: y, behavior: "instant" as ScrollBehavior });
     }
     if (vv && this.viewportListener) {
       vv.removeEventListener("resize", this.viewportListener);
