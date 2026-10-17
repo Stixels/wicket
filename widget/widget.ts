@@ -675,10 +675,12 @@ textarea::placeholder { color: var(--wk-muted); }
 .wk.page .launcher, .wk.page .x { display: none !important; }
 .wk.page .panel { inset: 0; margin: auto; width: min(460px, calc(100vw - 32px)); height: min(780px, calc(100dvh - 48px)); max-height: none; }
 @media (max-width: 640px) {
-  .panel { inset: auto 0 auto 0; top: var(--wk-vtop, 0px); width: 100%; height: var(--wk-vh, 100dvh); max-height: none;
+  /* Fills the screen and keeps its size when the keyboard opens: the browser slides the whole page up
+     to show the message box, as other chat widgets do, instead of the panel shrinking and reflowing. */
+  .panel { inset: 0; width: 100%; height: auto; max-height: none;
     border-radius: 0; border: 0; box-shadow: none; transform-origin: bottom center; }
   .left .panel { left: 0; }
-  .wk.page .panel { inset: auto 0 auto 0; top: var(--wk-vtop, 0px); margin: 0; width: 100%; height: var(--wk-vh, 100dvh); }
+  .wk.page .panel { inset: 0; margin: 0; width: 100%; height: auto; }
   .wk.open .launcher { display: none; }
   .head { padding-top: max(18px, env(safe-area-inset-top)); }
   .composer { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
@@ -949,45 +951,23 @@ class Widget {
     }
   }
 
-  private viewportListener?: () => void;
   /** The page's own styles and scroll position while the fullscreen chat locks it. */
   private pageLock: { html: string; body: string; y: number } | null = null;
 
   /**
-   * On a phone the chat is fullscreen: the page behind it can't scroll, and the panel tracks the
-   * visible area so the on-screen keyboard never covers the message box.
+   * On a phone the chat is fullscreen and the page behind it can't scroll. The panel doesn't follow the
+   * keyboard: resizing it as the keyboard slid in made it flash, so the browser slides it up instead.
    */
   private fitToScreen(on: boolean) {
     const phone = window.matchMedia?.("(max-width: 640px)").matches;
-    const vv = window.visualViewport;
-    const host = this.root.host as HTMLElement;
     if (on && phone) {
       if (!this.pageLock) {
-        // overflow: hidden alone doesn't stop iOS Safari scrolling the page to show the focused box,
-        // which made the chat jump while typing. Pinning the body does.
+        // The page behind stays where it was, so closing the chat returns to the same spot.
         const html = document.documentElement;
         const body = document.body;
         this.pageLock = { html: html.style.cssText, body: body.style.cssText, y: window.scrollY };
         html.style.overflow = "hidden";
         Object.assign(body.style, { position: "fixed", top: `-${this.pageLock.y}px`, left: "0", right: "0", width: "100%", overflow: "hidden" });
-      }
-      if (vv && !this.viewportListener) {
-        let frame = 0;
-        let height = 0;
-        const update = () => {
-          frame = 0;
-          host.style.setProperty("--wk-vh", `${vv.height}px`);
-          host.style.setProperty("--wk-vtop", `${vv.offsetTop}px`);
-          // Keep the latest message in view when the keyboard opens or closes, not on every scroll.
-          if (Math.abs(vv.height - height) > 1) this.scrollDown();
-          height = vv.height;
-        };
-        this.viewportListener = () => {
-          if (!frame) frame = requestAnimationFrame(update);
-        };
-        update();
-        vv.addEventListener("resize", this.viewportListener);
-        vv.addEventListener("scroll", this.viewportListener);
       }
       return;
     }
@@ -997,13 +977,6 @@ class Widget {
       document.documentElement.style.cssText = html;
       document.body.style.cssText = body;
       window.scrollTo({ top: y, behavior: "instant" as ScrollBehavior });
-    }
-    if (vv && this.viewportListener) {
-      vv.removeEventListener("resize", this.viewportListener);
-      vv.removeEventListener("scroll", this.viewportListener);
-      this.viewportListener = undefined;
-      host.style.removeProperty("--wk-vh");
-      host.style.removeProperty("--wk-vtop");
     }
   }
 
