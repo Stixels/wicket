@@ -1,7 +1,9 @@
 # Model test set for `npm run eval`. Approved by Matthew on 2026-10-14.
 # Written from the Escape Director docs, not from real chats; swap in real questions when there are some.
 #
-# kind decides how a reply is scored (see src/eval/grade.ts):
+# kind decides how a reply is scored (see src/eval/grade.ts). Every case runs as a signed-in
+# person with the assistant able to log tickets, like the app; the route cases at the end say more.
+#
 #   answer    links one of `links` and doesn't hand off
 #   handoff   hands off to the team
 #   decline   no handoff, no code block, short reply
@@ -9,6 +11,7 @@
 #   idea      no handoff, and the reply mentions one of `mentions`
 #   code      no code block, says it can't write code, links one of `links`
 #   hardware  mentions the managed boards and MQTT or HTTP devices, links one of `links`
+#   route     files, adds to, or leaves alone the right ticket (see below)
 
 cases:
   - { id: 1, kind: answer, question: "How do I add a timer to the screen players see?", links: [build-your-rooms/configure-live-view] }
@@ -39,3 +42,71 @@ cases:
   # A real chat from 2026-10-13: the answer made the two bundled boards sound like the only option.
   - { id: 26, kind: hardware, question: "Hello there! What can you tell me about the Escape Director SDK?", links: [connect-existing-devices, BOARD_PORTING, common-questions] }
   - { id: 27, kind: hardware, question: "Do I have to use Arduino boards for my props?", links: [connect-existing-devices, BOARD_PORTING, common-questions, build-your-own-controller] }
+
+  # Routing: did the report land in the right place? Each run starts from the backlog below in a
+  # fake tracker, so nothing is filed for real. `then` is what the person says next, after each reply.
+  #   route: add    adds the report to `key` and files nothing new
+  #   route: file   files exactly one new ticket, of one of `ticketKinds`, mentioning one of `mentions`
+  #   route: none   logs nothing
+  # Every route case also fails if a reply shows the person a ticket key.
+
+  # Same problem as a ticket in the backlog, in the person's own words.
+  - id: 28
+    kind: route
+    question: "When I pause a game and resume it, the countdown ends up a minute or two behind where it should be"
+    then: ["Every game, in any room. I pause from the control panel and resume a few minutes later."]
+    route: add
+    key: ED-101
+  - id: 29
+    kind: route
+    question: "Clues I send aren't showing up on the TV in the room tonight"
+    then: ["I already tried the troubleshooting steps and restarted the TV app. Still nothing, every clue since we opened."]
+    route: add
+    key: ED-102
+  - { id: 30, kind: route, question: "The puzzle list jumps back to the top every time I save a puzzle. Happens every time, in Chrome, in a room with about 40 puzzles.", route: add, key: ED-103 }
+  - { id: 31, kind: route, question: "After I corrected the timer mid-game, the leaderboard saved the wrong escape time for that team", route: add, key: ED-108 }
+  # Two ideas in the backlog sound alike (voice recordings and text-to-speech); each belongs on its own.
+  - { id: 32, kind: route, question: "Could game masters record a clue with their own voice and play it in the room?", route: add, key: ED-104 }
+  - { id: 33, kind: route, question: "It'd be nice if the clues I type were read out loud automatically by a computer voice", route: add, key: ED-109 }
+
+  # Nothing in the backlog matches, even where some words overlap.
+  - id: 34
+    kind: route
+    question: "The timer on the player screen freezes when the room station drops wifi for a second, and doesn't come back until I refresh"
+    then: ["Every time the wifi blips. It's the room station in our Pharaoh room."]
+    route: file
+    ticketKinds: [bug]
+    mentions: [wifi, wi-fi, connection, network]
+  - id: 35
+    kind: route
+    question: "Uploading a video to room media gets stuck at 99% and never finishes"
+    then: ["Every time. It's an mp4, about 200 MB, Chrome on a Mac."]
+    route: file
+    ticketKinds: [bug]
+    mentions: ["99"]
+  - { id: 36, kind: route, question: "We'd love a way for players to rate the room on the player screen when the game ends", route: file, ticketKinds: [feature, improvement], mentions: [rate, rating] }
+  - { id: 37, kind: route, question: "Your automations docs say there's a 'Game ended' trigger, but there's no trigger called that in the app. The docs seem out of date.", route: file, ticketKinds: [docs], mentions: [trigger] }
+  # Said twice in one chat: logged once.
+  - id: 38
+    kind: route
+    question: "My game master notes disappear when I switch to another room and back"
+    then: ["Every time, on the control panel in Chrome.", "It just happened again, same thing."]
+    route: file
+    ticketKinds: [bug]
+    mentions: [note]
+
+  # A how-to question the docs answer: nothing to log.
+  - { id: 39, kind: route, question: "How do I add a clue to a puzzle?", route: none }
+
+# Open tickets the fake tracker starts with for every case.
+backlog:
+  - { key: ED-101, kind: bug, title: "Room timer drifts behind after pausing and resuming a game" }
+  - { key: ED-102, kind: bug, title: "Clues sent from the control panel don't appear on the room TV" }
+  - { key: ED-103, kind: bug, title: "Puzzle list scrolls back to the top after saving a puzzle" }
+  - { key: ED-104, kind: feature, title: "Send clues as voice recordings from the game master" }
+  - { key: ED-105, kind: feature, title: "Weekly email with room statistics" }
+  - { key: ED-106, kind: improvement, title: "Reorder puzzles by drag and drop" }
+  - { key: ED-107, kind: docs, title: "Docs don't explain how to reset a Room Connector" }
+  - { key: ED-108, kind: bug, title: "Leaderboard records the wrong escape time after a timer correction" }
+  - { key: ED-109, kind: feature, title: "Read typed clues aloud with text-to-speech" }
+  - { key: ED-110, kind: bug, title: "Player screen timer shows the wrong time zone" }

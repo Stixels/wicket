@@ -270,6 +270,9 @@ npm run dev            # open http://localhost:4318 for a test page with the wid
 ```bash
 npm run eval -- --models claude-haiku-5-5,openai/gpt-6-luna   # 2 runs per case by default
 npm run eval -- --only 24,25 --reps 1
+npm run eval -- --only 28,29,30,31,32,33,34,35,36,37,38,39   # just the routing cases
 ```
+
+Each case runs as a chat with a signed-in person, through the same conversation code as the server, with a fake tracker that starts from the file's `backlog` of open tickets. Routing cases (`kind: route`) check what landed in it: a repeat report added to the right existing ticket, a new bug, idea or docs gap filed once with the right kind, or nothing logged for a how-to question. No real ticket is ever created.
 
 Full replies are saved to `evals/results/` (not committed). A run of every case twice on two models costs well under a dollar.
