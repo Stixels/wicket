@@ -64,7 +64,12 @@ cases:
     route: add
     key: ED-102
   - { id: 30, kind: route, question: "The puzzle list jumps back to the top every time I save a puzzle. Happens every time, in Chrome, in a room with about 40 puzzles.", route: add, key: ED-103 }
-  - { id: 31, kind: route, question: "After I corrected the timer mid-game, the leaderboard saved the wrong escape time for that team", route: add, key: ED-108 }
+  - id: 31
+    kind: route
+    question: "After I corrected the timer mid-game, the leaderboard saved the wrong escape time for that team"
+    then: ["It showed 52:10 but they escaped at 48:30. It's happened twice now, both times after I added minutes mid-game."]
+    route: add
+    key: ED-108
   # Two ideas in the backlog sound alike (voice recordings and text-to-speech); each belongs on its own.
   - { id: 32, kind: route, question: "Could game masters record a clue with their own voice and play it in the room?", route: add, key: ED-104 }
   - { id: 33, kind: route, question: "It'd be nice if the clues I type were read out loud automatically by a computer voice", route: add, key: ED-109 }
