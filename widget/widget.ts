@@ -214,6 +214,15 @@ const ACCEPT = "image/png,image/jpeg,image/gif,image/webp,application/pdf,text/p
 
 const scriptEl = document.currentScript as HTMLScriptElement | null;
 const scriptSrc = scriptEl?.src;
+// The server writes its configured theme over this placeholder when it serves widget.js, so the
+// first paint already has the host's colors instead of flashing the default before /api/session answers.
+const SERVER_THEME = ((raw: string): Theme | undefined => {
+  try {
+    return JSON.parse(raw) as Theme;
+  } catch {
+    return undefined;
+  }
+})("__WICKET_SERVER_THEME__");
 
 // Keep the last errors the user ran into; they're attached to new conversations.
 const recentErrors: string[] = [];
@@ -766,7 +775,7 @@ class Widget {
     this.opts = { ...DEFAULTS, ...defined(options), apiUrl };
     this.givenTheme = defined(options.theme ?? {});
     if (options.accentColor && !this.givenTheme.accentColor) this.givenTheme.accentColor = options.accentColor;
-    this.theme = { mode: "auto", position: "right", ...this.givenTheme };
+    this.theme = this.withServerTheme(SERVER_THEME);
 
     const host = document.createElement("div");
     host.setAttribute("data-wicket", "");
@@ -1026,13 +1035,7 @@ class Widget {
     this.wrap.classList.toggle("team-only", !s.ai);
     if (s.theme) {
       // The server's theme fills in what init() didn't set; cssVars merge so both can add variables.
-      this.theme = {
-        mode: "auto",
-        position: "right",
-        ...defined(s.theme),
-        ...this.givenTheme,
-        cssVars: { ...(s.theme.cssVars ?? {}), ...(this.givenTheme.cssVars ?? {}) },
-      };
+      this.theme = this.withServerTheme(s.theme);
       this.applyTheme();
     }
     this.updateHeader();
@@ -1084,6 +1087,16 @@ class Widget {
       localStorage.setItem(`${this.storageKey()}:email:${this.conv.id}`, "1");
     } catch {}
     this.updateEmailAsk();
+  }
+
+  private withServerTheme(server: Theme | undefined): Theme {
+    return {
+      mode: "auto",
+      position: "right",
+      ...defined(server ?? {}),
+      ...this.givenTheme,
+      cssVars: { ...(server?.cssVars ?? {}), ...(this.givenTheme.cssVars ?? {}) },
+    };
   }
 
   setTheme(theme: Theme) {
