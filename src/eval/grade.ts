@@ -1,21 +1,34 @@
 import { z } from "zod";
+import type { TrackerLog } from "./tracker.js";
 
 export const caseSchema = z
   .object({
     id: z.number(),
-    kind: z.enum(["answer", "handoff", "decline", "bug", "idea", "code", "hardware"]),
+    kind: z.enum(["answer", "handoff", "decline", "bug", "idea", "code", "hardware", "route"]),
     question: z.string(),
+    /** What the person says next, one message per entry, each after the assistant's reply. */
+    then: z.array(z.string()).default([]),
     /** Fragments of a link the reply should contain, any one of them. */
     links: z.array(z.string()).default([]),
-    /** Words the reply should contain, any one of them. */
+    /** Words the reply should contain, any one of them. For route: file, words the new ticket should contain. */
     mentions: z.array(z.string()).default([]),
+    /** route: what should happen in the tracker. */
+    route: z.enum(["file", "add", "none"]).optional(),
+    /** route add: the backlog ticket the report belongs on. */
+    key: z.string().optional(),
+    /** route file: the kinds the new ticket may have, any one of them. */
+    ticketKinds: z.array(z.enum(["bug", "feature", "improvement", "docs"])).default([]),
   })
-  .strict();
+  .strict()
+  .refine((c) => c.kind !== "route" || c.route, { message: "a route case needs `route`" })
+  .refine((c) => c.route !== "add" || c.key, { message: "a route: add case needs `key`" });
 export type EvalCase = z.infer<typeof caseSchema>;
 
 export interface Outcome {
   reply: string;
   handedOff: boolean;
+  /** What the assistant filed and added to, when the case ran with a tracker. */
+  tickets?: TrackerLog;
 }
 
 export interface Grade {
@@ -32,6 +45,8 @@ const ASKS_APP_CONTEXT = /\b(which|what) (page|screen|version|browser)\b|\bapp v
 // An idea is taken here, never redirected to another channel.
 const SENDS_ELSEWHERE = /\b(feedback (channel|form|portal)|send it (through|to)|reach out to|contact (the )?(team|support)|don't have a way to (log|record|file))\b/i;
 const MANAGED_BOARDS = /\b(UNO R4|GIGA)\b/i;
+// Ticket keys and the tracker stay out of what the person reads.
+const TICKET_KEY = /\b[A-Z]{2,}-\d+\b/;
 const OTHER_DEVICES = /\b(MQTT|HTTP|other boards?|board adapter|any (?:device|board))\b/i;
 
 /** Scores one reply by its case's kind. No model is involved, so a run is cheap and repeatable. */
@@ -77,6 +92,21 @@ export function grade(c: EvalCase, o: Outcome): Grade {
       check(OTHER_DEVICES.test(o.reply), "didn't say other boards or MQTT/HTTP devices work");
       check(linksOne(c.links), `no link to ${c.links.join(" or ")}`);
       break;
+    case "route": {
+      const { filed, added } = o.tickets ?? { filed: [], added: [] };
+      const did = [...filed.map((f) => `filed ${f.kind} "${f.title}"`), ...added.map((k) => `added to ${k}`)].join(", ") || "logged nothing";
+      if (c.route === "none") check(!filed.length && !added.length, `should log nothing, but ${did}`);
+      if (c.route === "add") check(!filed.length && added.length === 1 && added[0] === c.key, `should add to ${c.key}, but ${did}`);
+      if (c.route === "file") {
+        check(filed.length === 1 && !added.length, `should file one new ticket, but ${did}`);
+        const f = filed[0];
+        if (f && filed.length === 1 && c.ticketKinds.length) check(c.ticketKinds.includes(f.kind as never), `filed as ${f.kind}, expected ${c.ticketKinds.join(" or ")}`);
+        const body = f ? `${f.title}\n${f.description}`.toLowerCase() : "";
+        if (f && c.mentions.length) check(c.mentions.some((m) => body.includes(m.toLowerCase())), `ticket doesn't mention ${c.mentions.join(" or ")}`);
+      }
+      check(!TICKET_KEY.test(o.reply), "told the user a ticket key");
+      break;
+    }
   }
   return { pass: why.length === 0, why };
 }
@@ -87,3 +117,13 @@ export function linksIn(text: string): string[] {
   const bare = [...text.matchAll(/(?<!\()https?:\/\/[^\s)\]>]+/g)].map((m) => m[0].replace(/[.,;:!?]+$/, ""));
   return [...new Set([...md, ...bare])];
 }
+
+/** An open ticket the fake tracker starts with, for route cases to find. */
+export const backlogSchema = z
+  .object({
+    key: z.string(),
+    title: z.string(),
+    kind: z.enum(["bug", "feature", "improvement", "docs"]),
+    description: z.string().optional(),
+  })
+  .strict();

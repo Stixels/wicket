@@ -1,4 +1,7 @@
 // Runs the model test set in evals/cases.yaml against one or more models and scores each reply.
+// Each case is a chat with a signed-in person, run through the same conversation code as the
+// server, with a fake tracker that starts from the file's `backlog`. So route cases can check
+// what the assistant filed or added to, and no real ticket is ever created.
 //
 //   npm run eval                                  every case, twice, on AGENT_MODEL
 //   npm run eval -- --models claude-haiku-5-5,openai/gpt-6-luna
@@ -15,12 +18,13 @@ import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { parse } from "yaml";
 import { z } from "zod";
-import { Agent } from "../src/agent/agent.js";
 import { loadConfig } from "../src/config.js";
 import { openDb } from "../src/db/index.js";
-import { caseSchema, grade, type EvalCase } from "../src/eval/grade.js";
+import { backlogSchema, caseSchema, type EvalCase } from "../src/eval/grade.js";
+import { runCase } from "../src/eval/run.js";
+import type { TrackerLog } from "../src/eval/tracker.js";
 import { gatewayModelId } from "../src/gateway.js";
-import { readDoc, reindex, searchDocs } from "../src/knowledge/index.js";
+import { reindex } from "../src/knowledge/index.js";
 import { knowledgeSources } from "../src/knowledge/sources.js";
 import { loadSettings, resolveProfile } from "../src/settings.js";
 import { costMicros } from "../src/usage.js";
@@ -45,15 +49,16 @@ const client = gateway
 if (!client) throw new Error("Set AI_GATEWAY_API_KEY or ANTHROPIC_API_KEY to run the eval");
 
 const only = args.only ? new Set(args.only.split(",").map(Number)) : null;
-const cases = z
-  .object({ cases: z.array(caseSchema) })
-  .parse(parse(readFileSync(args.cases, "utf8")))
-  .cases.filter((c) => !only || only.has(c.id));
+const file = z
+  .object({ backlog: z.array(backlogSchema).default([]), cases: z.array(caseSchema) })
+  .parse(parse(readFileSync(args.cases, "utf8")));
+const cases = file.cases.filter((c) => !only || only.has(c.id));
 const models = (args.models ?? config.AGENT_MODEL).split(",").map((m) => m.trim()).filter(Boolean);
 const reps = Number(args.reps);
 
-// A signed-in user on an ordinary page: the profile most people get.
+// A signed-in user on an ordinary page: the profile most people get. No app tools: the eval has no user token.
 const profile = resolveProfile(settings, { signedIn: true, plan: null, path: "/app" });
+if (!profile.tickets) throw new Error(`The "${profile.name}" profile has tickets off, so route cases can't run`);
 
 const dir = mkdtempSync(join(tmpdir(), "wicket-eval-"));
 const db = openDb(join(dir, "eval.db"));
@@ -72,52 +77,34 @@ interface Run {
   toolCalls: number;
   costMicros: number;
   ms: number;
+  /** What the assistant filed and added to in the fake tracker. */
+  tickets?: TrackerLog;
   error?: string;
 }
 
 const runs: Run[] = [];
 for (const model of models) {
-  const agent = new Agent(client, {
+  const agent = {
     model: gateway ? gatewayModelId(model) : model,
-    effort: profile.effort ?? config.AGENT_EFFORT,
+    effort: config.AGENT_EFFORT,
     maxSteps: config.AGENT_MAX_STEPS,
     productName: config.PRODUCT_NAME,
     productDescription: config.PRODUCT_DESCRIPTION,
     instructions: settings.assistant.instructions,
     code: settings.assistant.code,
-  });
+  };
   for (const c of cases) {
     for (let rep = 1; rep <= reps; rep++) {
       const started = Date.now();
-      let handedOff = false;
       const run: Run = { model, case: c.id, kind: c.kind, rep, pass: false, why: [], reply: "", handedOff: false, toolCalls: 0, costMicros: 0, ms: 0 };
       try {
-        const result = await agent.respond(
-          [
-            {
-              role: "user",
-              content: [
-                { type: "text", text: `<app_context>\n${JSON.stringify({ page: "/app" }, null, 2)}\n</app_context>` },
-                { type: "text", text: c.question },
-              ],
-            },
-          ],
-          {
-            searchDocs: (q) => searchDocs(db, q),
-            readDoc: (url) => readDoc(db, url),
-            handoff: async () => void (handedOff = true),
-          },
-          { instructions: profile.instructions, effort: profile.effort, topics: profile.topics, offTopic: profile.offTopic },
-        );
-        handedOff ||= result.handedOff;
-        const g = grade(c, { reply: result.reply, handedOff });
+        const r = await runCase(c, { db, models: client, agent, settings, backlog: file.backlog });
         Object.assign(run, {
-          pass: g.pass,
-          why: g.why,
-          reply: result.reply,
-          handedOff,
-          toolCalls: result.newTurns.flatMap((t) => (Array.isArray(t.content) ? t.content : [])).filter((b) => b.type === "tool_use").length,
-          costMicros: result.usage.reduce((sum, u) => sum + costMicros(u, settings.budgets.prices), 0),
+          pass: r.pass,
+          why: r.why,
+          ...r.outcome,
+          toolCalls: r.toolCalls,
+          costMicros: r.usage.reduce((sum, u) => sum + costMicros(u, settings.budgets.prices), 0),
         });
       } catch (err) {
         run.error = err instanceof Error ? err.message : String(err);
@@ -144,7 +131,10 @@ for (const model of models) {
   );
 }
 
+const kinds = [...new Set(runs.map((r) => r.kind))];
+console.log(`\nby kind: ${kinds.map((k) => `${k} ${runs.filter((r) => r.kind === k && r.pass).length}/${runs.filter((r) => r.kind === k).length}`).join(", ")}`);
+
 mkdirSync("evals/results", { recursive: true });
-const file = join("evals/results", `${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
-writeFileSync(file, JSON.stringify({ models, reps, runs }, null, 2));
-console.log(`\nsaved ${file}`);
+const out = join("evals/results", `${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
+writeFileSync(out, JSON.stringify({ models, reps, runs }, null, 2));
+console.log(`\nsaved ${out}`);
