@@ -31,6 +31,16 @@ export interface CaseRun extends Grade {
 
 let runs = 0;
 
+/** What the widget attaches to a chat in the app (see collectContext in widget/widget.ts), plus the version ED sends. */
+export const APP_CONTEXT = {
+  page: "https://app.escapedirector.com/app",
+  title: "Escape Director",
+  userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
+  viewport: "1440x900",
+  language: "en-US",
+  appVersion: "2.14.0",
+};
+
 /**
  * Runs one case as a chat with a signed-in person on an ordinary page, through the same
  * conversation code the server uses, with a fake tracker that starts from `backlog`.
@@ -53,7 +63,7 @@ export async function runCase(
     log: () => {},
   });
   const who = { id: `eval-${++runs}`, name: "Sam", email: "sam@example.com", plan: null, account: null, budget: null, env: null };
-  const { id } = service.create({}, { page: "/app" }, { identity: who });
+  const { id } = service.create({}, APP_CONTEXT, { identity: who });
   for (const message of [c.question, ...c.then]) {
     await service.postUserMessage(id, message);
     await service.idle(id);
