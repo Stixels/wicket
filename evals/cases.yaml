@@ -19,7 +19,8 @@ cases:
   - { id: 3, kind: answer, question: "how do i add a clue to a puzzle", links: [build-your-rooms/add-puzzles-and-clues] }
   - { id: 4, kind: answer, question: "What's the storage limit for room media?", links: [build-your-rooms/manage-room-media] }
   - { id: 5, kind: answer, question: "I want the lights to turn off automatically when the game ends", links: [build-your-rooms/configure-room-automations] }
-  - { id: 6, kind: answer, question: "How do I pair a new controller with Room Connector?", links: [build-your-rooms/connect-room-devices] }
+  # Most props run the SDK, so either pairing guide is a fair answer.
+  - { id: 6, kind: answer, question: "How do I pair a new controller with Room Connector?", links: [build-your-rooms/connect-room-devices, build-your-rooms/build-your-own-controller] }
   - { id: 7, kind: answer, question: "We already have MQTT props. Can Escape Director use them without new hardware?", links: [build-your-rooms/connect-existing-devices] }
   - { id: 8, kind: answer, question: "How do I add a new game master to our account?", links: [prepare-for-a-shift/manage-game-masters] }
   - { id: 9, kind: answer, question: "Does the room station work if the internet goes down?", links: [prepare-for-a-shift/prepare-your-room-station] }
