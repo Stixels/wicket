@@ -92,7 +92,9 @@ export function createServer(service: ConversationService, opts: ServerOptions) 
     if (!fs.existsSync(widgetPath)) return c.text("widget not built; run npm run build:widget", 404);
     c.header("Content-Type", "application/javascript; charset=utf-8");
     c.header("Cache-Control", "public, max-age=300");
-    return c.body(fs.readFileSync(widgetPath, "utf8"));
+    // Bake the configured theme into the script so the widget opens in the right colors.
+    const theme = JSON.stringify(JSON.stringify(service.settings.theme ?? null)).slice(1, -1);
+    return c.body(fs.readFileSync(widgetPath, "utf8").replace("__WICKET_SERVER_THEME__", () => theme));
   });
 
   if (opts.site) {
