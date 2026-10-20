@@ -1158,7 +1158,7 @@ class Widget {
             <textarea rows="1" placeholder="${escapeAttr(o.placeholder!)}" aria-label="Message"></textarea>
             <button class="send" type="submit" aria-label="Send" disabled>${ICONS.send}</button>
           </form>
-          ${o.showBranding ? `<div class="brand">Powered by <a href="https://github.com/Stixels/wicket" target="_blank" rel="noopener">Wicket</a></div>` : ""}
+          ${o.showBranding ? `<div class="brand">Powered by <a href="${escapeHtml(o.apiUrl)}/" target="_blank" rel="noopener">Wicket</a></div>` : ""}
         </div>
       </section>
       <button class="launcher${o.launcherLabel ? "" : " icon-only"}" aria-label="${escapeAttr(o.title!)}">

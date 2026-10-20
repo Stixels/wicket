@@ -107,7 +107,7 @@ Profiles with app tools get more steps per answer (`AGENT_MAX_STEPS_WITH_APP_TOO
 | `logoUrl` | animated bot | Square image for the header and the assistant's avatar. Without one, the assistant is a small animated orb in your brand color that blinks, looks around and shows bouncing dots while it thinks. |
 | `launcherLabel` | none | Text next to the launcher icon, e.g. "Help". |
 | `hideLauncher` | `false` | Hide the floating button and open the panel from your own button. |
-| `showBranding` | `true` | The small "Powered by" line. |
+| `showBranding` | `true` | The small "Powered by" line. It links to your Wicket server's home page, which is the Wicket marketing page unless `SITE=false`. |
 | `theme.accentColor` | `#4f46e5` | Brand color. Text on it switches between white and dark automatically. |
 | `theme.mode` | `"auto"` | `"light"`, `"dark"`, or follow the visitor's system. |
 | `theme.radius` | `20` | Corner radius in px. |
