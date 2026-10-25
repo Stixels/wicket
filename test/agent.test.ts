@@ -76,7 +76,7 @@ describe("provider options", () => {
     await new Agent(client, opts).respond(ask, tools, { model: profile.model, effort: profile.effort, providerOptions: profile.providerOptions });
 
     expect(client.requests[0]!.model).toBe("openai/gpt-6-luna");
-    expect(client.requests[0]!.providerOptions).toEqual({ gateway: { only: ["openai"] }, openai: { store: false, reasoningEffort: "medium" } });
+    expect(client.requests[0]!.providerOptions).toEqual({ gateway: { only: ["openai"] }, openai: { store: false, reasoningEffort: "high" } });
   });
 
   it("sends Anthropic models their effort, and the server-side fallback when it's on", async () => {

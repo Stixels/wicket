@@ -356,14 +356,20 @@ export class Agent {
 
 /** Takes the <ask_next> block off the end of a reply. Up to three questions, each kept short. */
 export function splitFollowUps(reply: string): { text: string; followUps: string[] } {
-  const match = reply.match(/<ask_next>([\s\S]*?)(?:<\/ask_next>|$)/i);
-  if (!match) return { text: reply.trim(), followUps: [] };
-  const followUps = match[1]!
-    .split("\n")
-    .map((l) => l.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "").trim())
-    .filter((l) => l.length > 0 && l.length <= 120)
-    .slice(0, 3);
-  return { text: (reply.slice(0, match.index) + reply.slice(match.index! + match[0].length)).trim(), followUps };
+  // The model sometimes writes more than one block; none of them may reach the reader.
+  const blocks = [...reply.matchAll(/<ask_next>([\s\S]*?)(?:<\/ask_next>|$)/gi)];
+  if (!blocks.length) return { text: reply.trim(), followUps: [] };
+  const followUps = [
+    ...new Set(
+      blocks.flatMap((m) =>
+        m[1]!
+          .split("\n")
+          .map((l) => l.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "").trim())
+          .filter((l) => l.length > 0 && l.length <= 120),
+      ),
+    ),
+  ].slice(0, 3);
+  return { text: reply.replace(/<ask_next>[\s\S]*?(?:<\/ask_next>|$)/gi, "").trim(), followUps };
 }
 
 /** Answers a single public question (e.g. a community forum post) with no stored history. */
@@ -414,8 +420,8 @@ export function requestOptions(
 }
 
 /**
- * The SDK's usage in the ledger's terms; uncached input excludes cache reads and writes. The token
- * estimate missed about 40% of what the Gateway billed for GPT-6 Luna, so the Gateway's own cost wins.
+ * The SDK's usage in the ledger's terms; uncached input excludes cache reads and writes. The Gateway's
+ * own cost wins over the price table, which can drift from what is actually billed.
  */
 export function tokenUsage(model: string, u: LanguageModelUsage, metadata?: Record<string, Record<string, unknown>>): TokenUsage {
   const cacheRead = u.inputTokenDetails?.cacheReadTokens ?? 0;
