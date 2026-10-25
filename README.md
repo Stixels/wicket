@@ -3,7 +3,7 @@
 A drop-in help and feedback chat for any web app, plus a Discord community and support inbox behind it. Users write one message. An assistant answers from your docs, and every conversation shows up in your team's Discord, where a reply goes straight back to the user in the app.
 
 - **One script tag** adds a chat button to your app. It captures the page, app version and recent console errors, so reports arrive with context.
-- **Answers from your docs.** It indexes any GitHub repo of Markdown (GitBook Git Sync, Docusaurus, Mintlify, ...), or any hosted docs site by its sitemap, and links the exact section.
+- **Answers from your docs.** It indexes any GitHub repo of Markdown or MDX (GitBook Git Sync, Docusaurus, Mintlify, ...), or any hosted docs site by its sitemap, and links the exact section.
 - **Discord as the inbox and community.** Each in-app conversation becomes a private forum post that your team answers from Discord. The same assistant can also answer new questions in your public `#help` forum.
 - **Hands off to a person** when the user asks, is frustrated, or the docs don't cover it, and pings a role you choose.
 - **Cheap to run.** One Node process with SQLite. The assistant runs through the Vercel AI Gateway or Anthropic directly, and it's optional: without a key, every chat goes straight to the team.

@@ -37,7 +37,7 @@ team:
 # Other repos or sites to search besides the main docs (DOCS_GITHUB_REPO or DOCS_URL), such as an SDK.
 # knowledge:
 #   - github: acme/acme-sdk
-#     include: ["*.md", "examples/**"]   # globs; markdown only when left out. Code files are read whole.
+#     include: ["*.md", "examples/**"]   # globs; Markdown and MDX only when left out. Code files are read whole.
 #     exclude: [CHANGELOG.md]
 #     baseUrl: https://sdk.acme.com      # optional; links go to GitHub otherwise
 #   - url: https://help.acme.com          # a hosted site, read from its sitemap or by following links

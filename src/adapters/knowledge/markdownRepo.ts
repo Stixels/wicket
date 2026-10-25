@@ -11,9 +11,9 @@ export interface MarkdownRepoOptions {
   repo: string; // "owner/repo"
   ref?: string;
   token?: string;
-  /** Public docs site. Paths map to `${baseUrl}/${path without .md}` (README -> folder). */
+  /** Public docs site. Paths map to `${baseUrl}/${path without .md or .mdx}` (README or index -> folder). */
   baseUrl?: string;
-  /** Files to index, as globs ("**\/*.md", "examples/**\/*.ino"). Markdown only when left out. */
+  /** Files to index, as globs ("**\/*.md", "examples/**\/*.ino"). Markdown and MDX only when left out. */
   include?: string[];
   /** Globs to skip, on top of contributor files like AGENTS.md and CONTRIBUTING.md. */
   exclude?: string[];
@@ -40,9 +40,12 @@ export function globToRegex(glob: string): RegExp {
   return new RegExp(`^${re}$`, "i");
 }
 
+const MARKDOWN = /\.(md|mdx|markdown)$/i;
+
 /**
  * Reads every markdown file from a GitHub repo in one tarball request.
- * Works for GitBook Git Sync and most static docs repos.
+ * Works for GitBook Git Sync, Mintlify and most static docs repos. A Mintlify
+ * `.mintignore` keeps repo-only files (contributor notes, decision records) out.
  */
 export class MarkdownRepoSource implements KnowledgeSource {
   name: string;
@@ -62,9 +65,10 @@ export class MarkdownRepoSource implements KnowledgeSource {
     });
     if (!res.ok || !res.body) throw new Error(`Fetching ${repo} failed: ${res.status}`);
 
-    const include = (this.opts.include ?? ["**/*.md"]).map(globToRegex);
+    const include = (this.opts.include ?? ["**/*.md", "**/*.mdx"]).map(globToRegex);
     const exclude = (this.opts.exclude ?? []).map(globToRegex);
-    const wanted = (rel: string) => include.some((r) => r.test(rel)) && !exclude.some((r) => r.test(rel)) && !SKIP.test(rel);
+    const wanted = (rel: string) =>
+      rel === ".mintignore" || (include.some((r) => r.test(rel)) && !exclude.some((r) => r.test(rel)) && !SKIP.test(rel));
     const files: { path: string; text: string }[] = [];
     const parser = new Parser({
       filter: (p: string) => wanted(p.split("/").slice(1).join("/")),
@@ -80,9 +84,11 @@ export class MarkdownRepoSource implements KnowledgeSource {
     });
     await pipeline(Readable.fromWeb(res.body as any), createGunzip(), parser);
 
+    const mintignore = files.find((f) => f.path === ".mintignore");
+    const ignored = mintignore ? ignoreRules(mintignore.text) : [];
     return files
-      .filter((f) => !/(^|\/)SUMMARY\.md$/i.test(f.path))
-      .flatMap((f) => (/\.(md|markdown)$/i.test(f.path) ? splitMarkdown(f.text, this.urlFor(f.path)) : [this.codeSection(f.path, f.text)]));
+      .filter((f) => f !== mintignore && !/(^|\/)SUMMARY\.md$/i.test(f.path) && !ignored.some((r) => r.test(f.path)))
+      .flatMap((f) => (MARKDOWN.test(f.path) ? splitMarkdown(f.text, this.urlFor(f.path)) : [this.codeSection(f.path, f.text)]));
   }
 
   private codeSection(file: string, text: string): DocSection {
@@ -96,17 +102,33 @@ export class MarkdownRepoSource implements KnowledgeSource {
   }
 
   private urlFor(file: string): string {
-    const page = file.replace(/(^|\/)README\.md$/i, "$1").replace(/\.md$/i, "").replace(/\/$/, "");
+    const page = file.replace(/(^|\/)(README|index)\.mdx?$/i, "$1").replace(MARKDOWN, "").replace(/\/$/, "");
     if (this.opts.baseUrl) return `${this.opts.baseUrl.replace(/\/$/, "")}/${page}`.replace(/\/$/, "");
     return this.githubUrl(file);
   }
 }
 
+/** `.mintignore` lines, gitignore style: "docs/" skips a folder, "README.md" a file anywhere. */
+function ignoreRules(text: string): RegExp[] {
+  return text
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith("#") && !l.startsWith("!"))
+    .map((l) => globToRegex(l.endsWith("/") ? `${l}**` : l));
+}
+
 /** Splits a page into sections at ## / ### headings so search returns focused snippets. */
 export function splitMarkdown(markdown: string, url: string): DocSection[] {
-  const text = markdown.replace(/^---\n[\s\S]*?\n---\n/, ""); // front matter
+  const frontMatter = /^---\n([\s\S]*?)\n---\n/.exec(markdown);
+  const text = markdown
+    .slice(frontMatter ? frontMatter[0].length : 0)
+    .replace(/^import\s.+\sfrom\s+["'].*$/gm, "") // MDX imports
+    .replace(/^export\s+(const|let|function|default)\b.*$/gm, "") // MDX exports
+    .replace(/\{\/\*[\s\S]*?\*\/\}/g, ""); // MDX comments
   const lines = text.split("\n");
-  const title = (lines.find((l) => /^#\s/.test(l)) ?? "").replace(/^#\s+/, "").trim() || url;
+  // Mintlify pages carry the title in front matter instead of a # heading.
+  const fmTitle = /^title:\s*["']?(.*?)["']?\s*$/m.exec(frontMatter?.[1] ?? "")?.[1];
+  const title = (lines.find((l) => /^#\s/.test(l)) ?? "").replace(/^#\s+/, "").trim() || fmTitle || url;
 
   const sections: DocSection[] = [];
   let heading = "";
