@@ -285,7 +285,7 @@ export class Agent {
         ...(reasoning ? { reasoning } : {}),
       });
 
-      usage.push(tokenUsage(model, response.usage));
+      usage.push(tokenUsage(model, response.usage, response.providerMetadata));
       const assistant = fromStep(response.content);
       messages.push(assistant);
       newTurns.push(assistant);
@@ -413,10 +413,21 @@ export function requestOptions(
   return { providerOptions, ...(provider === "anthropic" || provider === "openai" ? {} : { reasoning: effort }) };
 }
 
-/** The SDK's usage in the ledger's terms; uncached input excludes cache reads and writes. */
-function tokenUsage(model: string, u: LanguageModelUsage): TokenUsage {
+/**
+ * The SDK's usage in the ledger's terms; uncached input excludes cache reads and writes. The token
+ * estimate missed about 40% of what the Gateway billed for GPT-6 Luna, so the Gateway's own cost wins.
+ */
+export function tokenUsage(model: string, u: LanguageModelUsage, metadata?: Record<string, Record<string, unknown>>): TokenUsage {
   const cacheRead = u.inputTokenDetails?.cacheReadTokens ?? 0;
   const cacheWrite = u.inputTokenDetails?.cacheWriteTokens ?? 0;
   const input = u.inputTokenDetails?.noCacheTokens ?? Math.max(0, (u.inputTokens ?? 0) - cacheRead - cacheWrite);
-  return { model, input, output: u.outputTokens ?? 0, cacheRead, cacheWrite };
+  const billed = Number(metadata?.gateway?.cost);
+  return {
+    model,
+    input,
+    output: u.outputTokens ?? 0,
+    cacheRead,
+    cacheWrite,
+    ...(metadata?.gateway?.cost != null && Number.isFinite(billed) && billed >= 0 ? { billedMicros: Math.ceil(billed * 1_000_000) } : {}),
+  };
 }

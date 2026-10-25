@@ -9,6 +9,8 @@ export interface TokenUsage {
   output: number;
   cacheRead: number;
   cacheWrite: number;
+  /** What the AI Gateway billed for this response, when it says. It beats a price-table estimate. */
+  billedMicros?: number;
 }
 
 /**
@@ -35,6 +37,7 @@ export function priceFor(model: string, overrides: Record<string, Price> = {}): 
 
 /** Cost in millionths of a dollar, rounded up. */
 export function costMicros(u: TokenUsage, overrides: Record<string, Price> = {}): number {
+  if (u.billedMicros !== undefined) return u.billedMicros;
   const p = priceFor(u.model, overrides) ?? UNKNOWN_MODEL_PRICE;
   const dollarsPerMillion =
     u.input * p.input + u.output * p.output + u.cacheRead * (p.cacheRead ?? p.input) + u.cacheWrite * (p.cacheWrite ?? p.input);

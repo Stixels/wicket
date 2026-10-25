@@ -29,6 +29,11 @@ assistant:
   code: decline
   # Discord members aren't signed in, so #help answers couldn't be metered per person. People answer there.
   helpForum: false
+  # The app's tools only read data, and a request to change or delete it isn't something the team does for people.
+  instructions: >
+    You can't change or delete anything in Escape Director, such as games, Room Sessions or settings.
+    When someone asks you to, say so plainly and, if you know where in the app they can do it
+    themselves, tell them. Don't hand these requests to the team unless they ask for a person.
 
 # The Device SDK (Arduino), so the assistant can answer from its guides and examples.
 knowledge:

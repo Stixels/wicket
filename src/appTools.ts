@@ -87,7 +87,10 @@ export async function loadAppTools(
 
 /** Only the evidence the answer cites, when it cites any by id ([E1]); otherwise all of it. */
 export function citedEvidence(reply: string, evidence: Evidence[]): Evidence[] {
-  const cited = new Set([...reply.matchAll(/\[(E\d+)\]/g)].map((m) => m[1]));
+  // Markers can be grouped, as in [E1, E4].
+  const cited = new Set(
+    [...reply.matchAll(/\[E\d+(?:\s*[,\u2013-]\s*E\d+)*\]/g)].flatMap((m) => m[0].match(/E\d+/g) ?? []),
+  );
   if (!cited.size) return evidence;
   const some = evidence.filter((e) => cited.has(e.id));
   return some.length ? some : evidence;
