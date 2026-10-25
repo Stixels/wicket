@@ -17,6 +17,8 @@ describe("evidence markers", () => {
   it("counts every id in a grouped marker as cited", () => {
     const cited = citedEvidence("Most extra time [E1, E3].", [ev("E1"), ev("E2"), ev("E3")]);
     expect(cited.map((e) => e.id)).toEqual(["E1", "E3"]);
+    const ranged = citedEvidence("Across the week [E1–E3].", [ev("E1"), ev("E2"), ev("E3"), ev("E4")]);
+    expect(ranged.map((e) => e.id)).toEqual(["E1", "E2", "E3"]);
   });
 });
 
