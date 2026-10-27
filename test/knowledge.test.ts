@@ -75,6 +75,33 @@ describe("MarkdownRepoSource", () => {
   });
 });
 
+describe("Mintlify repos", () => {
+  it("reads MDX pages, takes titles from front matter, maps index to the folder and honors .mintignore", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fl-"));
+    const root = path.join(dir, "acme-docs-abc123");
+    fs.mkdirSync(path.join(root, "run-a-session"), { recursive: true });
+    fs.mkdirSync(path.join(root, "docs", "adr"), { recursive: true });
+    fs.writeFileSync(path.join(root, "index.mdx"), '---\ntitle: "Welcome"\n---\n\nStart here.\n');
+    fs.writeFileSync(path.join(root, "README.md"), "# Repo notes\nfor contributors");
+    fs.writeFileSync(path.join(root, "docs", "adr", "0001.md"), "# Decision\nnot for users");
+    fs.writeFileSync(path.join(root, ".mintignore"), "# repo files\nREADME.md\ndocs/\n");
+    fs.writeFileSync(
+      path.join(root, "run-a-session", "troubleshoot.mdx"),
+      '---\ntitle: "Troubleshoot"\ndescription: Fix problems.\n---\n\n{/* draft note */}\n\n## Screen is blank\n\n<Warning>\nRefresh the page.\n</Warning>\n\n<Frame caption="The blank screen">\n  <img\n    src="/images/blank.png"\n    alt="Blank"\n  />\n</Frame>\n',
+    );
+    const tarball = path.join(dir, "repo.tgz");
+    await create({ gzip: true, file: tarball, cwd: dir }, ["acme-docs-abc123"]);
+    const fetchImpl = (async () => new Response(Readable.toWeb(fs.createReadStream(tarball)) as any, { status: 200 })) as unknown as typeof fetch;
+
+    const sections = await new MarkdownRepoSource({ repo: "acme/docs", baseUrl: "https://docs.acme.com", fetchImpl }).load();
+
+    expect(sections.map((s) => [s.url, s.title, s.body])).toEqual([
+      ["https://docs.acme.com", "Welcome", "Start here."],
+      ["https://docs.acme.com/run-a-session/troubleshoot#screen-is-blank", "Troubleshoot", "Refresh the page."],
+    ]);
+  });
+});
+
 describe("navigation sections", () => {
   it("drops link-only sections like Next", () => {
     const sections = splitMarkdown("# Page\nReal intro text here.\n\n## Next\n\n[Other page](other.md)\n", "u");
