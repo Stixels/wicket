@@ -29,6 +29,12 @@ assistant:
   code: decline
   # Discord members aren't signed in, so #help answers couldn't be metered per person. People answer there.
   helpForum: false
+  # The app's tools only read data, and the team doesn't change or delete data for people either.
+  instructions: >
+    You can't change or delete anything in Escape Director, such as games, Room Sessions or settings,
+    and neither can the team for them. When someone asks you to, start by saying plainly that you
+    can't, then tell them where in the app they can do it themselves if you know. Don't call
+    handoff_to_human for these requests and don't say the team will reply, unless they ask for a person.
 
 # The Device SDK (Arduino), so the assistant can answer from its guides and examples.
 knowledge:
@@ -64,7 +70,9 @@ profiles:
   # The Analytics page: the model benchmarked for analytics questions (ED-399), and today's five questions.
   analytics:
     model: openai/gpt-6-luna
-    effort: medium
+    # High, not medium: medium misquoted a comparison number in ED-478; high got it right for about
+    # $0.002 more an answer.
+    effort: high
     # As the old Analytics assistant did: OpenAI only, and OpenAI doesn't store the response.
     providerOptions:
       gateway: { only: [openai] }

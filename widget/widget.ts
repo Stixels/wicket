@@ -1,4 +1,5 @@
 import { Halftone } from "./halftone.js";
+import { hideEvidenceMarkers } from "./evidence.js";
 /**
  * Help and feedback widget. Add to any web app:
  *
@@ -2146,7 +2147,7 @@ export function renderMarkdown(text: string, opts: { evidence?: boolean } = {}):
     let prose = parts[i]!;
     if (i > 0) prose = prose.replace(/^\n+/, "");
     if (i + 3 < parts.length) prose = prose.replace(/\n+$/, "");
-    html += opts.evidence ? evidenceRefs(inlineMarkdown(prose)) : inlineMarkdown(prose);
+    html += opts.evidence ? hideEvidenceMarkers(inlineMarkdown(prose)) : inlineMarkdown(prose);
     if (i + 2 < parts.length) {
       const lang = parts[i + 1] ?? "";
       const code = (parts[i + 2] ?? "").replace(/\n$/, "");
@@ -2157,14 +2158,6 @@ export function renderMarkdown(text: string, opts: { evidence?: boolean } = {}):
     }
   }
   return html;
-}
-
-/**
- * The assistant cites [E1] so it only quotes numbers its tools returned, but the markers just repeat the
- * sentence for the reader, so they're left out; "How we got this" lists the basis instead.
- */
-function evidenceRefs(html: string): string {
-  return html.replace(/[^\S\n]*\[E\d{1,3}\](?!\()/g, "");
 }
 
 function evidenceEl(items: Evidence[]): HTMLDetailsElement {
@@ -2262,10 +2255,9 @@ function isBotCheck(err: unknown): boolean {
 /** A message as one short plain line for the preview card. */
 function previewText(m: Message): string {
   if (m.author !== "staff" && m.author !== "agent") return "";
-  const text = (m.body ?? "")
+  const text = hideEvidenceMarkers(m.body ?? "")
     .replace(/```[^\n]*\n?/g, "")
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-    .replace(/[^\S\n]*\[E\d{1,3}\]/g, "")
     .replace(/\*\*|`/g, "")
     .trim();
   if (text) return text;

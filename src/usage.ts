@@ -9,6 +9,8 @@ export interface TokenUsage {
   output: number;
   cacheRead: number;
   cacheWrite: number;
+  /** What the AI Gateway billed for this response, when it says. It beats a price-table estimate. */
+  billedMicros?: number;
 }
 
 /**
@@ -20,7 +22,7 @@ export const DEFAULT_PRICES: Record<string, Price> = {
   "claude-haiku-5-5": { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 },
   "claude-sonnet-5-5": { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
   "claude-opus-5-5": { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 },
-  "gpt-6-luna": { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.1 },
+  "gpt-6-luna": { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 },
 };
 
 /** Used for a model with no known price, so a budget is never silently weaker than it says. */
@@ -35,6 +37,7 @@ export function priceFor(model: string, overrides: Record<string, Price> = {}): 
 
 /** Cost in millionths of a dollar, rounded up. */
 export function costMicros(u: TokenUsage, overrides: Record<string, Price> = {}): number {
+  if (u.billedMicros !== undefined) return u.billedMicros;
   const p = priceFor(u.model, overrides) ?? UNKNOWN_MODEL_PRICE;
   const dollarsPerMillion =
     u.input * p.input + u.output * p.output + u.cacheRead * (p.cacheRead ?? p.input) + u.cacheWrite * (p.cacheWrite ?? p.input);

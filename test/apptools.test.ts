@@ -216,6 +216,7 @@ describe("follow-ups", () => {
   it("takes the block off the reply, even when the model leaves it open", () => {
     expect(splitFollowUps("Done.\n<ask_next>\n1. One?\n2. Two?\n</ask_next>")).toEqual({ text: "Done.", followUps: ["One?", "Two?"] });
     expect(splitFollowUps("Done.\n<ask_next>\n- A?")).toEqual({ text: "Done.", followUps: ["A?"] });
+    expect(splitFollowUps("Done.\n<ask_next>\n- A?\n</ask_next>\n<ask_next>\n- A?\n- B?\n</ask_next>")).toEqual({ text: "Done.", followUps: ["A?", "B?"] });
     expect(splitFollowUps("No block.")).toEqual({ text: "No block.", followUps: [] });
   });
 });
