@@ -4,7 +4,7 @@ import { Announcer, parseRss, type announcementMessage } from "../src/announceme
 
 const FEED = "https://example.com/updates/rss.xml";
 
-const rss = (items: { slug: string; title: string; date: string; summary?: string }[]) => `<?xml version="1.0" encoding="UTF-8"?>
+const rss = (items: { slug: string; title: string; date: string; summary?: string; image?: string }[]) => `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0"><channel><title>Updates</title>
 ${items
   .map(
@@ -14,6 +14,7 @@ ${items
   <guid isPermaLink="true">https://example.com/updates/${i.slug}</guid>
   <pubDate>${new Date(`${i.date}T00:00:00Z`).toUTCString()}</pubDate>
   <description>${i.summary ?? "Summary."}</description>
+  ${i.image ? `<media:content url="${i.image}" medium="image"/>` : ""}
 </item>`,
   )
   .join("\n")}
@@ -34,12 +35,15 @@ function setup(body: { current: string }, fail?: { current: boolean }) {
 
 describe("announcements", () => {
   it("reads titles, links, dates and summaries, decoding entities", () => {
-    const [item] = parseRss(rss([{ slug: "a", title: "Clues &amp; hints", date: "2026-10-20", summary: "Faster &lt;Clues&gt;." }]));
+    const [item] = parseRss(
+      rss([{ slug: "a", title: "Clues &amp; hints", date: "2026-10-20", summary: "Faster &lt;Clues&gt;.", image: "https://example.com/a.webp?w=1&amp;h=2" }]),
+    );
     expect(item).toEqual({
       id: "https://example.com/updates/a",
       title: "Clues & hints",
       link: "https://example.com/updates/a",
       summary: "Faster <Clues>.",
+      image: "https://example.com/a.webp?w=1&h=2",
       publishedAt: new Date("2026-10-20T00:00:00Z"),
     });
   });
@@ -52,7 +56,7 @@ describe("announcements", () => {
     expect(posted).toEqual([]);
 
     body.current = rss([
-      { slug: "new", title: "Assistant", date: "2026-10-20", summary: "Ask a question from any page." },
+      { slug: "new", title: "Assistant", date: "2026-10-20", summary: "Ask a question from any page.", image: "https://example.com/hero.webp" },
       { slug: "old", title: "Old", date: "2026-09-01" },
     ]);
     expect(await announcer.check()).toBe(1);
@@ -61,6 +65,7 @@ describe("announcements", () => {
       url: "https://example.com/updates/new",
       description: "Ask a question from any page.",
       timestamp: "2026-10-20T00:00:00.000Z",
+      image: { url: "https://example.com/hero.webp" },
     });
 
     expect(await announcer.check()).toBe(0);

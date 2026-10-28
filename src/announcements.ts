@@ -14,6 +14,8 @@ export interface FeedItem {
   title: string;
   link: string;
   summary: string;
+  /** The item's lead image (media:content or an image enclosure), when it has one. */
+  image: string | null;
   publishedAt: Date | null;
 }
 
@@ -41,6 +43,16 @@ function tag(xml: string, name: string): string {
   return m ? decode(m[1]) : "";
 }
 
+function imageUrl(xml: string): string | null {
+  for (const [el] of xml.matchAll(/<(?:media:content|media:thumbnail|enclosure)\b[^>]*>/gi)) {
+    const url = el.match(/\burl="([^"]+)"/i)?.[1];
+    const type = el.match(/\btype="([^"]+)"/i)?.[1];
+    const medium = el.match(/\bmedium="([^"]+)"/i)?.[1];
+    if (url && (medium === "image" || type?.startsWith("image/") || /^<media:thumbnail/i.test(el))) return decode(url);
+  }
+  return null;
+}
+
 /** The items of an RSS 2.0 feed, in feed order. Items with no link or guid are skipped. */
 export function parseRss(xml: string): FeedItem[] {
   const items: FeedItem[] = [];
@@ -54,6 +66,7 @@ export function parseRss(xml: string): FeedItem[] {
       title: tag(body, "title") || "Update",
       link,
       summary: tag(body, "description"),
+      image: imageUrl(body),
       publishedAt: Number.isNaN(date.getTime()) ? null : date,
     });
   }
@@ -68,6 +81,7 @@ export function announcementMessage(item: FeedItem, color?: number) {
         title: item.title.slice(0, 256),
         ...(item.link ? { url: item.link } : {}),
         ...(item.summary ? { description: item.summary.slice(0, 4096) } : {}),
+        ...(item.image ? { image: { url: item.image } } : {}),
         ...(item.publishedAt ? { timestamp: item.publishedAt.toISOString() } : {}),
         ...(color !== undefined ? { color } : {}),
       },
