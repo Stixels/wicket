@@ -142,7 +142,7 @@ function Dashboard({ me, onSignOut }: { me: Member; onSignOut: () => void }) {
     };
     const stop = connectLive({
       url: "/admin/api/events",
-      types: ["message", "status", "typing", "presence"],
+      types: ["message", "status", "typing", "presence", "deleted"],
       onEvent: (_type, data) => on(data),
       onStatus: (up, resumed) => {
         setConnected(up);
@@ -387,6 +387,7 @@ function Conversation({
 
   useEffect(() => {
     if (!live || live.conversationId !== id) return;
+    if (live.type === "deleted") return setError("This conversation was deleted because the person deleted their account.");
     if (live.type === "message")
       setMessages((m) => (m.some((x) => x.id === live.message.id) ? m.map((x) => (x.id === live.message.id ? live.message : x)) : [...m, live.message]));
     if (live.type === "status") setConv((c) => (c ? { ...c, status: live.status } : c));

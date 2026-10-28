@@ -7,7 +7,7 @@ import { streamSSE } from "hono/streaming";
 import { bodyLimit } from "hono/body-limit";
 import { z } from "zod";
 import { isNews, type ConversationService, type PublicMessage } from "./conversations.js";
-import { signUserToken, verifyUserToken } from "./identity.js";
+import { signUserToken, verifyEraseToken, verifyUserToken } from "./identity.js";
 import { teamRoutes, type TeamOptions } from "./team/routes.js";
 import type { Db } from "./db/index.js";
 import { INLINE_TYPES, MAX_FILES_PER_CONVERSATION, MAX_FILE_BYTES, allowedType } from "./files.js";
@@ -124,6 +124,15 @@ export function createServer(service: ConversationService, opts: ServerOptions) 
       return c.html(playgroundPage({ title, mode, plan, initUser, base }));
     });
   }
+
+  // The host's backend calls this when someone deletes their account. It is safe to repeat; a
+  // 502 means some team threads couldn't be removed yet and the caller should try again later.
+  app.post("/api/erase", async (c) => {
+    const who = verifyEraseToken(bearer(c), opts.identitySecret);
+    if (!who) return c.json({ error: "Not allowed" }, 401);
+    const result = await service.erase(who);
+    return c.json(result, result.failed ? 502 : 200);
+  });
 
   // What the widget should look like for this person on this page (the profile's public parts).
   app.post("/api/session", async (c) => {

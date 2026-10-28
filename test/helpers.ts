@@ -112,6 +112,13 @@ export class FakeRelay implements Relay {
     if (!thread) throw new ThreadGoneError(threadId);
     thread.posts.push(`${author}: ${body}${files.map((f) => ` [file ${f.name} ${f.data.length}B]`).join("")}`);
   }
+  /** Set to make deleteThread fail, like Discord being down. */
+  failDeletes = false;
+  async deleteThread(threadId: string) {
+    if (this.failDeletes) throw new Error("Discord is down");
+    if (!this.threads.delete(threadId)) throw new ThreadGoneError(threadId);
+    this.events.push(`deleted ${threadId}`);
+  }
   /** Deletes the thread without telling the service, like a missed Discord event. */
   vanish(threadId: string) {
     this.threads.delete(threadId);

@@ -199,6 +199,17 @@ export class DiscordRelay implements Relay {
     await this.setTags(thread, [], [RESOLVED_TAG]);
   }
 
+  async deleteThread(threadId: string): Promise<void> {
+    const ch = await this.client.channels.fetch(threadId).catch((err) => {
+      if (err?.code === 10003) return null; // Unknown Channel: already gone
+      throw err;
+    });
+    if (!ch?.isThread()) return;
+    await ch.delete("The person deleted their account").catch((err) => {
+      if (err?.code !== 10003) throw err;
+    });
+  }
+
   async requestHuman(threadId: string, reason: string): Promise<void> {
     const thread = await this.thread(threadId);
     const mention = this.opts.handoffMention ? `${this.opts.handoffMention} ` : "";

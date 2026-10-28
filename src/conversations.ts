@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { EventEmitter } from "node:events";
-import { asc, desc, eq, sql } from "drizzle-orm";
+import { asc, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { schema, type Db } from "./db/index.js";
 import type { Evidence, TicketCard } from "./db/schema.js";
 import { citedEvidence, loadAppTools, type AppToolsTurn } from "./appTools.js";
@@ -52,7 +52,8 @@ export type TeamEvent =
   | { type: "status"; conversationId: string; status: Status; who?: string | null }
   | { type: "typing"; conversationId: string; memberId: string | null; name: string; source: string }
   | { type: "presence"; conversationId: string; presence: Presence }
-  | { type: "rating"; conversationId: string; messageId: number; rating: "up" | "down" | null };
+  | { type: "rating"; conversationId: string; messageId: number; rating: "up" | "down" | null }
+  | { type: "deleted"; conversationId: string };
 
 /**
  * Whether the user is around: "viewing" has the chat open in a visible tab, "online" has the page
@@ -390,6 +391,53 @@ export class ConversationService {
     const msg = toTeam(row);
     this.events.emit(TEAM_EVENTS, { type: "message", conversationId: id, message: msg } satisfies TeamEvent);
     return msg;
+  }
+
+  /**
+   * Deletes everything a person who deleted their account left here: each conversation they
+   * started or that their account paid for, its messages, files, the assistant's transcript,
+   * ticket links, and the team's thread in the relay. Usage rows stay, since they hold no words
+   * and budgets depend on them. A conversation whose relay thread couldn't be removed is kept,
+   * so calling this again finishes the job.
+   */
+  async erase(who: { userId: string; account: string | null }): Promise<{ deleted: number; failed: number }> {
+    const match = who.account
+      ? or(eq(schema.conversations.userId, who.userId), eq(schema.conversations.payer, `account:${who.account}`))
+      : eq(schema.conversations.userId, who.userId);
+    const rows = this.db.select({ id: schema.conversations.id, relayThreadId: schema.conversations.relayThreadId }).from(schema.conversations).where(match).all();
+    const gone: string[] = [];
+    let failed = 0;
+    for (const c of rows) {
+      // Let an answer being written finish first, so it doesn't land in a deleted conversation.
+      await this.queues.get(c.id);
+      if (c.relayThreadId && this.relay?.deleteThread) {
+        try {
+          await this.relay.deleteThread(c.relayThreadId);
+        } catch (err) {
+          if (!(err instanceof ThreadGoneError)) {
+            failed++;
+            this.log(`couldn't delete the relay thread of ${c.id}`, err);
+            continue;
+          }
+        }
+      }
+      gone.push(c.id);
+    }
+    if (gone.length) {
+      this.files.erase(gone);
+      this.db.transaction((tx) => {
+        tx.delete(schema.messages).where(inArray(schema.messages.conversationId, gone)).run();
+        tx.delete(schema.agentTurns).where(inArray(schema.agentTurns.conversationId, gone)).run();
+        tx.delete(schema.ticketLinks).where(inArray(schema.ticketLinks.conversationId, gone)).run();
+        tx.delete(schema.conversations).where(inArray(schema.conversations.id, gone)).run();
+      });
+      for (const id of gone) {
+        this.userTokens.delete(id);
+        this.sentContext.delete(id);
+        this.events.emit(TEAM_EVENTS, { type: "deleted", conversationId: id } satisfies TeamEvent);
+      }
+    }
+    return { deleted: gone.length, failed };
   }
 
   /** A team-only note from the dashboard. `mentions` are member ids; they get pinged in the relay. */
