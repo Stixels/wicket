@@ -54,6 +54,7 @@ const schema = z.object({
   DISCORD_VOICE_HUB_CHANNEL_ID: z.string().optional(), // "join to create" voice channel
   DISCORD_SUPPORT_VOICE_HUB_CHANNEL_ID: z.string().optional(), // same, private to the caller and the team
   DISCORD_TEAM_ROLE_ID: z.string().optional(), // who sees and is pinged in support calls
+  DISCORD_ANNOUNCEMENTS_CHANNEL_ID: z.string().optional(), // where new feed items are posted (settings announcements.feed)
 
   // Tickets: tag the bot in Discord ("@Wicket file this as a bug") to file one. Set up one tracker.
   LINEAR_API_KEY: z.string().optional(), // personal API key: Linear > Settings > Security & access

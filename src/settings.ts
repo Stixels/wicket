@@ -164,6 +164,15 @@ const settingsSchema = z
       })
       .strict()
       .default({ assistant: true, checkMinutes: 15 }),
+    /** Post each new item of an RSS feed, such as your product's updates, to Discord #announcements. Needs RELAY=discord. */
+    announcements: z
+      .object({
+        feed: z.string().url().optional(),
+        /** How often to check the feed. */
+        checkMinutes: z.number().min(1).default(30),
+      })
+      .strict()
+      .default({ checkMinutes: 30 }),
     /** Extra repos or sites to search. The main docs come from DOCS_GITHUB_REPO or DOCS_URL. */
     knowledge: z.array(knowledgeSchema).default([]),
     profiles: z.record(z.string(), profileSchema).default({}),

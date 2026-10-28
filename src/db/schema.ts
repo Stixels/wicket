@@ -224,3 +224,14 @@ export const ticketLinks = sqliteTable(
   },
   (t) => [uniqueIndex("ticket_links_pair").on(t.ticketId, t.conversationId), index("ticket_links_conversation").on(t.conversationId)],
 );
+
+/** Feed items already posted to Discord #announcements (or skipped on the first check). */
+export const announced = sqliteTable(
+  "announced",
+  {
+    feed: text("feed").notNull(),
+    itemId: text("item_id").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (t) => [uniqueIndex("announced_item").on(t.feed, t.itemId)],
+);

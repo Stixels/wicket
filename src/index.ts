@@ -21,6 +21,8 @@ import { ReplyEmails, ResendMailer } from "./email.js";
 import { priceFor } from "./usage.js";
 import { gatewayModelId } from "./gateway.js";
 import { TicketDesk } from "./tickets.js";
+import { Announcer } from "./announcements.js";
+import { REST, Routes } from "discord.js";
 
 const config = loadConfig();
 const settings = loadSettings(config.WICKET_CONFIG);
@@ -69,6 +71,7 @@ if (config.RELAY === "discord" && config.DISCORD_GUILD_ID) {
   config.DISCORD_VOICE_HUB_CHANNEL_ID ||= setup.voiceHubId;
   config.DISCORD_SUPPORT_VOICE_HUB_CHANNEL_ID ||= setup.supportVoiceHubId;
   config.DISCORD_TEAM_ROLE_ID ||= setup.teamRoleId;
+  config.DISCORD_ANNOUNCEMENTS_CHANNEL_ID ||= setup.announcementsId;
 }
 
 const tracker = config.LINEAR_API_KEY
@@ -171,6 +174,35 @@ if (desk?.canFollow && settings.tickets.checkMinutes > 0) {
   checkTickets();
   setInterval(checkTickets, settings.tickets.checkMinutes * 60_000).unref();
   console.log(`tickets: ${settings.tickets.assistant && agent ? "the assistant logs reports, and " : ""}reporters hear back when tickets are done (checked every ${settings.tickets.checkMinutes} min)`);
+}
+
+// New posts in a feed (the product's updates) go to #announcements, and to servers that follow it.
+if (settings.announcements.feed) {
+  const channelId = config.DISCORD_ANNOUNCEMENTS_CHANNEL_ID;
+  if (config.RELAY !== "discord" || !channelId) {
+    console.log("announcements: needs you: set RELAY=discord with DISCORD_GUILD_ID or DISCORD_ANNOUNCEMENTS_CHANNEL_ID to post the feed");
+  } else {
+    const rest = new REST({ version: "10" }).setToken(config.DISCORD_BOT_TOKEN!);
+    const accent = settings.theme.accentColor?.match(/^#([0-9a-f]{6})$/i)?.[1];
+    const announcer = new Announcer(db, {
+      feedUrl: settings.announcements.feed,
+      color: accent ? parseInt(accent, 16) : undefined,
+      log: (msg) => console.log(msg),
+      post: async (message) => {
+        const sent = (await rest.post(Routes.channelMessages(channelId), { body: message })) as { id: string };
+        // Publishing sends it on to servers that follow the channel. Plain text channels can't publish.
+        await rest.post(Routes.channelMessageCrosspost(channelId, sent.id)).catch((err) => console.warn(`announcements: posted but couldn't publish: ${err.message}`));
+      },
+    });
+    const checkFeed = () =>
+      void announcer.check().then(
+        (n) => n && console.log(`announcements: posted ${n} new ${n === 1 ? "update" : "updates"}`),
+        (err) => console.error("announcements: check failed", err),
+      );
+    checkFeed();
+    setInterval(checkFeed, settings.announcements.checkMinutes * 60_000).unref();
+    console.log(`announcements: posting new items from ${settings.announcements.feed} (checked every ${settings.announcements.checkMinutes} min)`);
+  }
 }
 
 if (relay) {

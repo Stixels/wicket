@@ -36,6 +36,10 @@ assistant:
     can't, then tell them where in the app they can do it themselves if you know. Don't call
     handoff_to_human for these requests and don't say the team will reply, unless they ask for a person.
 
+# New posts on the Updates page go to #announcements.
+announcements:
+  feed: https://www.escapedirector.com/updates/rss.xml
+
 # The Device SDK (Arduino), so the assistant can answer from its guides and examples.
 knowledge:
   - github: directorhq/escape-director-device-sdk

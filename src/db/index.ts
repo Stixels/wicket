@@ -124,6 +124,13 @@ CREATE TABLE IF NOT EXISTS ticket_links (
 CREATE UNIQUE INDEX IF NOT EXISTS ticket_links_pair ON ticket_links(ticket_id, conversation_id);
 CREATE INDEX IF NOT EXISTS ticket_links_conversation ON ticket_links(conversation_id);
 
+CREATE TABLE IF NOT EXISTS announced (
+  feed TEXT NOT NULL,
+  item_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS announced_item ON announced(feed, item_id);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS docs USING fts5(
   title, heading, url UNINDEXED, body,
   tokenize = 'porter unicode61'
