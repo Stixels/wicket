@@ -78,6 +78,17 @@ Optional claims:
 | `budget` | The account's (or person's) monthly AI allowance in dollars. When a profile also has a `budget`, the lower one applies, so your app stays in charge of the amount. |
 | `env` | Which of your environments signed it (`staging`, `production`), when one Wicket serves several. Picks the app-tools URL. |
 
+### Deleting someone's data
+
+When someone deletes their account in your app, your backend signs a token with `scope: "erase"` and posts it to `/api/erase`:
+
+```ts
+const token = jwt.sign({ sub: user.id, account: user.accountId, scope: "erase" }, process.env.WICKET_IDENTITY_SECRET, { expiresIn: "5m" });
+await fetch("https://YOUR-SERVER/api/erase", { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+```
+
+Wicket deletes every conversation the person started, and with `account`, every conversation billed to that account. That covers messages, files, the assistant's transcript and the team's Discord post. What each answer cost stays, without any words, so budgets add up. The answer is `{ deleted, failed }`. A `502` means some Discord posts couldn't be removed yet; those conversations are kept, so call again later until you get a `200`. Calling again is always safe. Only your backend should sign these tokens: an erase token never signs anyone in, and a widget's sign-in token can't erase.
+
 ### App tools
 
 Let the assistant read the signed-in person's own data, such as their results or settings, through tools your backend offers. Wicket calls them with the person's token, so your backend checks who they are on every call and Wicket never sees data they couldn't see in your app.

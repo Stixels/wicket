@@ -74,7 +74,8 @@ export type TeamEvent =
   | { type: "status"; conversationId: string; status: Status; who?: string | null }
   | { type: "typing"; conversationId: string; memberId: string | null; name: string; source: string }
   | { type: "presence"; conversationId: string; presence: Presence }
-  | { type: "rating"; conversationId: string; messageId: number; rating: "up" | "down" | null };
+  | { type: "rating"; conversationId: string; messageId: number; rating: "up" | "down" | null }
+  | { type: "deleted"; conversationId: string };
 
 export class ApiError extends Error {
   constructor(

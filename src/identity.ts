@@ -23,6 +23,33 @@ export const MAX_TOKEN_LIFETIME_MS = 24 * 3_600_000;
 
 /** Returns the identity in the token, or null when it is missing, malformed, expired, has no expiry or is wrongly signed. */
 export function verifyUserToken(token: string | undefined | null, secret: string | undefined, now = Date.now()): Identity | null {
+  const claims = verifiedClaims(token, secret, now);
+  // An erase token says who to delete, not who is signed in.
+  if (!claims || claims.scope === "erase") return null;
+  const id = str(claims.sub) ?? str(claims.userId) ?? str(claims.id);
+  if (!id) return null;
+  const budget = typeof claims.budget === "number" && Number.isFinite(claims.budget) && claims.budget >= 0 ? claims.budget : null;
+  return { id, name: str(claims.name), email: str(claims.email), plan: str(claims.plan), account: str(claims.account), budget, env: str(claims.env) };
+}
+
+/** Whose conversations to delete: everything the user started, and everything billed to the account. */
+export interface Erasure {
+  userId: string;
+  account: string | null;
+}
+
+/**
+ * The host's backend signs `{ sub, account?, scope: "erase" }` with the same secret when a
+ * person deletes their account. The widget never gets one, since only the backend signs them.
+ */
+export function verifyEraseToken(token: string | undefined | null, secret: string | undefined, now = Date.now()): Erasure | null {
+  const claims = verifiedClaims(token, secret, now);
+  if (!claims || claims.scope !== "erase") return null;
+  const userId = str(claims.sub);
+  return userId ? { userId, account: str(claims.account) } : null;
+}
+
+function verifiedClaims(token: string | undefined | null, secret: string | undefined, now: number): Record<string, unknown> | null {
   if (!token || !secret) return null;
   const parts = token.split(".");
   if (parts.length !== 3) return null;
@@ -35,23 +62,19 @@ export function verifyUserToken(token: string | undefined | null, secret: string
   } catch {
     return null;
   }
-  if (head.alg !== "HS256") return null;
+  if (head.alg !== "HS256" || !claims || typeof claims !== "object") return null;
   const expected = crypto.createHmac("sha256", secret).update(`${header}.${payload}`).digest();
   const given = Buffer.from(signature, "base64url");
   if (given.length !== expected.length || !crypto.timingSafeEqual(given, expected)) return null;
   // A token must say when it expires, and not too far out, so a leaked one stops working.
   if (typeof claims.exp !== "number" || claims.exp * 1000 < now || claims.exp * 1000 > now + MAX_TOKEN_LIFETIME_MS) return null;
   if (typeof claims.nbf === "number" && claims.nbf * 1000 > now + 60_000) return null;
-
-  const id = str(claims.sub) ?? str(claims.userId) ?? str(claims.id);
-  if (!id) return null;
-  const budget = typeof claims.budget === "number" && Number.isFinite(claims.budget) && claims.budget >= 0 ? claims.budget : null;
-  return { id, name: str(claims.name), email: str(claims.email), plan: str(claims.plan), account: str(claims.account), budget, env: str(claims.env) };
+  return claims;
 }
 
 /** Signs a user token. The host's backend does this; Wicket uses it for the playground and tests. */
 export function signUserToken(
-  claims: { sub: string; name?: string; email?: string; plan?: string; account?: string; budget?: number; env?: string },
+  claims: { sub: string; name?: string; email?: string; plan?: string; account?: string; budget?: number; env?: string; scope?: "erase" },
   secret: string,
   ttlSeconds = 300,
   now = Date.now(),

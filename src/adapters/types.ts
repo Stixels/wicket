@@ -83,6 +83,8 @@ export interface Relay {
   markResolved?(threadId: string): Promise<void>;
   /** Clears the resolved state when the user writes again. Optional. */
   reopen?(threadId: string): Promise<void>;
+  /** Removes the team-side thread and everything in it, when the person's account is deleted. A thread that is already gone counts as done. */
+  deleteThread?(threadId: string): Promise<void>;
   stop(): Promise<void>;
 }
 

@@ -154,6 +154,14 @@ export class FileStore {
     return rows.length;
   }
 
+  /** Deletes every file of these conversations, bytes and records, for good. */
+  erase(conversationIds: string[]) {
+    if (!conversationIds.length) return;
+    const rows = this.db.select().from(schema.files).where(inArray(schema.files.conversationId, conversationIds)).all();
+    for (const r of rows) fs.rmSync(path.join(this.dir, r.id), { force: true });
+    this.db.delete(schema.files).where(inArray(schema.files.conversationId, conversationIds)).run();
+  }
+
   private drop(rows: (typeof schema.files.$inferSelect)[]) {
     if (!rows.length) return;
     for (const r of rows) fs.rmSync(path.join(this.dir, r.id), { force: true });
