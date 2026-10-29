@@ -136,6 +136,7 @@ function displayName(spec: ChannelSpec) {
 export interface SetupResult {
   supportInboxId: string;
   helpId: string;
+  announcementsId: string;
   voiceHubId: string;
   supportVoiceHubId: string;
   teamRoleId: string;
@@ -340,7 +341,7 @@ export async function setupGuild(token: string, guildId: string, opts: SetupOpti
       manual.push("Server Settings > Enable Community, which turns on the welcome screen and onboarding (the bot sets them up on the next deploy if it has Manage Server)");
     }
 
-    return { supportInboxId: ids["support-inbox"], helpId: ids["help"], voiceHubId: ids[VOICE_HUB_NAME], supportVoiceHubId: ids[SUPPORT_VOICE_HUB_NAME], teamRoleId: team.id, created, manual, hasCommunity };
+    return { supportInboxId: ids["support-inbox"], helpId: ids["help"], announcementsId: ids["announcements"], voiceHubId: ids[VOICE_HUB_NAME], supportVoiceHubId: ids[SUPPORT_VOICE_HUB_NAME], teamRoleId: team.id, created, manual, hasCommunity };
   } finally {
     await client.destroy();
   }
