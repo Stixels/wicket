@@ -94,6 +94,8 @@ export interface AnnouncerOptions {
   /** Sends one message to the channel. Throws when Discord refuses it. */
   post: (message: ReturnType<typeof announcementMessage>) => Promise<void>;
   color?: number;
+  /** Make sure the newest this many items have been posted once, including ones already there when Wicket started following the feed. */
+  latest?: number;
   fetch?: typeof fetch;
   log?: (msg: string, err?: unknown) => void;
 }
@@ -110,38 +112,43 @@ export class Announcer {
     if (!res.ok) throw new Error(`feed answered ${res.status}`);
     const items = parseRss(await res.text());
     const feed = this.o.feedUrl;
-    const seen = new Set(this.db.select({ id: announced.itemId }).from(announced).where(eq(announced.feed, feed)).all().map((r) => r.id));
+    const rows = this.db.select({ id: announced.itemId, postedAt: announced.postedAt }).from(announced).where(eq(announced.feed, feed)).all();
+    const postedAt = new Map(rows.map((r) => [r.id, r.postedAt]));
 
-    const fresh = items.filter((item) => !seen.has(item.id));
-    if (!fresh.length) return 0;
-    if (!seen.size) {
-      this.remember(fresh);
-      this.o.log?.(`announcements: following ${feed}; ${fresh.length} existing ${fresh.length === 1 ? "post" : "posts"} left unannounced`);
-      return 0;
+    // Oldest first, so the channel reads in order.
+    const byDate = [...items].sort((a, b) => (a.publishedAt?.getTime() ?? 0) - (b.publishedAt?.getTime() ?? 0));
+    const fresh = byDate.filter((item) => !postedAt.has(item.id));
+    let toPost: FeedItem[] = [];
+    if (!rows.length) {
+      this.remember(fresh, false);
+      if (fresh.length) this.o.log?.(`announcements: following ${feed}; ${fresh.length} existing ${fresh.length === 1 ? "post" : "posts"} left unannounced`);
+    } else {
+      // Only the newest few if many arrived at once (say after downtime).
+      this.remember(fresh.slice(0, -MAX_POSTS_PER_CHECK), false);
+      toPost = fresh.slice(-MAX_POSTS_PER_CHECK);
     }
 
-    // Oldest first, so the channel reads in order. Only the newest few if many arrived at once.
-    const byDate = [...fresh].sort((a, b) => (a.publishedAt?.getTime() ?? 0) - (b.publishedAt?.getTime() ?? 0));
-    const skipped = byDate.slice(0, -MAX_POSTS_PER_CHECK);
-    if (skipped.length) this.remember(skipped);
+    // The newest `latest` items go out even if they were in the feed before Wicket followed it.
+    const latest = this.o.latest ? byDate.slice(-this.o.latest) : [];
+    const backfill = latest.filter((item) => !postedAt.get(item.id));
+    toPost = byDate.filter((item) => toPost.includes(item) || backfill.includes(item));
+
     let posted = 0;
-    for (const item of byDate.slice(-MAX_POSTS_PER_CHECK)) {
+    for (const item of toPost) {
       await this.o.post(announcementMessage(item, this.o.color));
-      this.remember([item]);
+      this.remember([item], true);
       posted++;
     }
     return posted;
   }
 
-  private remember(items: FeedItem[]) {
+  /** Records items as seen; `posted` marks the ones that went out, so `latest` can tell them apart. */
+  private remember(items: FeedItem[], posted: boolean) {
     const now = new Date();
     for (const item of items) {
-      this.db
-        .insert(announced)
-        .values({ feed: this.o.feedUrl, itemId: item.id, createdAt: now })
-        .onConflictDoNothing()
-        .run();
+      const insert = this.db.insert(announced).values({ feed: this.o.feedUrl, itemId: item.id, createdAt: now, postedAt: posted ? now : null });
+      if (posted) insert.onConflictDoUpdate({ target: [announced.feed, announced.itemId], set: { postedAt: now } }).run();
+      else insert.onConflictDoNothing().run();
     }
   }
-
 }

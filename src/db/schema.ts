@@ -232,6 +232,8 @@ export const announced = sqliteTable(
     feed: text("feed").notNull(),
     itemId: text("item_id").notNull(),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    /** When it went to Discord. Empty for items recorded without posting (already in the feed, or skipped). */
+    postedAt: integer("posted_at", { mode: "timestamp_ms" }),
   },
   (t) => [uniqueIndex("announced_item").on(t.feed, t.itemId)],
 );

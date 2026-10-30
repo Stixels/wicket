@@ -39,6 +39,7 @@ team:
 # announcements:
 #   feed: https://example.com/changelog/rss.xml
 #   checkMinutes: 30
+#   latest: 1   # also post the newest item once, so the channel doesn't start empty
 
 # Other repos or sites to search besides the main docs (DOCS_GITHUB_REPO or DOCS_URL), such as an SDK.
 # knowledge:
