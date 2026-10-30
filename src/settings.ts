@@ -170,9 +170,11 @@ const settingsSchema = z
         feed: z.string().url().optional(),
         /** How often to check the feed. */
         checkMinutes: z.number().min(1).default(30),
+        /** Post the newest this many items once, even ones already in the feed before Wicket followed it. */
+        latest: z.number().int().min(0).default(0),
       })
       .strict()
-      .default({ checkMinutes: 30 }),
+      .default({ checkMinutes: 30, latest: 0 }),
     /** Extra repos or sites to search. The main docs come from DOCS_GITHUB_REPO or DOCS_URL. */
     knowledge: z.array(knowledgeSchema).default([]),
     profiles: z.record(z.string(), profileSchema).default({}),

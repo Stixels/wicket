@@ -186,6 +186,7 @@ if (settings.announcements.feed) {
     const accent = settings.theme.accentColor?.match(/^#([0-9a-f]{6})$/i)?.[1];
     const announcer = new Announcer(db, {
       feedUrl: settings.announcements.feed,
+      latest: settings.announcements.latest,
       color: accent ? parseInt(accent, 16) : undefined,
       log: (msg) => console.log(msg),
       post: async (message) => {

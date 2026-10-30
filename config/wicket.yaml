@@ -39,6 +39,8 @@ assistant:
 # New posts on the Updates page go to #announcements.
 announcements:
   feed: https://www.escapedirector.com/updates/rss.xml
+  # The channel starts with the newest update, not empty.
+  latest: 1
 
 # The Device SDK (Arduino), so the assistant can answer from its guides and examples.
 knowledge:

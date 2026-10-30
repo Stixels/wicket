@@ -127,7 +127,8 @@ CREATE INDEX IF NOT EXISTS ticket_links_conversation ON ticket_links(conversatio
 CREATE TABLE IF NOT EXISTS announced (
   feed TEXT NOT NULL,
   item_id TEXT NOT NULL,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  posted_at INTEGER
 );
 CREATE UNIQUE INDEX IF NOT EXISTS announced_item ON announced(feed, item_id);
 
@@ -160,6 +161,7 @@ export function openDb(file: string): Db {
   addMissingColumns(sqlite, "files", { deleted_at: "INTEGER" });
   addMissingColumns(sqlite, "tickets", { planned_at: "INTEGER" });
   addMissingColumns(sqlite, "ticket_links", { planned_at: "INTEGER" });
+  addMissingColumns(sqlite, "announced", { posted_at: "INTEGER" });
   return drizzle(sqlite, { schema }) as Db;
 }
 

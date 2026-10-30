@@ -20,10 +20,11 @@ ${items
   .join("\n")}
 </channel></rss>`;
 
-function setup(body: { current: string }, fail?: { current: boolean }) {
+function setup(body: { current: string }, fail?: { current: boolean }, latest?: number) {
   const posted: ReturnType<typeof announcementMessage>[] = [];
   const announcer = new Announcer(openDb(":memory:"), {
     feedUrl: FEED,
+    latest,
     fetch: (async () => new Response(body.current)) as typeof fetch,
     post: async (message) => {
       if (fail?.current) throw new Error("Discord said no");
@@ -102,5 +103,45 @@ describe("announcements", () => {
     fail.current = false;
     expect(await announcer.check()).toBe(1);
     expect(posted.map((m) => m.embeds[0].title)).toEqual(["B"]);
+  });
+
+  it("with latest: 1, posts the newest existing item once, then only new ones", async () => {
+    const body = {
+      current: rss([
+        { slug: "b", title: "B", date: "2026-10-01" },
+        { slug: "a", title: "A", date: "2026-09-01" },
+      ]),
+    };
+    const { announcer, posted } = setup(body, undefined, 1);
+
+    expect(await announcer.check()).toBe(1);
+    expect(await announcer.check()).toBe(0);
+    expect(posted.map((m) => m.embeds[0].title)).toEqual(["B"]);
+
+    body.current = rss([
+      { slug: "c", title: "C", date: "2026-10-20" },
+      { slug: "b", title: "B", date: "2026-10-01" },
+      { slug: "a", title: "A", date: "2026-09-01" },
+    ]);
+    expect(await announcer.check()).toBe(1);
+    expect(posted.map((m) => m.embeds[0].title)).toEqual(["B", "C"]);
+  });
+
+  it("with latest: 1 added later, posts the newest item that was only recorded", async () => {
+    const db = openDb(":memory:");
+    const body = rss([{ slug: "a", title: "A", date: "2026-09-01" }]);
+    const posted: string[] = [];
+    const make = (latest?: number) =>
+      new Announcer(db, {
+        feedUrl: FEED,
+        latest,
+        fetch: (async () => new Response(body)) as typeof fetch,
+        post: async (m) => void posted.push(m.embeds[0].title),
+      });
+
+    expect(await make().check()).toBe(0);
+    expect(await make(1).check()).toBe(1);
+    expect(await make(1).check()).toBe(0);
+    expect(posted).toEqual(["A"]);
   });
 });
