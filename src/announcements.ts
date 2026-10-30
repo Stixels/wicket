@@ -116,7 +116,11 @@ export class Announcer {
     const postedAt = new Map(rows.map((r) => [r.id, r.postedAt]));
 
     // Oldest first, so the channel reads in order.
-    const byDate = [...items].sort((a, b) => (a.publishedAt?.getTime() ?? 0) - (b.publishedAt?.getTime() ?? 0));
+    // Feeds list newest first, so on the same date the item nearer the top is the newer one.
+    const byDate = items
+      .map((item, i) => ({ item, i }))
+      .sort((a, b) => (a.item.publishedAt?.getTime() ?? 0) - (b.item.publishedAt?.getTime() ?? 0) || b.i - a.i)
+      .map(({ item }) => item);
     const fresh = byDate.filter((item) => !postedAt.has(item.id));
     let toPost: FeedItem[] = [];
     if (!rows.length) {

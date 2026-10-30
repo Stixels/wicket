@@ -144,4 +144,18 @@ describe("announcements", () => {
     expect(await make(1).check()).toBe(0);
     expect(posted).toEqual(["A"]);
   });
+
+  it("on the same date, treats the item higher in the feed as the newest", async () => {
+    const body = {
+      current: rss([
+        { slug: "assistant", title: "Assistant", date: "2026-10-20" },
+        { slug: "locations", title: "Locations", date: "2026-10-20" },
+        { slug: "team", title: "Team", date: "2026-10-20" },
+      ]),
+    };
+    const { announcer, posted } = setup(body, undefined, 1);
+
+    expect(await announcer.check()).toBe(1);
+    expect(posted.map((m) => m.embeds[0].title)).toEqual(["Assistant"]);
+  });
 });
