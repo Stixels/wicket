@@ -521,9 +521,9 @@ button { font: inherit; color: inherit; }
 .row.agent .msg, .row.staff .msg { background: var(--wk-bubble); border: 1px solid var(--wk-border);
   box-shadow: 0 1px 2px rgba(15,15,30,.04); }
 .row.agent a, .row.staff a { color: var(--wk-accent); }
-/* A report's progress: one slim row with a hairline track, accent while open, green when done. */
+/* A report's progress: one slim row, accent while open, green when done. */
 .ticket { --tk: color-mix(in srgb, var(--wk-text) 70%, var(--wk-muted)); position: relative; overflow: hidden; flex-shrink: 0; align-self: flex-start; max-width: 85%; margin: 8px 0 2px;
-  display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 0 10px; padding: 9px 14px 11px 10px;
+  display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 0 10px; padding: 10px 14px 10px 10px;
   border-radius: calc(var(--wk-radius) * .7); background: var(--wk-bubble); border: 1px solid var(--wk-border);
   animation: wk-pop .45s cubic-bezier(.2,.8,.2,1) both; }
 .ticket.done { --tk: #22c55e; }
@@ -539,11 +539,6 @@ button { font: inherit; color: inherit; }
 .tk-title { min-width: 0; font-size: 13.5px; font-weight: 600; line-height: 1.3; color: var(--wk-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tk-sub { min-width: 0; margin-top: 1px; font-size: 11.5px; line-height: 1.3; color: var(--wk-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tk-sub b { font-weight: 600; color: var(--tk); }
-.tk-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: color-mix(in srgb, var(--tk) 12%, transparent); }
-.tk-bar::after { content: ""; position: absolute; inset: 0 auto 0 0; width: var(--tk-at, 66%); border-radius: 0 2px 2px 0;
-  background: linear-gradient(90deg, color-mix(in srgb, var(--tk) 55%, transparent), var(--tk)); }
-.ticket.logged .tk-bar::after { animation: wk-tk 2.4s ease-in-out infinite; }
-@keyframes wk-tk { 50% { opacity: .55; } }
 .conv .rnew { display: inline-block; width: 7px; height: 7px; margin-right: 8px; border-radius: 50%; background: #ef4444; }
 .conv.unread .ct { font-weight: 700; }
 .conv .cw { display: flex; align-items: center; }
@@ -699,7 +694,7 @@ textarea::placeholder { color: var(--wk-muted); }
   .log { overscroll-behavior: contain; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .launcher, .panel, .row, .system, .chip, .send, .launcher svg, .glow, .hero, .ticket, .tk-bar::after, .pv, .next, .ask-team { transition: none !important; animation: none !important; }
+  .launcher, .panel, .row, .system, .chip, .send, .launcher svg, .glow, .hero, .ticket, .pv, .next, .ask-team { transition: none !important; animation: none !important; }
   .typing i, .avatar, .avatar::after, .mini, .bot .orb::before, .bot .orb2::before, .bot .eyes, .bot .eyes i, .typing .think { animation: none !important; }
 }
 `;
@@ -2108,12 +2103,10 @@ function ticketCardHtml(c: TicketCard): string {
         : c.stage === "declined"
           ? `<b>${w.no}</b> ${day(c.doneAt ?? Date.now())}`
           : `${w.waiting}${others}`;
-  const at = { logged: "40%", planned: "72%", done: "100%", declined: "0%" }[c.stage];
   return `<span class="tk-ic">${done ? ICONS.check : w.icon}</span>
     <div class="tk-title" title="${escapeAttr(title)}">${escapeHtml(title)}</div>
     <div class="tk-sub">${sub}</div>${c.reason ? `
-    <div class="tk-why">${escapeHtml(c.reason)}</div>` : ""}
-    <i class="tk-bar" style="--tk-at:${at}" aria-hidden="true"></i>`;
+    <div class="tk-why">${escapeHtml(c.reason)}</div>` : ""}`;
 }
 
 function escapeHtml(s: string): string {
