@@ -522,7 +522,7 @@ button { font: inherit; color: inherit; }
   box-shadow: 0 1px 2px rgba(15,15,30,.04); }
 .row.agent a, .row.staff a { color: var(--wk-accent); }
 /* A report's progress: one slim row with a hairline track, accent while open, green when done. */
-.ticket { --tk: color-mix(in srgb, var(--wk-text) 70%, var(--wk-muted)); position: relative; overflow: hidden; align-self: flex-start; max-width: 85%; margin: 8px 0 2px;
+.ticket { --tk: color-mix(in srgb, var(--wk-text) 70%, var(--wk-muted)); position: relative; overflow: hidden; flex-shrink: 0; align-self: flex-start; max-width: 85%; margin: 8px 0 2px;
   display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 0 10px; padding: 9px 14px 11px 10px;
   border-radius: calc(var(--wk-radius) * .7); background: var(--wk-bubble); border: 1px solid var(--wk-border);
   animation: wk-pop .45s cubic-bezier(.2,.8,.2,1) both; }
