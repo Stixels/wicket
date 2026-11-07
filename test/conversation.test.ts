@@ -253,6 +253,15 @@ describe("sanitizeContext", () => {
       sanitizeContext({ page: "/x", authToken: "abc", note: "card 4242 4242 4242 4242", nested: { password: "p", ok: 1 } }),
     ).toEqual({ page: "/x", note: "card [redacted-number]", nested: { ok: 1 } });
   });
+
+  it("keeps IDs that end in digits and still drops dashed card numbers", () => {
+    const roomId = "66f0aa00-0000-4000-8000-000000000104";
+    expect(sanitizeContext({ roomId, digitsOnly: "00000000-0000-4000-8000-000000000005", note: "paid with 4242-4242-4242-4242" })).toEqual({
+      roomId,
+      digitsOnly: "00000000-0000-4000-8000-000000000005",
+      note: "paid with [redacted-number]",
+    });
+  });
 });
 
 describe("RateLimiter", () => {
