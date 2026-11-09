@@ -1015,7 +1015,8 @@ export function sanitizeContext(ctx: Record<string, unknown> | undefined): Recor
   const redact = (v: unknown): unknown => {
     if (typeof v === "string") {
       return v
-        .replace(/\b(?:\d[ -]?){13,19}\b/g, "[redacted-number]")
+        // Not next to a letter, digit, "_" or "-", so IDs like UUIDs that end in digits stay whole.
+        .replace(/(?<![\w-])(?:\d[ -]?){13,19}(?![\w-])/g, "[redacted-number]")
         .replace(/\b(bearer|token|password|secret|api[_-]?key)\b\s*[:=]\s*\S+/gi, "$1=[redacted]")
         .slice(0, 1000);
     }
