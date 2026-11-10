@@ -47,6 +47,11 @@ const profileSchema = z
     followUps: z.boolean().default(false),
     /** false: the assistant can't log bugs or ideas here, e.g. for visitors it couldn't follow up with. */
     tickets: z.boolean().default(true),
+    /**
+     * Shortcuts in the widget that start a guided report: "Report a bug", "Request a feature", both, or
+     * none. The assistant gathers what the team needs and logs it. Needs tickets, so it's off where tickets: false.
+     */
+    report: z.enum(["none", "bug", "feature", "both"]).default("none"),
     /** After the first message, offer an email field so the team can follow up. */
     askEmail: z.boolean().default(false),
     // What the widget shows. Options passed to Wicket.init() win over these.
@@ -194,6 +199,8 @@ const settingsSchema = z
   .strict();
 
 export type Profile = z.infer<typeof profileSchema> & { name: string };
+/** What a widget shortcut starts: a bug report or a feature request. */
+export type ReportKind = "bug" | "feature";
 export type Settings = z.infer<typeof settingsSchema>;
 export type Price = z.infer<typeof priceSchema>;
 
@@ -211,6 +218,23 @@ export function appToolsUrl(profile: Profile, env: string | null): string | null
   const url = profile.appTools?.url;
   if (!url) return null;
   return typeof url === "string" ? url : (url[env ?? "production"] ?? null);
+}
+
+/** The report shortcuts a profile offers. None where the assistant can't log tickets or isn't on. */
+export function reportKinds(profile: Pick<Profile, "report" | "tickets" | "ai">): ReportKind[] {
+  if (!profile.tickets || !profile.ai) return [];
+  return profile.report === "both" ? ["bug", "feature"] : profile.report === "none" ? [] : [profile.report];
+}
+
+/** Settings that are valid but won't work the way they read, for the boot log. */
+export function settingsWarnings(settings: Settings): string[] {
+  const warnings: string[] = [];
+  for (const [name, p] of Object.entries(settings.profiles)) {
+    if (!p.report || p.report === "none") continue;
+    if (p.tickets === false) warnings.push(`${name} has report: ${p.report} but tickets: false, so the widget shows no report shortcuts there`);
+    else if (p.ai === false) warnings.push(`${name} has report: ${p.report} but ai: false, so the widget shows no report shortcuts there`);
+  }
+  return warnings;
 }
 
 /**

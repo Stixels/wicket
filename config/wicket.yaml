@@ -68,6 +68,8 @@ profiles:
   # every answer from everyone on the account counts toward it.
   default:
     suggestions: []
+    # "Report a bug" and "Request a feature" in the widget, so filing doesn't wait on the assistant deciding to.
+    report: both
     appTools:
       url:
         production: https://api.escapedirector.com/api/v1/integrations/wicket/tools

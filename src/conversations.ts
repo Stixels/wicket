@@ -10,7 +10,7 @@ import type { Agent } from "./agent/agent.js";
 import { blocksOf, type Block, type Turn } from "./agent/transcript.js";
 import { readDoc, searchDocs } from "./knowledge/index.js";
 import type { Identity } from "./identity.js";
-import { appToolsUrl, parseSettings, pathFromContext, resolveProfile, type Profile, type Settings } from "./settings.js";
+import { appToolsUrl, parseSettings, pathFromContext, reportKinds, resolveProfile, type Profile, type ReportKind, type Settings } from "./settings.js";
 import { UsageLedger, dollarsToMicros } from "./usage.js";
 import { Members, type Member } from "./team/members.js";
 import type { TicketNotice, TicketDesk } from "./tickets.js";
@@ -111,6 +111,8 @@ export const MESSAGES = {
     kind === "bug" || kind === "docs"
       ? `Logged for the team: ${what}. You'll hear back here when it's ${kind === "bug" ? "fixed" : "updated"}.`
       : `Passed to the team: ${what}. You'll hear back here once they've decided.`,
+  /** Shown when someone starts a report from a widget shortcut. */
+  reportStarted: (kind: ReportKind) => (kind === "bug" ? "Bug report" : "Feature request"),
   alreadyPlanned: (what: string) => `Added your vote: ${what} is already planned. You'll hear back here when it ships.`,
   planned: (what: string) => `Good news: the team is planning to build ${what}. You'll hear back here when it ships.`,
   declined: (what: string, kind: string | null, reason?: string | null) =>
@@ -212,6 +214,11 @@ export class ConversationService {
     return resolveProfile(this.settings, { signedIn: Boolean(who.userId), plan: who.plan, path: pathFromContext(who.context) });
   }
 
+  /** The report shortcuts a profile offers here: only when the assistant can log tickets. */
+  reportsFor(profile: Profile): ReportKind[] {
+    return this.agent && this.tickets && this.settings.tickets.assistant ? reportKinds(profile) : [];
+  }
+
   /** Saves an email someone left so the team can follow up, and shows it to the team. */
   async setEmail(id: string, email: string): Promise<boolean> {
     const c = this.get(id);
@@ -299,12 +306,21 @@ export class ConversationService {
     contextUpdate?: Record<string, unknown>,
     attachmentIds: string[] = [],
     signedIn?: { identity: Identity; token: string } | null,
+    report?: ReportKind | null,
   ): Promise<PublicMessage> {
     const text = body.trim().slice(0, MAX_BODY);
     if (contextUpdate) this.mergeContext(id, contextUpdate);
     if (signedIn) this.refreshIdentity(id, signedIn.identity, signedIn.token);
+    // A widget shortcut tags the conversation until something is logged; the profile must offer it.
+    const c = this.get(id);
+    const started = report && c && this.reportsFor(this.profileFor(c)).includes(report) ? report : null;
     const msg = this.addMessage(id, "user", text, null, (messageId) => this.files.claim(id, attachmentIds, messageId));
-    this.enqueue(id, () => this.handleUserMessage(id, msg.body, msg.attachments));
+    if (started) {
+      this.db.update(schema.conversations).set({ report: started }).where(eq(schema.conversations.id, id)).run();
+      // A tag under the message that started it, in the same order the widget shows it.
+      this.addMessage(id, "system", MESSAGES.reportStarted(started), null, undefined, { event: "report" });
+    }
+    this.enqueue(id, () => this.handleUserMessage(id, msg.body, msg.attachments, started));
     const { memberId: _member, mentions: _mentions, ...pub } = msg;
     return pub;
   }
@@ -610,6 +626,7 @@ export class ConversationService {
         this.addMessage(id, "note", `Filed ${ticket.key}: ${ticket.title}\n${ticket.url}`, "Assistant");
         await this.mirror(id, "system", `🎫 Filed [${ticket.key}](${ticket.url}): ${ticket.title}`);
         logged(input.kind, input.user_summary);
+        this.reportLogged(id);
         return `Filed ${ticket.key}.${hearBack}`;
       },
       add: async (input) => {
@@ -621,6 +638,7 @@ export class ConversationService {
         });
         if (!result) return `There's no ticket ${input.key}. Use a key from find_tickets, or file_ticket.`;
         if (result.already) return `This conversation is already on ${result.ticket.key}.`;
+        this.reportLogged(id);
         this.addMessage(id, "note", `Added this report to ${result.ticket.key}: ${result.ticket.title}\n${result.ticket.url}`, "Assistant");
         await this.mirror(id, "system", `➕ Added to [${result.ticket.key}](${result.ticket.url}): ${result.ticket.title}`);
         if (result.ticket.state === "done") return `${result.ticket.key} is already done. Tell them it should be fixed already and to make sure they're on the latest version.`;
@@ -629,6 +647,11 @@ export class ConversationService {
         return `Added to ${result.ticket.key}.${hearBack}`;
       },
     };
+  }
+
+  /** A report from a shortcut is logged, so later messages are an ordinary conversation again. */
+  private reportLogged(id: string) {
+    this.db.update(schema.conversations).set({ report: null }).where(eq(schema.conversations.id, id)).run();
   }
 
   /** Waits for queued work on a conversation (used by tests and graceful shutdown). */
@@ -645,11 +668,12 @@ export class ConversationService {
     });
   }
 
-  private async handleUserMessage(id: string, body: string, attachments: Attachment[] = []) {
+  private async handleUserMessage(id: string, body: string, attachments: Attachment[] = [], started: ReportKind | null = null) {
     const c = this.get(id);
     if (!c) return;
 
     await this.mirror(id, "user", body, c.reporterName, this.relayFiles(attachments));
+    if (started) await this.mirror(id, "system", started === "bug" ? "🐞 Started from Report a bug" : "💡 Started from Request a feature");
     c.status = this.get(id)?.status ?? c.status; // mirroring can hand a conversation back (deleted post)
     if (c.status === "resolved") {
       // A new question after the team closed it: the assistant takes it first again.
@@ -706,13 +730,16 @@ export class ConversationService {
     const cards: TicketCard[] = []; // shown after the reply, so the chat reads "thanks" then "logged"
     try {
       const app = await this.appToolsFor(id, profile);
+      const tickets = profile.tickets ? this.ticketTools(id, cards) : undefined;
+      // A report started from a shortcut: the assistant gathers the details and logs it.
+      const report = tickets && c.report && this.reportsFor(profile).includes(c.report) ? c.report : undefined;
       const result = await this.agent.respond(
         this.history(id),
         {
           searchDocs: (q) => searchDocs(this.db, q),
           readDoc: (url) => readDoc(this.db, url),
           handoff: (reason) => this.handoff(id, reason),
-          tickets: profile.tickets ? this.ticketTools(id, cards) : undefined,
+          tickets: tickets,
           ...(app ? { app: app.tools } : {}),
         },
         {
@@ -723,6 +750,7 @@ export class ConversationService {
           offTopic: profile.offTopic,
           followUps: profile.followUps,
           providerOptions: profile.providerOptions,
+          report,
           ...(app ? { maxSteps: this.appToolSteps } : {}),
         },
       );

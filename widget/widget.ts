@@ -112,9 +112,18 @@ interface Session {
   askEmail: boolean;
   /** Present when this visitor must pass a Cloudflare Turnstile check before the assistant answers. */
   botCheck?: { siteKey: string };
+  /** Report shortcuts this profile offers. */
+  reports?: ReportKind[];
   theme?: Theme;
   ui: Partial<Record<UiKey, any>>;
 }
+
+type ReportKind = "bug" | "feature";
+/** The shortcuts that start a guided report, and what the message box asks for. */
+const REPORTS: Record<ReportKind, { label: string; hint: string; tag: string; placeholder: string; icon: "bug" | "idea" }> = {
+  bug: { label: "Report a bug", hint: "Something isn't working", tag: "Bug report", placeholder: "What happened?", icon: "bug" },
+  feature: { label: "Request a feature", hint: "Share an idea", tag: "Feature request", placeholder: "What would you like to be able to do?", icon: "idea" },
+};
 
 interface Summary {
   id: string;
@@ -563,6 +572,38 @@ button { font: inherit; color: inherit; }
 .typing .msg i:nth-child(3) { animation-delay: .3s; }
 
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 4px 34px; }
+/* Report shortcuts: on the start screen, and in a small menu by the message box. */
+.shortcuts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin: 14px 0 4px; }
+.shortcut { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 1px 10px; text-align: left; font: inherit; color: inherit;
+  padding: 11px 12px; border-radius: 14px; border: 1px solid var(--wk-border); background: var(--wk-bubble); cursor: pointer;
+  transition: border-color .15s, transform .15s; }
+.shortcut:hover { border-color: color-mix(in srgb, var(--wk-accent) 40%, var(--wk-border)); transform: translateY(-1px); }
+.shortcut:focus-visible, .report-btn:focus-visible, .report-menu button:focus-visible { outline: 3px solid color-mix(in srgb, var(--wk-accent) 45%, transparent); outline-offset: 2px; }
+.shortcut svg { grid-row: span 2; width: 18px; height: 18px; color: var(--wk-muted); }
+.shortcut b { font-size: 13.5px; font-weight: 600; }
+.shortcut small { font-size: 12px; color: var(--wk-muted); }
+.report-btn { display: none; width: 30px; height: 36px; flex: none; border: 0; background: transparent; color: var(--wk-muted); cursor: pointer; place-items: center; padding: 0; margin-left: -8px; border-radius: 10px; }
+.wk.reports .report-btn { display: grid; }
+.report-btn:hover, .report-btn[aria-expanded="true"] { color: var(--wk-text); }
+.report-btn svg { width: 18px; height: 18px; }
+.field { position: relative; }
+.report-menu { display: none; position: absolute; left: 0; bottom: calc(100% + 6px); z-index: 3; min-width: 200px; padding: 5px;
+  border-radius: 12px; border: 1px solid var(--wk-border); background: var(--wk-surface); box-shadow: var(--wk-shadow); animation: wk-in .15s ease; }
+.report-menu.on { display: flex; flex-direction: column; }
+.report-menu button { display: flex; align-items: center; gap: 9px; border: 0; background: transparent; text-align: left; font-size: 13.5px;
+  padding: 8px 10px; border-radius: 8px; cursor: pointer; color: var(--wk-text); }
+.report-menu button:hover { background: color-mix(in srgb, var(--wk-text) 7%, transparent); }
+.report-menu svg { width: 16px; height: 16px; color: var(--wk-muted); }
+.reporting { display: none; align-items: center; gap: 6px; margin: 0 0 8px; padding: 4px 4px 4px 10px; width: fit-content; max-width: 100%;
+  border-radius: 999px; font-size: 12.5px; font-weight: 600; color: var(--wk-text);
+  background: color-mix(in srgb, var(--wk-text) 6%, transparent); border: 1px solid var(--wk-border); }
+.reporting.on { display: inline-flex; }
+.reporting svg { width: 14px; height: 14px; color: var(--wk-muted); flex: none; }
+.reporting button { width: 20px; height: 20px; border: 0; border-radius: 50%; background: transparent; color: var(--wk-muted); cursor: pointer; display: grid; place-items: center; padding: 0; }
+.reporting button:hover { color: var(--wk-text); background: color-mix(in srgb, var(--wk-text) 8%, transparent); }
+.reporting button svg { width: 12px; height: 12px; }
+.system.report { display: inline-flex; align-items: center; gap: 6px; }
+.system.report svg { width: 13px; height: 13px; }
 /* Conversation list */
 .recent { margin: 18px 0 4px; display: flex; flex-direction: column; gap: 8px; }
 .recent-h { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; font-weight: 600;
@@ -715,6 +756,7 @@ const ICONS = {
   up: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v11"/><path d="M15 5.9 14 10h5.8a2 2 0 0 1 1.9 2.6l-2.3 7A2 2 0 0 1 17.5 21H4a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1h2.8a2 2 0 0 0 1.8-1.1L12 2a3.1 3.1 0 0 1 3 3.9Z"/></svg>`,
   down: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 14V3"/><path d="M9 18.1 10 14H4.2a2 2 0 0 1-1.9-2.6l2.3-7A2 2 0 0 1 6.5 3H20a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-2.8a2 2 0 0 0-1.8 1.1L12 22a3.1 3.1 0 0 1-3-3.9Z"/></svg>`,
   caret: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>`,
+  flag: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 22V4"/><path d="M4 4h12l-2 4 2 4H4"/></svg>`,
   spark: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5c.4 3.9 1.9 6.3 4.3 7.6 1.2.7 2.6 1.1 4.2 1.4v1c-3.9.4-6.3 1.9-7.6 4.3-.7 1.2-1.1 2.6-1.4 4.2h-1c-.4-3.9-1.9-6.3-4.3-7.6-1.2-.7-2.6-1.1-4.2-1.4v-1c3.9-.4 6.3-1.9 7.6-4.3.7-1.2 1.1-2.6 1.4-4.2Z"/></svg>`,
 };
 
@@ -727,6 +769,9 @@ class Widget {
   private log!: HTMLElement;
   private typing!: HTMLElement;
   private chips!: HTMLElement;
+  private shortcuts!: HTMLElement;
+  /** A report shortcut was chosen; the next message starts it. */
+  private reportMode: ReportKind | null = null;
   private input!: HTMLTextAreaElement;
   private tray!: HTMLElement;
   private pending: { file: File; preview: string | null }[] = [];
@@ -1029,6 +1074,8 @@ class Widget {
       o[key] = (this.given as unknown as Record<string, unknown>)[key] ?? s.ui[key] ?? (s.ai ? undefined : TEAM_ONLY_DEFAULTS[key]) ?? DEFAULTS[key as keyof typeof DEFAULTS];
     }
     this.wrap.classList.toggle("team-only", !s.ai);
+    this.wrap.classList.toggle("reports", this.reports().length > 0);
+    if (this.reportMode && !this.reports().includes(this.reportMode)) this.setReportMode(null);
     if (s.theme) {
       // The server's theme fills in what init() didn't set; cssVars merge so both can add variables.
       this.theme = this.withServerTheme(s.theme);
@@ -1036,7 +1083,7 @@ class Widget {
     }
     this.updateHeader();
     this.wrap.querySelector(".ask")!.textContent = this.opts.welcomeSubtitle ?? "";
-    this.input.placeholder = this.opts.placeholder ?? "";
+    this.input.placeholder = (this.reportMode && REPORTS[this.reportMode].placeholder) || this.opts.placeholder || "";
     this.renderWelcome();
     this.renderChips();
     this.updateEmailAsk();
@@ -1161,8 +1208,11 @@ class Widget {
             <button class="new-conv" type="button">${ICONS.plus}<span>Start a new conversation</span></button>
             <button class="linkish reopen" type="button">Reply here instead</button>
           </div>
+          <div class="reporting" role="status"></div>
           <form class="field">
+            <div class="report-menu" role="menu" aria-label="Report"></div>
             <button class="attach" type="button" title="Attach a file" aria-label="Attach a file">${ICONS.clip}</button>
+            <button class="report-btn" type="button" title="Report a problem or idea" aria-label="Report a problem or idea" aria-haspopup="menu" aria-expanded="false">${ICONS.flag}</button>
             <input class="file-input" type="file" multiple accept="${ACCEPT}" hidden>
             <textarea rows="1" placeholder="${escapeAttr(o.placeholder!)}" aria-label="Message"></textarea>
             <button class="send" type="submit" aria-label="Send" disabled>${ICONS.send}</button>
@@ -1222,6 +1272,9 @@ class Widget {
       : `<span class="think" role="status">Thinking…</span>`;
     this.chips = document.createElement("div");
     this.chips.className = "chips";
+    this.shortcuts = document.createElement("div");
+    this.shortcuts.className = "shortcuts";
+    this.setupReportMenu();
 
     launcher.addEventListener("click", () => this.toggle());
     this.wrap.querySelector(".x")!.addEventListener("click", () => this.close());
@@ -1320,6 +1373,79 @@ class Widget {
     }
     if (!this.chips.childElementCount) this.chips.remove();
     else if (!this.chips.isConnected) this.log.insertBefore(this.chips, this.log.querySelector(".recent") ?? this.typing);
+    this.shortcuts.innerHTML = "";
+    for (const kind of this.reports()) {
+      const r = REPORTS[kind];
+      const el = document.createElement("button");
+      el.className = "shortcut";
+      el.type = "button";
+      el.innerHTML = `${ICONS[r.icon]}<b>${escapeHtml(r.label)}</b><small>${escapeHtml(r.hint)}</small>`;
+      el.addEventListener("click", () => this.setReportMode(kind));
+      this.shortcuts.appendChild(el);
+    }
+    if (!this.shortcuts.childElementCount) this.shortcuts.remove();
+    else if (!this.shortcuts.isConnected) this.log.insertBefore(this.shortcuts, this.log.querySelector(".recent") ?? this.typing);
+  }
+
+  /** The report shortcuts the server offers here. */
+  private reports(): ReportKind[] {
+    return this.session?.ai ? (this.session.reports ?? []).filter((k) => k in REPORTS) : [];
+  }
+
+  /** The menu by the message box, so a report can be started mid-conversation too. */
+  private setupReportMenu() {
+    const btn = this.wrap.querySelector<HTMLButtonElement>(".report-btn")!;
+    const menu = this.wrap.querySelector<HTMLElement>(".report-menu")!;
+    const toggle = (on: boolean) => {
+      if (on) {
+        menu.innerHTML = "";
+        for (const kind of this.reports()) {
+          const item = document.createElement("button");
+          item.type = "button";
+          item.setAttribute("role", "menuitem");
+          item.innerHTML = `${ICONS[REPORTS[kind].icon]}<span>${escapeHtml(REPORTS[kind].label)}</span>`;
+          item.addEventListener("click", () => {
+            toggle(false);
+            this.setReportMode(kind);
+          });
+          menu.appendChild(item);
+        }
+      }
+      menu.classList.toggle("on", on);
+      btn.setAttribute("aria-expanded", String(on));
+      if (on) menu.querySelector("button")?.focus();
+    };
+    btn.addEventListener("click", () => toggle(!menu.classList.contains("on")));
+    menu.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        toggle(false);
+        btn.focus();
+      }
+    });
+    this.root.addEventListener("pointerdown", (e) => {
+      if (menu.classList.contains("on") && !e.composedPath().some((n) => n === menu || n === btn)) toggle(false);
+    });
+  }
+
+  /** Starts (or cancels, with null) a guided report: the next message goes with it. */
+  private setReportMode(kind: ReportKind | null) {
+    this.reportMode = kind;
+    const pill = this.wrap.querySelector<HTMLElement>(".reporting")!;
+    pill.classList.toggle("on", Boolean(kind));
+    pill.innerHTML = "";
+    if (kind) {
+      const r = REPORTS[kind];
+      pill.innerHTML = `${ICONS[r.icon]}<span>${escapeHtml(r.tag)}</span><button type="button" title="Cancel" aria-label="Cancel ${escapeAttr(r.tag.toLowerCase())}">${ICONS.x}</button>`;
+      pill.querySelector("button")!.addEventListener("click", () => {
+        this.setReportMode(null);
+        this.input.focus();
+      });
+      // A report doesn't belong in a resolved conversation or the history list.
+      if ((this.status === "resolved" && !this.replyAnyway && this.conv) || this.wrap.classList.contains("list")) this.reset();
+    }
+    this.input.placeholder = (kind && REPORTS[kind].placeholder) || this.opts.placeholder || "";
+    if (kind) this.input.focus();
   }
 
   /** Up to three earlier conversations under the start screen. */
@@ -1340,6 +1466,7 @@ class Widget {
     this.source = null;
     this.conv = null;
     this.chips.remove();
+    this.shortcuts.remove();
     this.wrap.classList.remove("home");
     this.wrap.classList.add("list");
     this.log.innerHTML = `<div class="empty">Loading…</div>`;
@@ -1405,6 +1532,7 @@ class Widget {
     this.replyAnyway = false;
     this.setAgent(null);
     this.chips.remove();
+    this.shortcuts.remove();
     this.log.innerHTML = "";
     this.log.appendChild(this.typing);
     this.wrap.classList.remove("home", "list");
@@ -1524,7 +1652,9 @@ class Widget {
         this.autosize();
       }
       if (files.length) this.tray.classList.add("busy");
-      await this.post(body, files.map((p) => p.file));
+      const report = typed ? this.reportMode : null;
+      await this.post(body, files.map((p) => p.file), report);
+      if (report) this.setReportMode(null);
       for (const p of files) if (p.preview) URL.revokeObjectURL(p.preview);
       if (files.length) {
         this.pending = this.pending.filter((p) => !files.includes(p));
@@ -1542,7 +1672,7 @@ class Widget {
   }
 
   /** Starts the conversation if needed, uploads files, posts the message and shows it. */
-  private async post(body: string, files: File[]) {
+  private async post(body: string, files: File[], report: ReportKind | null = null) {
     if (!this.conv) await this.createConversation();
     const conv = this.conv!;
     const attachments: string[] = [];
@@ -1553,6 +1683,7 @@ class Widget {
       // The latest page context and a fresh sign-in token go with every message, for the assistant's app tools.
       context: { page: location.href, ...(this.opts.context ?? {}) },
       userToken: await this.userToken(),
+      ...(report ? { report } : {}),
     };
     let res;
     try {
@@ -1760,6 +1891,7 @@ class Widget {
   private leaveHome() {
     this.wrap.classList.remove("home");
     this.chips.remove();
+    this.shortcuts.remove();
     this.log.querySelector(".recent")?.remove();
   }
 
@@ -1799,6 +1931,9 @@ class Widget {
       if (isResolvedNote(m.body)) {
         el.classList.add("done");
         el.innerHTML = `${ICONS.check}<span>Marked as resolved</span>`;
+      } else if (m.event === "report") {
+        el.classList.add("report");
+        el.innerHTML = `${ICONS[/bug/i.test(m.body) ? "bug" : "idea"]}<span>${escapeHtml(m.body)}</span>`;
       } else {
         el.textContent = m.body;
       }

@@ -18,6 +18,8 @@ export const caseSchema = z
     key: z.string().optional(),
     /** route file: the kinds the new ticket may have, any one of them. */
     ticketKinds: z.array(z.enum(["bug", "feature", "improvement", "docs"])).default([]),
+    /** The person started from the widget's "Report a bug" or "Request a feature" shortcut. */
+    report: z.enum(["bug", "feature"]).optional(),
   })
   .strict()
   .refine((c) => c.kind !== "route" || c.route, { message: "a route case needs `route`" })

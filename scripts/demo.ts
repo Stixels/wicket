@@ -11,6 +11,8 @@ import { MockLanguageModelV4 } from "ai/test";
 import { FakeRelay } from "../test/helpers.js";
 import { loadSettings } from "../src/settings.js";
 import { signUserToken } from "../src/identity.js";
+import { TicketDesk } from "../src/tickets.js";
+import { EvalTracker } from "../src/eval/tracker.js";
 
 // Profiles from config/wicket.yaml. ?as=visitor shows the page signed out; ?path=/app/analytics pretends to be on that page.
 const SECRET = "demo-secret-demo-secret-demo-secret!";
@@ -22,6 +24,24 @@ for (const q of ["How do I add a clue to a puzzle?", "invite a game master"]) {
   console.log(q, "=>", searchDocs(db, q, 2).map((h) => `${h.title} > ${h.heading}`));
 }
 // Scripted model: search with the user's words, then answer with the top hit.
+// A report from a widget shortcut: ask for what's missing, then find and file a ticket.
+const reportReply = (prompt: any[]) => {
+  const last = prompt.at(-1);
+  const said = (m: any) => m.content.filter((c: any) => c.type === "text" && !c.text.startsWith("<app_context>")).map((c: any) => c.text).join("\n");
+  const users = prompt.filter((m: any) => m.role === "user").map(said).filter(Boolean);
+  const bug = prompt.some((m: any) => m.role === "system" && String(m.content).includes('chose "Report a bug"'));
+  if (last.role === "tool") {
+    const out = String(last.content[0]?.output?.value ?? "");
+    if (last.content[0]?.toolName === "find_tickets") {
+      const first = users[0];
+      return { finish: "tool-calls", tool: { id: `f${Date.now()}`, name: "file_ticket", input: { title: first.slice(0, 78), kind: bug ? "bug" : "feature", description: `${first}\n\n${users.slice(1).join("\n")}\n\n## Context\nPage and app version from the widget.`, user_summary: first.charAt(0).toLowerCase() + first.slice(1).replace(/[.!]$/, "") } } };
+    }
+    return { finish: "stop", text: out.startsWith("Filed") ? (bug ? "Thanks, that's everything I need. It's gone straight to the team, and you'll hear back here when it's fixed." : "Thanks! It's gone straight to the team, and you'll hear back here once they've decided.") : "Thanks, I've passed that on." };
+  }
+  const asked = prompt.some((m: any) => m.role === "assistant");
+  if (!asked) return { finish: "stop", text: bug ? "Sorry about that. What did you expect to happen instead, and what steps get you there? Does it happen every time?" : "Nice idea. What would you use it for?" };
+  return { finish: "tool-calls", tool: { id: `t${Date.now()}`, name: "find_tickets", input: { query: users[0].slice(0, 60) } } };
+};
 const reply = (last: any) => {
   if (last.role === "tool") {
     const out = last.content[0]?.output;
@@ -38,7 +58,8 @@ const client = {
     new MockLanguageModelV4({
       modelId: id,
       doGenerate: async (options: any) => {
-        const r: any = reply(options.prompt.at(-1));
+        const guided = options.prompt.some((m: any) => m.role === "system" && /chose "(Report a bug|Request a feature)"/.test(String(m.content)));
+        const r: any = guided ? reportReply(options.prompt) : reply(options.prompt.at(-1));
         return {
           content: r.tool
             ? [{ type: "tool-call" as const, toolCallId: r.tool.id, toolName: r.tool.name, input: JSON.stringify(r.tool.input) }]
@@ -51,7 +72,9 @@ const client = {
     }),
 };
 const relay = new FakeRelay();
-const service = new ConversationService(db, new Agent(client, { model: "x", effort: "low", maxSteps: 4, productName: "Escape Director", productDescription: "" }), relay, { settings: loadSettings(), log: console.error });
+// An in-memory tracker, so report shortcuts work without Linear or GitHub.
+const tickets = new TicketDesk(db, new EvalTracker([{ key: "ED-101", kind: "bug", title: "Room timer drifts behind after pausing and resuming a game" }]), { notify: (n) => service.ticketNews(n), log: console.error });
+const service = new ConversationService(db, new Agent(client, { model: "x", effort: "low", maxSteps: 4, productName: "Escape Director", productDescription: "" }), relay, { settings: loadSettings(), log: console.error, tickets });
 await relay.start((r) => service.handleStaffReply(r.threadId, r.authorName, r.body));
 (globalThis as any).relay = relay;
 const app = createServer(service, { allowedOrigins: [], maxConversationsPerIpPerHour: 50, maxMessagesPerConversationPerHour: 50, identitySecret: SECRET });

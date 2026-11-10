@@ -210,6 +210,7 @@ profiles:
     askEmail: true        # offer an email field so the team can follow up
   default:
     budget: 0.50          # dollars per person per month
+    report: both          # "Report a bug" and "Request a feature" shortcuts
   analytics:
     instructions: Explain metrics using the docs.
     suggestions: ["What does Success Rate mean?"]
@@ -229,6 +230,7 @@ budgets:
 - **Profiles** set whether the assistant answers at all, extra instructions, whether it stays on topic (`offTopic: decline` by default, so it won't do general coding or homework; `topics` widens what counts), the model and effort, a monthly budget per person, and what the widget shows (title, welcome text, placeholder, quick starts). Options passed to `Wicket.init()` still win.
 - **Rules** pick a profile from whether someone is signed in, their `plan`, and the page they're on. Signed in and plan come only from a verified token; the page comes from the widget.
 - **Visitors** can get the assistant too, without opening a hole in your budget: give their profile `budgetScope: shared` so they all spend from one pot, and `botCheck: true` so each conversation starts with a Cloudflare Turnstile check (set `TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY`; without them those visitors go straight to the team). `tickets: false` stops the assistant logging reports for people it can't follow up with.
+- **Report shortcuts:** `report: bug`, `feature` or `both` shows "Report a bug" and "Request a feature" on the widget's start screen and in a small flag menu by the message box. Choosing one tags the conversation: the assistant asks for what's missing (for a bug: what happened, what they expected, and the steps; the page and app version come from the widget), then logs it, adding a repeat to the ticket that already exists. It's `none` by default. The server checks the profile, so a browser can't start a report where the profile doesn't offer one, and budgets and rate limits apply as usual. Shortcuts need a tracker and the assistant; on a profile with `tickets: false` they're off, and the boot log says so.
 - **Follow-ups:** `followUps: true` has the assistant suggest two or three questions to ask next with each answer, shown as chips. They're written with the answer, so they cost no extra call.
 - **Budgets** count what each person's assistant answers cost this calendar month (UTC), from what the AI Gateway billed for each response, or from token usage and list prices when it doesn't say. Signed-in people are counted by user id, visitors by IP. Each person has one total across all profiles; a profile's `budget` is the point where that profile stops answering, so giving every profile the same number makes it a single shared budget. Near the limit the widget says so; at the limit their messages go to the team instead. `monthlyTotal` does the same for everyone at once. Prices for current Claude models and GPT-6 Luna are built in; add others under `budgets.prices`.
 
@@ -285,6 +287,6 @@ npm run eval -- --only 24,25 --reps 1
 npm run eval -- --only 28,29,30,31,32,33,34,35,36,37,38,39   # just the routing cases
 ```
 
-Each case runs as a chat with a signed-in person, through the same conversation code as the server, with a fake tracker that starts from the file's `backlog` of open tickets. Routing cases (`kind: route`) check what landed in it: a repeat report added to the right existing ticket, a new bug, idea or docs gap filed once with the right kind, or nothing logged for a how-to question. No real ticket is ever created.
+Each case runs as a chat with a signed-in person, through the same conversation code as the server, with a fake tracker that starts from the file's `backlog` of open tickets. Routing cases (`kind: route`) check what landed in it: a repeat report added to the right existing ticket, a new bug, idea or docs gap filed once with the right kind, or nothing logged for a how-to question. Cases with `report: bug` or `report: feature` start from the widget's shortcut, so the assistant should gather the details and log them rather than decide whether to. No real ticket is ever created.
 
 Full replies are saved to `evals/results/` (not committed). A run of every case twice on two models costs well under a dollar.

@@ -104,6 +104,35 @@ cases:
   # A how-to question the docs answer: nothing to log.
   - { id: 39, kind: route, question: "How do I add a clue to a puzzle?", route: none }
 
+  # Started from the widget's "Report a bug" or "Request a feature" shortcut (`report`). The
+  # assistant doesn't decide whether to log these: it asks for what's missing, then logs it.
+  # A bug with no steps yet: ask, don't log on the first reply.
+  - { id: 40, kind: bug, report: bug, question: "The Room Sessions page is blank" }
+  - id: 41
+    kind: route
+    report: bug
+    question: "The Room Sessions page is blank"
+    then: ["I click Room Sessions in the sidebar and it's just an empty white page. I expected the list of today's sessions. Every time since this morning."]
+    route: file
+    ticketKinds: [bug]
+    mentions: [blank, white, empty]
+  # Asked as a question, which would usually get the troubleshooting guide; from the shortcut it's logged.
+  - id: 42
+    kind: route
+    report: bug
+    question: "The clue I sent isn't showing on the TV in the room"
+    then: ["I followed the troubleshooting guide and restarted the TV app. Every clue tonight, in every room. They should appear on the TV right away."]
+    route: add
+    key: ED-102
+  - id: 43
+    kind: route
+    report: feature
+    question: "Let me schedule an automation to run at a set time, like turning the lobby lights on at 9am"
+    route: file
+    ticketKinds: [feature, improvement]
+    mentions: [schedul]
+  - { id: 44, kind: route, report: feature, question: "A weekly email with how each of my rooms did would be great", route: add, key: ED-105 }
+
 # Open tickets the fake tracker starts with for every case.
 backlog:
   - { key: ED-101, kind: bug, title: "Room timer drifts behind after pausing and resuming a game" }

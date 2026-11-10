@@ -55,6 +55,8 @@ const messageBody = z.object({
   userToken: z.string().max(4000).optional(),
   context: z.record(z.string(), z.unknown()).optional(),
   attachments: z.array(z.string().max(64)).max(10).default([]),
+  /** Sent with the first message after a widget shortcut: start a bug report or feature request. */
+  report: z.enum(["bug", "feature"]).optional(),
 });
 
 const summariesBody = z.object({
@@ -146,6 +148,8 @@ export function createServer(service: ConversationService, opts: ServerOptions) 
       signedIn: Boolean(identity),
       name: identity?.name ?? null,
       askEmail: p.askEmail && !identity?.email,
+      /** Which report shortcuts to show: "bug", "feature", both or none. */
+      reports: service.reportsFor(p),
       ...(needsBotCheck(p, Boolean(identity)) ? { botCheck: { siteKey: turnstile!.siteKey } } : {}),
       theme: service.settings.theme,
       ui: { title: p.title, assistantName: p.assistantName, subtitle: p.subtitle, welcomeTitle: p.welcomeTitle, welcomeSubtitle: p.welcomeSubtitle, placeholder: p.placeholder, suggestions: p.suggestions },
@@ -202,10 +206,15 @@ export function createServer(service: ConversationService, opts: ServerOptions) 
     }
     const parsed = messageBody.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success || (!parsed.data.body.trim() && !parsed.data.attachments.length)) return c.json({ error: "Invalid message" }, 400);
+    // Only the profile decides whether a report can be started here, never the browser.
+    const report = parsed.data.report;
+    if (report && !service.reportsFor(service.profileFor({ ...conv, context: { ...(conv.context ?? {}), ...(parsed.data.context ?? {}) } })).includes(report)) {
+      return c.json({ error: "Reports can't be started here" }, 403);
+    }
     // A fresh token with each message: the app's tools run as this person, with their current allowance.
     const identity = verifyUserToken(parsed.data.userToken, opts.identitySecret);
     const signedIn = identity && parsed.data.userToken ? { identity, token: parsed.data.userToken } : null;
-    const message = await service.postUserMessage(conv.id, parsed.data.body, parsed.data.context, parsed.data.attachments, signedIn);
+    const message = await service.postUserMessage(conv.id, parsed.data.body, parsed.data.context, parsed.data.attachments, signedIn, report);
     if (!message.body && !message.attachments.length) return c.json({ error: "Those files couldn't be attached" }, 400);
     return c.json({ message }, 201);
   });

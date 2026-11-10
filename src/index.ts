@@ -15,7 +15,7 @@ import { LinearTracker } from "./adapters/tracker/linear.js";
 import { draftTicket } from "./agent/tickets.js";
 import { COMMUNITY_ROOM_PREFIX, SUPPORT_ROOM_PREFIX } from "./discord/voiceRooms.js";
 import type { Relay } from "./adapters/types.js";
-import { loadSettings } from "./settings.js";
+import { loadSettings, settingsWarnings } from "./settings.js";
 import { FileStore } from "./files.js";
 import { ReplyEmails, ResendMailer } from "./email.js";
 import { priceFor } from "./usage.js";
@@ -271,6 +271,11 @@ function describeSettings() {
   }
   if (Object.values(settings.profiles).some((p) => p.botCheck) && !(config.TURNSTILE_SITE_KEY && config.TURNSTILE_SECRET_KEY)) {
     console.log("profiles: needs you: a profile has botCheck, but TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY aren't set, so its visitors go straight to the team");
+  }
+  for (const warning of settingsWarnings(settings)) console.log(`profiles: needs you: ${warning}`);
+  const reports = Object.values(settings.profiles).some((p) => p.report && p.report !== "none" && p.tickets !== false && p.ai !== false);
+  if (reports && !(desk && agent && settings.tickets.assistant)) {
+    console.log("profiles: needs you: a profile has report shortcuts, but they need the assistant, a tracker (LINEAR_API_KEY or GITHUB_ISSUES_REPO) and tickets.assistant, so the widget doesn't show them");
   }
   const usesSignIn = settings.rules.some((r) => r.when.signedIn !== undefined || r.when.plan);
   if (usesSignIn && !config.IDENTITY_SECRET) {

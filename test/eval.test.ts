@@ -15,7 +15,7 @@ describe("eval grading", () => {
   it("loads every case in evals/cases.yaml", () => {
     const { cases, backlog } = parse(readFileSync("evals/cases.yaml", "utf8"));
     const ids = cases.map((x: unknown) => caseSchema.parse(x).id);
-    expect(ids).toHaveLength(39);
+    expect(ids).toHaveLength(44);
     expect(new Set(ids).size).toBe(ids.length);
     // Every route: add case points at a ticket that's in the backlog.
     const keys = new Set(backlog.map((b: unknown) => backlogSchema.parse(b).key));
@@ -149,6 +149,13 @@ describe("runCase", () => {
     expect((await runCase(k, { db, models: file(), agent, settings, backlog })).pass).toBe(true);
     const again = await runCase(k, { db, models: file(), agent, settings, backlog });
     expect(again.outcome.tickets.filed.map((f) => f.key)).toEqual(["ED-901"]);
+  });
+
+  it("starts a report case from the widget's shortcut, even where settings don't offer it", async () => {
+    const models = new FakeClient([text("What did you expect to happen?")]);
+    const k = c("bug", { question: "Clues don't show on the TV", report: "bug" });
+    expect((await runCase(k, { db: openDb(":memory:"), models, agent, settings: parseSettings(""), backlog })).pass).toBe(true);
+    expect(models.requests[0].system).toContain('This person chose "Report a bug"');
   });
 
   it("raises a model error instead of scoring it as a handoff", async () => {

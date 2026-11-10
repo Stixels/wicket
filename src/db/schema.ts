@@ -54,6 +54,8 @@ export const conversations = sqliteTable(
     budgetMicros: integer("budget_micros"),
     /** A visitor passed the bot check when starting this conversation. */
     verified: integer("verified", { mode: "boolean" }),
+    /** Started from a widget shortcut ("Report a bug" or "Request a feature") and not logged yet. */
+    report: text("report", { enum: ["bug", "feature"] }),
     context: text("context", { mode: "json" }).$type<Record<string, unknown>>(),
     relayThreadId: text("relay_thread_id"),
     /** When the user last had the widget connected. */

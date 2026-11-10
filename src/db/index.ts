@@ -155,6 +155,7 @@ export function openDb(file: string): Db {
     last_seen_at: "INTEGER",
     budget_micros: "INTEGER",
     verified: "INTEGER",
+    report: "TEXT",
   });
   sqlite.exec("CREATE INDEX IF NOT EXISTS conversations_user ON conversations(user_id, updated_at)");
   addMissingColumns(sqlite, "messages", { attachments: "TEXT", member_id: "TEXT", mentions: "TEXT", event: "TEXT", card: "TEXT", evidence: "TEXT", follow_ups: "TEXT", rating: "TEXT" });
