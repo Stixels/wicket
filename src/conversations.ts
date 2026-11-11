@@ -15,6 +15,7 @@ import { UsageLedger, dollarsToMicros } from "./usage.js";
 import { Members, type Member } from "./team/members.js";
 import type { TicketNotice, TicketDesk } from "./tickets.js";
 import type { TicketTools } from "./agent/agent.js";
+import { cleanTrail, formatTrail, scrubText, type TrailStep } from "./trail.js";
 
 type Author = "user" | "agent" | "staff" | "system" | "note";
 type Status = "agent" | "needs_human" | "human" | "resolved";
@@ -33,8 +34,6 @@ export interface PublicMessage {
   evidence?: Evidence[];
   /** On assistant answers: questions to offer next. */
   followUps?: string[];
-  /** On assistant answers: the assistant offered to file a bug or feature request; the widget shows a button. */
-  offer?: ReportKind;
   /** On assistant answers: the person's thumbs up or down. */
   rating?: "up" | "down" | null;
   createdAt: number;
@@ -129,6 +128,8 @@ export const MESSAGES = {
 
 const MAX_BODY = 4000;
 const MAX_CONTEXT_JSON = 8000;
+/** How long after the assistant logs a bug the widget's trail for it is accepted. */
+const TRAIL_WAIT_MS = 5 * 60 * 1000;
 
 /**
  * Owns the conversation lifecycle: stores messages, runs the agent while it is
@@ -152,6 +153,13 @@ export class ConversationService {
   private userTokens = new Map<string, { token: string; env: string | null }>();
   /** The context last shown to the model per conversation, so a change (another page) is sent again. */
   private sentContext = new Map<string, string>();
+  /**
+   * The activity trail sent with a bug report that isn't logged yet, as lines for the ticket. Kept in
+   * memory only, until the report is logged; the transcript has its own copy for the model.
+   */
+  private trails = new Map<string, { lines: string; at: number }>();
+  /** Bugs the assistant logged on its own, waiting for the widget to send what led up to them. */
+  private wantTrail = new Map<string, { tickets: { id: string; key: string }[]; at: number }>();
 
   constructor(
     private db: Db,
@@ -308,8 +316,9 @@ export class ConversationService {
     contextUpdate?: Record<string, unknown>,
     attachmentIds: string[] = [],
     signedIn?: { identity: Identity; token: string } | null,
-    report?: ReportKind | null,
+    start: { report?: ReportKind | null; trail?: TrailStep[] } = {},
   ): Promise<PublicMessage> {
+    const { report } = start;
     const text = body.trim().slice(0, MAX_BODY);
     if (contextUpdate) this.mergeContext(id, contextUpdate);
     if (signedIn) this.refreshIdentity(id, signedIn.identity, signedIn.token);
@@ -321,8 +330,11 @@ export class ConversationService {
       // A tag before the message that starts it, where the widget showed it from the moment it was chosen.
       this.addMessage(id, "system", MESSAGES.reportStarted(started), null, undefined, { event: "report" });
     }
+    // What they did just before a bug report: for the model to propose the steps, and for the ticket.
+    const activity = started === "bug" && start.trail ? formatTrail(cleanTrail(start.trail)) : null;
+    if (activity !== null) this.keepTrail(id, activity);
     const msg = this.addMessage(id, "user", text, null, (messageId) => this.files.claim(id, attachmentIds, messageId));
-    this.enqueue(id, () => this.handleUserMessage(id, msg.body, msg.attachments, started));
+    this.enqueue(id, () => this.handleUserMessage(id, msg.body, msg.attachments, started, activity));
     const { memberId: _member, mentions: _mentions, ...pub } = msg;
     return pub;
   }
@@ -611,6 +623,11 @@ export class ConversationService {
     };
     // The user sees a card saying it's logged and that they'll hear back, so the reply needn't repeat it.
     const hearBack = desk.canFollow ? " They'll also see a card saying it's logged. Thank them briefly and say it went straight to the team and they'll hear back here." : "";
+    // A bug report's trail goes on the ticket under its own heading.
+    const activity = (kind: string | null | undefined) => {
+      const lines = kind === "bug" ? this.trailFor(id) : null;
+      return lines ? `\n\n## Recent activity\n${lines}` : "";
+    };
     const logged = (kind: TicketCard["kind"], summary: string, others = 0, planned = false) => {
       if (desk.canFollow) cards.push({ type: "ticket", stage: planned ? "planned" : "logged", kind, summary: summary.trim().slice(0, 300), reportedAt: Date.now(), ...(planned ? { doneAt: Date.now() } : {}), ...(others ? { others } : {}) });
     };
@@ -622,9 +639,10 @@ export class ConversationService {
       },
       file: async (input) => {
         const ticket = await desk.file(
-          { title: String(input.title).slice(0, 200), kind: input.kind, description: `${input.description}\n\n---\nReported by ${source()}` },
+          { title: String(input.title).slice(0, 200), kind: input.kind, description: `${input.description}${activity(input.kind)}\n\n---\nReported by ${source()}` },
           { conversationId: id, summary: input.user_summary },
         );
+        this.askForTrail(id, input.kind, ticket);
         this.addMessage(id, "note", `Filed ${ticket.key}: ${ticket.title}\n${ticket.url}`, "Assistant");
         await this.mirror(id, "system", `🎫 Filed [${ticket.key}](${ticket.url}): ${ticket.title}`);
         logged(input.kind, input.user_summary);
@@ -636,10 +654,11 @@ export class ConversationService {
           conversationId: id,
           summary: input.user_summary,
           kind: input.kind,
-          comment: `Another report from ${source()}:\n\n${input.note}`,
+          comment: `Another report from ${source()}:\n\n${input.note}${activity(input.kind)}`,
         });
         if (!result) return `There's no ticket ${input.key}. Use a key from find_tickets, or file_ticket.`;
         if (result.already) return `This conversation is already on ${result.ticket.key}.`;
+        this.askForTrail(id, input.kind, result.ticket);
         this.reportLogged(id);
         this.addMessage(id, "note", `Added this report to ${result.ticket.key}: ${result.ticket.title}\n${result.ticket.url}`, "Assistant");
         await this.mirror(id, "system", `➕ Added to [${result.ticket.key}](${result.ticket.url}): ${result.ticket.title}`);
@@ -654,6 +673,44 @@ export class ConversationService {
   /** A report from a shortcut is logged, so later messages are an ordinary conversation again. */
   private reportLogged(id: string) {
     this.db.update(schema.conversations).set({ report: null }).where(eq(schema.conversations.id, id)).run();
+    this.trails.delete(id);
+  }
+
+  private keepTrail(id: string, lines: string) {
+    const hourAgo = Date.now() - 60 * 60 * 1000;
+    for (const [k, v] of this.trails) if (v.at < hourAgo) this.trails.delete(k);
+    this.trails.set(id, { lines, at: Date.now() });
+  }
+
+  /** The trail sent with this conversation's open bug report: lines, "" when it was empty, null when none came. */
+  private trailFor(id: string): string | null {
+    const t = this.trails.get(id);
+    return t && Date.now() - t.at < 60 * 60 * 1000 ? t.lines : null;
+  }
+
+  /** A bug was logged without a trail (the assistant logged it on its own): ask the widget for one. */
+  private askForTrail(id: string, kind: string | null | undefined, ticket: { id: string; key: string }) {
+    if (kind !== "bug" || this.trailFor(id) !== null) return;
+    const now = Date.now();
+    for (const [k, v] of this.wantTrail) if (now - v.at > TRAIL_WAIT_MS) this.wantTrail.delete(k);
+    const pending = this.wantTrail.get(id);
+    this.wantTrail.set(id, { tickets: [...(pending?.tickets ?? []), { id: ticket.id, key: ticket.key }], at: now });
+    this.events.emit(id, { type: "trail" });
+  }
+
+  /**
+   * What the person did before the bug the assistant just logged, from the widget: added to that ticket
+   * as a comment. Only accepted for a few minutes after the assistant asked for it, and only once.
+   */
+  async attachTrail(id: string, steps: TrailStep[]): Promise<boolean> {
+    const pending = this.wantTrail.get(id);
+    this.wantTrail.delete(id);
+    if (!pending || Date.now() - pending.at > TRAIL_WAIT_MS || !this.tickets) return false;
+    const lines = formatTrail(cleanTrail(steps));
+    if (!lines) return true;
+    for (const t of pending.tickets) await this.tickets.comment(t.id, `## Recent activity\n${lines}`);
+    this.addMessage(id, "note", `Added the recent activity from the widget to ${pending.tickets.map((t) => t.key).join(", ")}`, "Assistant");
+    return true;
   }
 
   /** Waits for queued work on a conversation (used by tests and graceful shutdown). */
@@ -670,7 +727,7 @@ export class ConversationService {
     });
   }
 
-  private async handleUserMessage(id: string, body: string, attachments: Attachment[] = [], started: ReportKind | null = null) {
+  private async handleUserMessage(id: string, body: string, attachments: Attachment[] = [], started: ReportKind | null = null, activity: string | null = null) {
     const c = this.get(id);
     if (!c) return;
 
@@ -721,6 +778,7 @@ export class ConversationService {
       content.push({ type: "text", text: `<app_context>\n${contextJson}\n</app_context>` });
     }
     if (contextJson) this.sentContext.set(id, contextJson);
+    if (activity) content.push({ type: "text", text: `<recent_activity>\n${activity}\n</recent_activity>` });
     // Files go in as markers; history() turns image markers into images for the model.
     for (const a of attachments) content.push({ type: "text", text: `<wicket-file id="${a.id}"/>` });
     if (body) content.push({ type: "text", text: body });
@@ -735,8 +793,6 @@ export class ConversationService {
       const tickets = profile.tickets ? this.ticketTools(id, cards) : undefined;
       // A report started from a shortcut: the assistant gathers the details and logs it.
       const report = tickets && c.report && this.reportsFor(profile).includes(c.report) ? c.report : undefined;
-      // Otherwise the assistant can offer to start one when a bug or idea comes up.
-      const offers = tickets && !report ? this.reportsFor(profile) : [];
       const result = await this.agent.respond(
         this.history(id),
         {
@@ -755,7 +811,6 @@ export class ConversationService {
           followUps: profile.followUps,
           providerOptions: profile.providerOptions,
           report,
-          offers,
           ...(app ? { maxSteps: this.appToolSteps } : {}),
         },
       );
@@ -766,7 +821,6 @@ export class ConversationService {
         this.addMessage(id, "agent", result.reply, null, undefined, {
           ...(evidence.length ? { evidence } : {}),
           ...(result.followUps.length ? { followUps: result.followUps } : {}),
-          ...(result.offer ? { offer: result.offer } : {}),
         });
         await this.mirror(id, "agent", result.reply);
       }
@@ -896,7 +950,7 @@ export class ConversationService {
     body: string,
     authorName: string | null,
     attach?: (messageId: number) => Attachment[],
-    team: { memberId?: string | null; mentions?: string[]; event?: string; card?: TicketCard; evidence?: Evidence[]; followUps?: string[]; offer?: ReportKind } = {},
+    team: { memberId?: string | null; mentions?: string[]; event?: string; card?: TicketCard; evidence?: Evidence[]; followUps?: string[] } = {},
   ): TeamMessage {
     let row = this.db
       .insert(schema.messages)
@@ -911,7 +965,6 @@ export class ConversationService {
         card: team.card ?? null,
         evidence: team.evidence ?? null,
         followUps: team.followUps ?? null,
-        offer: team.offer ?? null,
         createdAt: new Date(),
       })
       .returning()
@@ -1027,7 +1080,6 @@ function toPublic(m: typeof schema.messages.$inferSelect): PublicMessage {
     ...(m.card ? { card: m.card } : {}),
     ...(m.evidence?.length ? { evidence: m.evidence } : {}),
     ...(m.followUps?.length ? { followUps: m.followUps } : {}),
-    ...(m.offer ? { offer: m.offer } : {}),
     ...(m.author === "agent" ? { rating: m.rating ?? null } : {}),
     createdAt: m.createdAt.getTime(),
   };
@@ -1050,11 +1102,7 @@ export function sanitizeContext(ctx: Record<string, unknown> | undefined): Recor
   if (!ctx || typeof ctx !== "object") return null;
   const redact = (v: unknown): unknown => {
     if (typeof v === "string") {
-      return v
-        // Not next to a letter, digit, "_" or "-", so IDs like UUIDs that end in digits stay whole.
-        .replace(/(?<![\w-])(?:\d[ -]?){13,19}(?![\w-])/g, "[redacted-number]")
-        .replace(/\b(bearer|token|password|secret|api[_-]?key)\b\s*[:=]\s*\S+/gi, "$1=[redacted]")
-        .slice(0, 1000);
+      return scrubText(v).slice(0, 1000);
     }
     if (Array.isArray(v)) return v.slice(0, 30).map(redact);
     if (v && typeof v === "object") {

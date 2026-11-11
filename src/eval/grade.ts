@@ -1,10 +1,11 @@
 import { z } from "zod";
 import type { TrackerLog } from "./tracker.js";
+import { trailBody } from "../trail.js";
 
 export const caseSchema = z
   .object({
     id: z.number(),
-    kind: z.enum(["answer", "handoff", "decline", "bug", "idea", "code", "hardware", "route", "offer"]),
+    kind: z.enum(["answer", "handoff", "decline", "bug", "idea", "code", "hardware", "route", "steps"]),
     question: z.string(),
     /** What the person says next, one message per entry, each after the assistant's reply. */
     then: z.array(z.string()).default([]),
@@ -20,13 +21,13 @@ export const caseSchema = z
     ticketKinds: z.array(z.enum(["bug", "feature", "improvement", "docs"])).default([]),
     /** The person started from the widget's "Report a bug" or "Request a feature" shortcut. */
     report: z.enum(["bug", "feature"]).optional(),
-    /** offer: what the assistant should offer to file, on a profile with the report shortcuts. */
-    offer: z.enum(["bug", "feature"]).optional(),
+    /** What the widget recorded the person doing just before the report, sent with the first message. */
+    trail: trailBody.optional(),
   })
   .strict()
   .refine((c) => c.kind !== "route" || c.route, { message: "a route case needs `route`" })
   .refine((c) => c.route !== "add" || c.key, { message: "a route: add case needs `key`" })
-  .refine((c) => c.kind !== "offer" || c.offer, { message: "an offer case needs `offer`" });
+  .refine((c) => c.kind !== "steps" || (c.report === "bug" && c.trail?.length), { message: "a steps case needs `report: bug` and a `trail`" });
 export type EvalCase = z.infer<typeof caseSchema>;
 
 export interface Outcome {
@@ -34,8 +35,6 @@ export interface Outcome {
   handedOff: boolean;
   /** What the assistant filed and added to, when the case ran with a tracker. */
   tickets?: TrackerLog;
-  /** What the assistant offered to file, one entry per offer. */
-  offers?: string[];
 }
 
 export interface Grade {
@@ -54,6 +53,8 @@ const SENDS_ELSEWHERE = /\b(feedback (channel|form|portal)|send it (through|to)|
 const MANAGED_BOARDS = /\b(UNO R4|GIGA)\b/i;
 // Ticket keys and the tracker stay out of what the person reads.
 const TICKET_KEY = /\b[A-Z]{2,}-\d+\b/;
+// With the trail in hand, a bug report proposes the steps instead of asking what they did.
+const ASKS_OPEN_STEPS = /\bwhat (were you doing|did you (do|click)|steps)\b|\bwalk me through\b|\bhow did you get\b|\bsteps (you took|that led)\b/i;
 const OTHER_DEVICES = /\b(MQTT|HTTP|other boards?|board adapter|any (?:device|board))\b/i;
 
 /** Scores one reply by its case's kind. No model is involved, so a run is cheap and repeatable. */
@@ -99,12 +100,15 @@ export function grade(c: EvalCase, o: Outcome): Grade {
       check(OTHER_DEVICES.test(o.reply), "didn't say other boards or MQTT/HTTP devices work");
       check(linksOne(c.links), `no link to ${c.links.join(" or ")}`);
       break;
-    case "offer": {
+    case "steps": {
       noHandoff();
-      const offers = o.offers ?? [];
-      check(offers.includes(c.offer!), `didn't offer to file a ${c.offer}${offers.length ? ` (offered ${offers.join(", ")})` : ""}`);
+      check(c.mentions.some((m) => o.reply.toLowerCase().includes(m.toLowerCase())), `didn't propose the steps (no ${c.mentions.join(" or ")})`);
+      check(o.reply.includes("?"), "didn't ask them to confirm");
+      check((o.reply.match(/\?/g) ?? []).length <= 2, "asked more than two questions");
+      check(!ASKS_OPEN_STEPS.test(o.reply), "asked what they did instead of proposing the steps");
+      check(!ASKS_APP_CONTEXT.test(o.reply), "asked for something the app already sends");
       const { filed, added } = o.tickets ?? { filed: [], added: [] };
-      check(!filed.length && !added.length, "logged it instead of offering");
+      check(!filed.length && !added.length, "logged it before they could confirm");
       break;
     }
     case "route": {
@@ -118,6 +122,10 @@ export function grade(c: EvalCase, o: Outcome): Grade {
         if (f && filed.length === 1 && c.ticketKinds.length) check(c.ticketKinds.includes(f.kind as never), `filed as ${f.kind}, expected ${c.ticketKinds.join(" or ")}`);
         const body = f ? `${f.title}\n${f.description}`.toLowerCase() : "";
         if (f && c.mentions.length) check(c.mentions.some((m) => body.includes(m.toLowerCase())), `ticket doesn't mention ${c.mentions.join(" or ")}`);
+        if (f && c.trail?.length) {
+          check(body.includes("## steps to reproduce"), "ticket has no Steps to reproduce");
+          check(body.includes("## recent activity"), "ticket has no Recent activity");
+        }
       }
       if (c.links.length) check(linksOne(c.links), `no link to ${c.links.join(" or ")}`);
       check(!TICKET_KEY.test(o.reply), "told the user a ticket key");

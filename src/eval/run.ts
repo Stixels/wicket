@@ -57,11 +57,10 @@ export async function runCase(
   const agent = new RecordingAgent(o.models, o.agent);
   // The eval's own spend shouldn't hit the monthly cap, and the assistant always logs tickets here.
   const settings: Settings = { ...o.settings, budgets: { ...o.settings.budgets, monthlyTotal: undefined }, tickets: { ...o.settings.tickets, assistant: true } };
-  // Cases started from a shortcut, or checking the assistant offers one, run where the shortcuts are on. The
-  // rest run without them, where the assistant logs what it hears itself.
+  // Every case runs where the report shortcuts are on, as in production: the assistant still logs what it
+  // hears on its own, and cases with `report` start from a shortcut.
   const { name, ...profile } = resolveProfile(settings, { signedIn: true, plan: null, path: pathFromContext(APP_CONTEXT) });
-  const shortcuts = Boolean(c.report) || c.kind === "offer";
-  settings.profiles = { ...settings.profiles, [name]: { ...profile, ...(shortcuts ? { tickets: true, report: "both" } : { report: "none" }) } };
+  settings.profiles = { ...settings.profiles, [name]: { ...profile, report: "both", ...(c.report ? { tickets: true } : {}) } };
   const service = new ConversationService(o.db, agent, null, {
     settings,
     tickets: new TicketDesk(o.db, tracker, { notify: async () => {}, log: () => {} }),
@@ -71,7 +70,7 @@ export async function runCase(
   const who = { id: `eval-${++runs}`, name: "Sam", email: "sam@example.com", plan: null, account: null, budget: null, env: null };
   const { id } = service.create({}, APP_CONTEXT, { identity: who });
   for (const [i, message] of [c.question, ...c.then].entries()) {
-    await service.postUserMessage(id, message, undefined, [], null, i === 0 ? c.report : null);
+    await service.postUserMessage(id, message, undefined, [], null, i === 0 ? { report: c.report, trail: c.trail } : {});
     await service.idle(id);
     if (agent.errors.length) throw agent.errors[0];
   }
@@ -83,7 +82,6 @@ export async function runCase(
       .join("\n\n"),
     handedOff: agent.results.some((r) => r.handedOff) || service.get(id)?.status === "needs_human",
     tickets: tracker.log,
-    offers: service.list(id).flatMap((m) => (m.offer ? [m.offer] : [])),
   };
   return {
     ...grade(c, outcome),

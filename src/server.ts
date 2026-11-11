@@ -13,6 +13,7 @@ import type { Db } from "./db/index.js";
 import { INLINE_TYPES, MAX_FILES_PER_CONVERSATION, MAX_FILE_BYTES, allowedType } from "./files.js";
 import { verifyWebhook, type ReplyEmails } from "./email.js";
 import { playgroundPage } from "./playground.js";
+import { trailBody } from "./trail.js";
 
 export interface ServerOptions {
   allowedOrigins: string[];
@@ -57,6 +58,8 @@ const messageBody = z.object({
   attachments: z.array(z.string().max(64)).max(10).default([]),
   /** Sent with the first message after a widget shortcut: start a bug report or feature request. */
   report: z.enum(["bug", "feature"]).optional(),
+  /** With a bug report: what the person did just before, from the widget. */
+  trail: trailBody.optional(),
 });
 
 const summariesBody = z.object({
@@ -214,9 +217,22 @@ export function createServer(service: ConversationService, opts: ServerOptions) 
     // A fresh token with each message: the app's tools run as this person, with their current allowance.
     const identity = verifyUserToken(parsed.data.userToken, opts.identitySecret);
     const signedIn = identity && parsed.data.userToken ? { identity, token: parsed.data.userToken } : null;
-    const message = await service.postUserMessage(conv.id, parsed.data.body, parsed.data.context, parsed.data.attachments, signedIn, report);
+    const message = await service.postUserMessage(conv.id, parsed.data.body, parsed.data.context, parsed.data.attachments, signedIn, { report, trail: parsed.data.trail });
     if (!message.body && !message.attachments.length) return c.json({ error: "Those files couldn't be attached" }, 400);
     return c.json({ message }, 201);
+  });
+
+  // What the person did before a bug the assistant logged on its own; the server asked for it right after.
+  app.post("/api/conversations/:id/trail", async (c) => {
+    const conv = service.authorize(c.req.param("id"), bearer(c) ?? "");
+    if (!conv) return c.json({ error: "Not found" }, 404);
+    if (!limiter.allow(`conv:${conv.id}`, opts.maxMessagesPerConversationPerHour)) {
+      return c.json({ error: "Too many messages, try again later" }, 429);
+    }
+    const parsed = z.object({ trail: trailBody }).safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: "Invalid trail" }, 400);
+    if (!(await service.attachTrail(conv.id, parsed.data.trail))) return c.json({ error: "No bug is waiting for this" }, 409);
+    return c.json({ ok: true });
   });
 
   app.post("/api/conversations/:id/messages/:messageId/rating", async (c) => {

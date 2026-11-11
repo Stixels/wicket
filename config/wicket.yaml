@@ -68,7 +68,7 @@ profiles:
   # every answer from everyone on the account counts toward it.
   default:
     suggestions: []
-    # "Report a bug" and "Request a feature" in the widget, so filing doesn't wait on the assistant deciding to.
+    # "Report a bug" and "Request a feature" in the widget: a direct way to file, alongside the assistant logging on its own.
     report: both
     appTools:
       url:

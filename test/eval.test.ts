@@ -15,7 +15,7 @@ describe("eval grading", () => {
   it("loads every case in evals/cases.yaml", () => {
     const { cases, backlog } = parse(readFileSync("evals/cases.yaml", "utf8"));
     const ids = cases.map((x: unknown) => caseSchema.parse(x).id);
-    expect(ids).toHaveLength(47);
+    expect(ids).toHaveLength(49);
     expect(new Set(ids).size).toBe(ids.length);
     // Every route: add case points at a ticket that's in the backlog.
     const keys = new Set(backlog.map((b: unknown) => backlogSchema.parse(b).key));
@@ -71,14 +71,18 @@ describe("eval grading", () => {
     ]);
   });
 
-  it("offer: offered the expected report and logged nothing", () => {
-    const k = c("offer", { offer: "bug" });
-    expect(grade(k, { reply: "Want me to file this as a bug?", handedOff: false, offers: ["bug"], tickets: { filed: [], added: [] } }).pass).toBe(true);
-    expect(grade(k, { reply: "Logged it.", handedOff: false, offers: [], tickets: { filed: [], added: ["ED-101"] } }).why).toEqual([
-      "didn't offer to file a bug",
-      "logged it instead of offering",
+  it("steps: proposes the steps from the trail, asks to confirm, logs nothing yet", () => {
+    const trail = [{ ago: 70, type: "click" as const, label: "Pause game" }];
+    const k = c("steps", { report: "bug", trail, mentions: ["paus"] });
+    const none = { filed: [], added: [] };
+    const good = "Looks like you paused the game, then sent a Clue from the Room Dashboard. Is that right, and does it happen every time?";
+    expect(grade(k, { reply: good, handedOff: false, tickets: none }).pass).toBe(true);
+    expect(grade(k, { reply: "Sorry! What were you doing when it happened?", handedOff: false, tickets: { filed: [], added: ["ED-101"] } }).why).toEqual([
+      "didn't propose the steps (no paus)",
+      "asked what they did instead of proposing the steps",
+      "logged it before they could confirm",
     ]);
-    expect(grade(k, { reply: "File it?", handedOff: false, offers: ["feature"] }).why).toEqual(["didn't offer to file a bug (offered feature)"]);
+    expect(() => caseSchema.parse({ id: 1, kind: "steps", question: "x", report: "bug" })).toThrow(/needs `report: bug` and a `trail`/);
   });
 
   it("route: checks links in any reply when the case lists some", () => {
@@ -173,6 +177,13 @@ describe("runCase", () => {
     const k = c("bug", { question: "Clues don't show on the TV", report: "bug" });
     expect((await runCase(k, { db: openDb(":memory:"), models, agent, settings: parseSettings(""), backlog })).pass).toBe(true);
     expect(models.requests[0].system).toContain('This person chose "Report a bug"');
+  });
+
+  it("runs every case with the shortcuts on, and sends a case's trail with its report", async () => {
+    const models = new FakeClient([text("Looks like you paused the game. Is that right?")]);
+    const k = c("steps", { question: "Counter reset", report: "bug", trail: [{ ago: 70, type: "click", label: "Pause game" }], mentions: ["paus"] });
+    expect((await runCase(k, { db: openDb(":memory:"), models, agent, settings: parseSettings(""), backlog })).pass).toBe(true);
+    expect(JSON.stringify(models.requests[0].messages)).toContain('clicked \\"Pause game\\"');
   });
 
   it("raises a model error instead of scoring it as a handoff", async () => {

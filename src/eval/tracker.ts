@@ -64,6 +64,11 @@ export class EvalTracker implements Tracker {
     this.log.added.push(t.key);
   }
 
+  /** The comments on a ticket, oldest first. */
+  commentsOn(key: string): string[] {
+    return this.tickets.find((t) => t.key === key)?.comments ?? [];
+  }
+
   async states(ids: string[]) {
     return this.tickets.filter((t) => ids.includes(t.id)).map(plain);
   }

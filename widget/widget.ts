@@ -1,5 +1,6 @@
 import { Halftone } from "./halftone.js";
 import { hideEvidenceMarkers } from "./evidence.js";
+import { Trail, clickLabel, pageLabel } from "./trail.js";
 /**
  * Help and feedback widget. Add to any web app:
  *
@@ -80,6 +81,11 @@ interface InitOptions {
   theme?: Theme;
   /** @deprecated use theme.accentColor */
   accentColor?: string;
+  /**
+   * false: don't keep the short trail of recent pages, button clicks, console errors and breadcrumbs
+   * that goes with a bug report. On by default; it stays in the page until a bug is reported.
+   */
+  trail?: boolean;
 }
 
 type UiKey = "title" | "assistantName" | "subtitle" | "welcomeTitle" | "welcomeSubtitle" | "placeholder" | "suggestions";
@@ -120,17 +126,9 @@ interface Session {
 
 type ReportKind = "bug" | "feature";
 /** The shortcuts that start a guided report, and what the message box asks for. */
-const REPORTS: Record<ReportKind, { label: string; hint: string; tag: string; placeholder: string; icon: "bug" | "idea"; offer: string; accept: string }> = {
-  bug: { label: "Report a bug", hint: "Something isn't working", tag: "Bug report", placeholder: "What happened?", icon: "bug", offer: "File it as a bug", accept: "Yes, please file it as a bug." },
-  feature: {
-    label: "Request a feature",
-    hint: "Share an idea",
-    tag: "Feature request",
-    placeholder: "What would you like to be able to do?",
-    icon: "idea",
-    offer: "File it as a feature request",
-    accept: "Yes, please file it as a feature request.",
-  },
+const REPORTS: Record<ReportKind, { label: string; hint: string; tag: string; placeholder: string; icon: "bug" | "idea" }> = {
+  bug: { label: "Report a bug", hint: "Something isn't working", tag: "Bug report", placeholder: "What happened?", icon: "bug" },
+  feature: { label: "Request a feature", hint: "Share an idea", tag: "Feature request", placeholder: "What would you like to be able to do?", icon: "idea" },
 };
 
 interface Summary {
@@ -168,8 +166,6 @@ interface Message {
   evidence?: Evidence[];
   /** Questions to ask next, shown under the latest answer. */
   followUps?: string[];
-  /** The assistant offered to file a bug or feature request: a button under the latest answer starts it. */
-  offer?: ReportKind;
   rating?: Rating;
   createdAt: number;
 }
@@ -249,7 +245,33 @@ const recentErrors: string[] = [];
 function rememberError(text: string) {
   recentErrors.push(`${new Date().toISOString()} ${text}`.slice(0, 500));
   if (recentErrors.length > 20) recentErrors.shift();
+  trail.add("error", text.split("\n")[0]!);
 }
+
+// What the person did lately in the host page, sent only with a bug report (see trail.ts).
+const trail = new Trail();
+trail.add("page", pageLabel(location));
+for (const method of ["pushState", "replaceState"] as const) {
+  const original = history[method];
+  history[method] = function (this: History, ...args: Parameters<History["pushState"]>) {
+    const result = original.apply(this, args);
+    trail.add("page", pageLabel(location));
+    return result;
+  };
+}
+window.addEventListener("popstate", () => trail.add("page", pageLabel(location)));
+window.addEventListener("hashchange", () => trail.add("page", pageLabel(location)));
+document.addEventListener(
+  "click",
+  (e) => {
+    const target = e.target as Element | null;
+    // Clicks in the widget itself aren't part of what happened in the app.
+    if (!target || target.closest?.("[data-wicket]")) return;
+    const label = clickLabel(target);
+    if (label) trail.add("click", label);
+  },
+  true,
+);
 const originalConsoleError = console.error;
 console.error = (...args: unknown[]) => {
   try {
@@ -588,7 +610,7 @@ button { font: inherit; color: inherit; }
   padding: 12px 14px; border-radius: 14px; border: 1px solid var(--wk-border); background: var(--wk-bubble); cursor: pointer;
   transition: border-color .15s, transform .15s; }
 .shortcut:hover { border-color: color-mix(in srgb, var(--wk-accent) 40%, var(--wk-border)); transform: translateY(-1px); }
-.shortcut:focus-visible, .offer:focus-visible, .system.report button:focus-visible { outline: 3px solid color-mix(in srgb, var(--wk-accent) 45%, transparent); outline-offset: 2px; }
+.shortcut:focus-visible, .system.report button:focus-visible { outline: 3px solid color-mix(in srgb, var(--wk-accent) 45%, transparent); outline-offset: 2px; }
 .shortcut > svg:first-child { grid-row: span 2; width: 18px; height: 18px; color: var(--wk-muted); }
 .shortcut b { font-size: 13.5px; font-weight: 600; }
 .shortcut small { grid-column: 2; font-size: 12px; color: var(--wk-muted); }
@@ -599,10 +621,6 @@ button { font: inherit; color: inherit; }
 .system.report button { width: 18px; height: 18px; margin: -2px -6px -2px 0; border: 0; border-radius: 50%; background: transparent; color: var(--wk-muted); cursor: pointer; display: grid; place-items: center; padding: 0; }
 .system.report button:hover { color: var(--wk-text); background: color-mix(in srgb, var(--wk-text) 8%, transparent); }
 .system.report button svg { width: 11px; height: 11px; }
-/* The assistant's offer to file what came up as a bug or feature request. */
-.offer-row { display: flex; margin: 4px 0 6px 4px; animation: wk-in .25s ease; }
-.offer { display: inline-flex; align-items: center; gap: 7px; }
-.offer svg { width: 14px; height: 14px; flex: none; }
 /* Conversation list */
 .recent { margin: 18px 0 4px; display: flex; flex-direction: column; gap: 8px; }
 .recent-h { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; font-weight: 600;
@@ -780,8 +798,8 @@ class Widget {
   private shortcuts!: HTMLElement;
   /** A report shortcut was chosen; the next message starts it. */
   private reportMode: ReportKind | null = null;
-  /** The assistant's offer to file a report, under the latest answer. */
-  private offerEl: HTMLElement | null = null;
+  /** When the person last sent a message: a trail asked for after the assistant filed a bug ends there. */
+  private lastSentAt = 0;
   private input!: HTMLTextAreaElement;
   private tray!: HTMLElement;
   private pending: { file: File; preview: string | null }[] = [];
@@ -824,6 +842,7 @@ class Widget {
     const apiUrl = (options.apiUrl ?? (scriptSrc ? new URL(scriptSrc).origin : location.origin)).replace(/\/$/, "");
     this.given = options;
     this.opts = { ...DEFAULTS, ...defined(options), apiUrl };
+    if (options.trail === false) trail.disable();
     this.givenTheme = defined(options.theme ?? {});
     if (options.accentColor && !this.givenTheme.accentColor) this.givenTheme.accentColor = options.accentColor;
     this.theme = this.withServerTheme(SERVER_THEME);
@@ -1433,21 +1452,6 @@ class Widget {
     if (kind) this.input.focus();
   }
 
-  /** Under the latest answer: the assistant's offer to file what came up, which starts the same guided report. */
-  private showOffer(kind: ReportKind) {
-    if (!this.reports().includes(kind)) return;
-    const row = document.createElement("div");
-    row.className = "offer-row";
-    row.innerHTML = `<button type="button" class="chip offer">${ICONS[REPORTS[kind].icon]}<span>${escapeHtml(REPORTS[kind].offer)}</span></button>`;
-    row.querySelector("button")!.addEventListener("click", () => {
-      this.setReportMode(kind);
-      void this.send(REPORTS[kind].accept, kind);
-    });
-    this.offerEl?.remove();
-    this.offerEl = row;
-    this.log.insertBefore(row, this.nextEl ?? this.typing);
-  }
-
   /** Up to three earlier conversations under the start screen. */
   private async showRecent() {
     const list = await this.summaries();
@@ -1638,7 +1642,7 @@ class Widget {
   }
 
   /** Sends what's in the message box, or the given text (a quick start, a follow-up, Wicket.ask). */
-  private async send(text?: string, report: ReportKind | null = null) {
+  private async send(text?: string) {
     const typed = text === undefined;
     const body = typed ? this.input.value.trim() : text.trim();
     if ((!body && !(typed && this.pending.length)) || this.input.disabled) return;
@@ -1653,7 +1657,7 @@ class Widget {
         this.autosize();
       }
       if (files.length) this.tray.classList.add("busy");
-      const starts = typed ? this.reportMode : report;
+      const starts = typed ? this.reportMode : null;
       await this.post(body, files.map((p) => p.file), starts);
       if (starts) {
         // The tag stays where it is; the server's copy of it arrives next and takes its place.
@@ -1681,6 +1685,7 @@ class Widget {
 
   /** Starts the conversation if needed, uploads files, posts the message and shows it. */
   private async post(body: string, files: File[], report: ReportKind | null = null) {
+    this.lastSentAt = Date.now();
     if (!this.conv) await this.createConversation();
     const conv = this.conv!;
     const attachments: string[] = [];
@@ -1692,6 +1697,8 @@ class Widget {
       context: { page: location.href, ...(this.opts.context ?? {}) },
       userToken: await this.userToken(),
       ...(report ? { report } : {}),
+      // What they did just before, only when this message starts a bug report.
+      ...(report === "bug" && trail.enabled ? { trail: trail.snapshot(this.lastSentAt) } : {}),
     };
     let res;
     try {
@@ -1840,6 +1847,8 @@ class Widget {
       this.startThinking();
       this.scrollDown();
     });
+    // The assistant logged a bug on its own: the server asks for the trail up to the message that led to it.
+    es.addEventListener("trail", () => this.sendTrail());
     es.addEventListener("idle", () => {
       this.typing.classList.remove("on");
       this.stopThinking();
@@ -1853,6 +1862,12 @@ class Widget {
           .catch(() => {});
       }
     });
+  }
+
+  /** Sends what the person did before their last message, for the bug the assistant just logged. */
+  private sendTrail() {
+    if (!this.conv || !trail.enabled || !this.lastSentAt) return;
+    void this.api(`/api/conversations/${this.conv.id}/trail`, { trail: trail.snapshot(this.lastSentAt) }, true).catch(() => {});
   }
 
   /** This page's connection, so the team can see whether the chat is in view here. */
@@ -1918,11 +1933,9 @@ class Widget {
       this.typing.classList.remove("on");
       this.stopThinking();
     }
-    // Follow-ups and offers belong to the latest answer only.
+    // Follow-ups belong to the latest answer only.
     this.nextEl?.remove();
     this.nextEl = null;
-    this.offerEl?.remove();
-    this.offerEl = null;
 
     if (m.card?.type === "ticket") {
       const el = document.createElement("div");
@@ -2002,7 +2015,6 @@ class Widget {
     this.lastRow = row;
     if (m.author === "staff") this.setAgent(m.authorName || "Team");
     if (m.author === "agent" && m.followUps?.length) this.showFollowUps(m.followUps);
-    if (m.author === "agent" && m.offer) this.showOffer(m.offer);
     this.scrollDown();
   }
 
@@ -2350,6 +2362,8 @@ const api = {
   setAnchor: (el: HTMLElement | null) => instance?.setAnchor(el),
   setQuiet: (quiet: boolean) => instance?.setQuiet(quiet),
   ask: (text: string) => instance?.ask(text),
+  /** Notes a step in the app, like "Paused game", for the trail that goes with a bug report. Works before init. */
+  addBreadcrumb: (label: string) => trail.add("note", label),
   /** Removes the widget. Call init again to bring it back (for example, for the next person to sign in). */
   destroy() {
     instance?.destroy();

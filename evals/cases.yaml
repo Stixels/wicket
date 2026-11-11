@@ -12,7 +12,7 @@
 #   code      no code block, says it can't write code, links one of `links`
 #   hardware  mentions the managed boards and MQTT or HTTP devices, links one of `links`
 #   route     files, adds to, or leaves alone the right ticket (see below); links, when given, in any reply
-#   offer     offers to file a bug or idea instead of logging it (see the end)
+#   steps     a bug report with the widget's trail: proposes the steps for them to confirm, logs nothing yet
 
 cases:
   - { id: 1, kind: answer, question: "How do I add a timer to the screen players see?", links: [build-your-rooms/configure-live-view] }
@@ -144,10 +144,35 @@ cases:
     links: [run-a-session/troubleshoot-a-live-session]
     route: none
 
-  # On a profile with the shortcuts, a bug or idea that comes up in an ordinary chat gets an offer to
-  # file it (a button in the widget), not a ticket the assistant decided on.
-  - { id: 46, kind: offer, offer: bug, question: "Every time I save a puzzle the list jumps back to the top, it's driving me nuts" }
-  - { id: 47, kind: offer, offer: feature, question: "It would be great if game masters could send a clue as a voice recording" }
+  # The shortcuts are on for every case, and they don't stop the assistant logging what comes up in an
+  # ordinary chat on its own.
+  - { id: 46, kind: route, question: "Every time I save a puzzle the list jumps back to the top, it's driving me nuts", route: add, key: ED-103 }
+  - { id: 47, kind: route, question: "It would be great if game masters could send a clue as a voice recording", route: add, key: ED-104 }
+
+  # Report a bug with the widget's trail of what they did just before: propose the steps from it and
+  # ask them to confirm, instead of asking what they were doing.
+  - id: 48
+    kind: steps
+    report: bug
+    question: "The clue counter on the dashboard went back to zero"
+    trail: &paused
+      - { ago: 95, type: page, label: "/rooms/treehouse/dashboard" }
+      - { ago: 70, type: click, label: "Pause game" }
+      - { ago: 64, type: note, label: "Paused game" }
+      - { ago: 40, type: click, label: "Resume" }
+      - { ago: 22, type: click, label: "Send Clue" }
+      - { ago: 21, type: note, label: "Sent Clue" }
+    mentions: [paus]
+  # They confirm, so it's logged with the steps they confirmed and the trail.
+  - id: 49
+    kind: route
+    report: bug
+    question: "The clue counter on the dashboard went back to zero"
+    trail: *paused
+    then: ["Yes, that's it. It happens every time I send a clue after resuming."]
+    route: file
+    ticketKinds: [bug]
+    mentions: [counter]
 
 # Open tickets the fake tracker starts with for every case.
 backlog:
