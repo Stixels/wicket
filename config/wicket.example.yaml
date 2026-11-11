@@ -67,8 +67,9 @@ profiles:
     # budgetScope: person        # person (default) | shared: everyone in this profile spends from one pot
     # botCheck: false            # visitors pass a Cloudflare Turnstile check first (TURNSTILE_* keys)
     # tickets: true              # false: the assistant doesn't log bugs or ideas here
-    # report: none               # bug | feature | both: "Report a bug" / "Request a feature" shortcuts in the
-    #                            # widget; the assistant gathers the details and logs it. Needs tickets and a tracker.
+    # report: none               # bug | feature | both: "Report a bug" / "Request a feature" on the widget's start
+    #                            # screen; a bug gets a fix from the docs first, then the assistant gathers the
+    #                            # details and logs it. Mid-chat it offers to file one. Needs tickets and a tracker.
     # followUps: false           # suggest two or three questions to ask next with each answer
     # appTools:                  # tools from your backend, called with the person's token (see README)
     #   url: https://api.acme.com/wicket/tools   # or { production: ..., staging: ... } by the token's env claim

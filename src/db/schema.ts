@@ -98,6 +98,8 @@ export const messages = sqliteTable(
     evidence: text("evidence", { mode: "json" }).$type<Evidence[]>(),
     /** On assistant answers: questions the person might ask next. */
     followUps: text("follow_ups", { mode: "json" }).$type<string[]>(),
+    /** On assistant answers: an offer to file a bug or feature request, shown as a button. */
+    offer: text("offer", { enum: ["bug", "feature"] }),
     /** On assistant answers: the person's thumbs up or down. */
     rating: text("rating", { enum: ["up", "down"] }),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),

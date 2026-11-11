@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { openDb } from "../src/db/index.js";
-import { Agent } from "../src/agent/agent.js";
+import { Agent, splitOffer } from "../src/agent/agent.js";
 import { ConversationService } from "../src/conversations.js";
 import { createServer } from "../src/server.js";
 import { signUserToken } from "../src/identity.js";
@@ -116,9 +116,14 @@ describe("report shortcuts", () => {
     expect(service.get(conv.id)?.report).toBe("bug");
     expect(client.requests[0]!.system).toContain('This person chose "Report a bug"');
     expect(client.requests[0]!.system).toContain("what they expected to happen instead");
+    // Docs first: a known fix is offered, and only the person saying it worked stops the report.
+    expect(client.requests[0]!.system).toContain("search the docs for a known fix");
+    expect(client.requests[0]!.system).toContain("If they say the fix solved it, don't log anything");
+    expect(client.requests[0]!.system).not.toContain("<offer_report>");
     // The widget context goes with the report.
     expect(JSON.stringify(client.requests[0]!.messages)).toContain("2.3.0");
-    expect(service.list(conv.id).map((m) => `${m.author}: ${m.body}`).slice(0, 2)).toEqual(["user: The player screen goes blank", "system: Bug report"]);
+    // The tag comes first, where the widget showed it from the moment the report was chosen.
+    expect(service.list(conv.id).map((m) => `${m.author}: ${m.body}`).slice(0, 2)).toEqual(["system: Bug report", "user: The player screen goes blank"]);
     expect([...relay.threads.values()][0]!.posts).toContain("system: 🐞 Started from Report a bug");
 
     await post(app, `/api/conversations/${conv.id}/messages`, { body: "After I send a clue, every time. It should show the clue." }, conv.token);
@@ -152,7 +157,56 @@ describe("report shortcuts", () => {
     await post(app, `/api/conversations/${conv.id}/messages`, { body: "Scheduled automations", report: "feature" }, conv.token);
     await service.idle(conv.id);
     expect(client.requests[0]!.system).toContain('This person chose "Request a feature"');
-    expect(service.list(conv.id)[1]!.body).toBe("Feature request");
+    expect(service.list(conv.id)[0]!.body).toBe("Feature request");
+    expect(client.requests[0]!.system).not.toContain("search the docs for a known fix");
+  });
+
+  it("offers to file a bug that comes up, and taking the offer starts the guided report", async () => {
+    const { app, client, service, tracker } = setup([
+      text("Restarting the TV app usually fixes that. If it keeps happening, want me to file this as a bug?\n<offer_report>bug</offer_report>"),
+      toolCall("find_tickets", { query: "clues not on TV" }),
+      toolCall("add_to_ticket", { key: "ED-101", kind: "bug", note: "Clues don't show.", user_summary: "clues not showing on the TV" }),
+      text("Done, it's gone straight to the team."),
+    ]);
+    const conv = await start(app);
+    await post(app, `/api/conversations/${conv.id}/messages`, { body: "Clues aren't showing on the TV" }, conv.token);
+    await service.idle(conv.id);
+    expect(client.requests[0]!.system).toContain("<offer_report>bug</offer_report> or <offer_report>feature</offer_report>");
+    const offered = service.list(conv.id).at(-1)!;
+    expect(offered).toMatchObject({ author: "agent", offer: "bug" });
+    expect(offered.body).not.toContain("offer_report");
+    expect(tracker.log).toEqual({ filed: [], added: [] });
+
+    // The widget's button sends a reply with the intent, checked like any other.
+    await post(app, `/api/conversations/${conv.id}/messages`, { body: "Yes, please file it as a bug.", report: "bug" }, conv.token);
+    await service.idle(conv.id);
+    expect(client.requests[1]!.system).toContain('This person chose "Report a bug"');
+    expect(service.list(conv.id).map((m) => m.body).slice(-4, -2)).toEqual(["Bug report", "Yes, please file it as a bug."]);
+    expect(tracker.log.added).toEqual(["ED-101"]);
+  });
+
+  it("only offers what the profile has, and never without the shortcuts", async () => {
+    const reply = text("Sounds like a bug. Want me to file it?\n<offer_report>feature</offer_report>");
+    const bugsOnly = setup([reply]);
+    const conv = await start(bugsOnly.app, { page: "/bugs" });
+    await post(bugsOnly.app, `/api/conversations/${conv.id}/messages`, { body: "It's broken" }, conv.token);
+    await bugsOnly.service.idle(conv.id);
+    expect(bugsOnly.client.requests[0]!.system).toContain("<offer_report>bug</offer_report> on its own line");
+    expect(bugsOnly.service.list(conv.id).at(-1)).not.toHaveProperty("offer");
+
+    const none = setup([reply], { yaml: "profiles:\n  default: {}" });
+    const other = await start(none.app);
+    await post(none.app, `/api/conversations/${other.id}/messages`, { body: "It's broken" }, other.token);
+    await none.service.idle(other.id);
+    expect(none.client.requests[0]!.system).not.toContain("offer_report");
+    expect(none.service.list(other.id).at(-1)).toMatchObject({ body: "Sounds like a bug. Want me to file it?" });
+    expect(none.service.list(other.id).at(-1)).not.toHaveProperty("offer");
+  });
+
+  it("takes offer tags out of the reply", () => {
+    expect(splitOffer("Want me to file it?\n<offer_report>bug</offer_report>", ["bug", "feature"])).toEqual({ text: "Want me to file it?", offer: "bug" });
+    expect(splitOffer("File it? <offer_report> Feature ", ["feature"])).toEqual({ text: "File it?", offer: "feature" });
+    expect(splitOffer("File it?<offer_report>idea</offer_report>", ["bug", "feature"])).toEqual({ text: "File it?" });
   });
 
   it("refuses a report the profile doesn't offer, whatever the browser sends", async () => {

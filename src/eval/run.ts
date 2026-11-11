@@ -57,11 +57,11 @@ export async function runCase(
   const agent = new RecordingAgent(o.models, o.agent);
   // The eval's own spend shouldn't hit the monthly cap, and the assistant always logs tickets here.
   const settings: Settings = { ...o.settings, budgets: { ...o.settings.budgets, monthlyTotal: undefined }, tickets: { ...o.settings.tickets, assistant: true } };
-  if (c.report) {
-    // A case started from a shortcut runs where the shortcut is offered.
-    const { name, ...profile } = resolveProfile(settings, { signedIn: true, plan: null, path: pathFromContext(APP_CONTEXT) });
-    settings.profiles = { ...settings.profiles, [name]: { ...profile, tickets: true, report: "both" } };
-  }
+  // Cases started from a shortcut, or checking the assistant offers one, run where the shortcuts are on. The
+  // rest run without them, where the assistant logs what it hears itself.
+  const { name, ...profile } = resolveProfile(settings, { signedIn: true, plan: null, path: pathFromContext(APP_CONTEXT) });
+  const shortcuts = Boolean(c.report) || c.kind === "offer";
+  settings.profiles = { ...settings.profiles, [name]: { ...profile, ...(shortcuts ? { tickets: true, report: "both" } : { report: "none" }) } };
   const service = new ConversationService(o.db, agent, null, {
     settings,
     tickets: new TicketDesk(o.db, tracker, { notify: async () => {}, log: () => {} }),
@@ -83,6 +83,7 @@ export async function runCase(
       .join("\n\n"),
     handedOff: agent.results.some((r) => r.handedOff) || service.get(id)?.status === "needs_human",
     tickets: tracker.log,
+    offers: service.list(id).flatMap((m) => (m.offer ? [m.offer] : [])),
   };
   return {
     ...grade(c, outcome),

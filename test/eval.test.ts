@@ -15,7 +15,7 @@ describe("eval grading", () => {
   it("loads every case in evals/cases.yaml", () => {
     const { cases, backlog } = parse(readFileSync("evals/cases.yaml", "utf8"));
     const ids = cases.map((x: unknown) => caseSchema.parse(x).id);
-    expect(ids).toHaveLength(44);
+    expect(ids).toHaveLength(47);
     expect(new Set(ids).size).toBe(ids.length);
     // Every route: add case points at a ticket that's in the backlog.
     const keys = new Set(backlog.map((b: unknown) => backlogSchema.parse(b).key));
@@ -69,6 +69,23 @@ describe("eval grading", () => {
       "didn't say other boards or MQTT/HTTP devices work",
       "no link to connect-existing-devices or BOARD_PORTING",
     ]);
+  });
+
+  it("offer: offered the expected report and logged nothing", () => {
+    const k = c("offer", { offer: "bug" });
+    expect(grade(k, { reply: "Want me to file this as a bug?", handedOff: false, offers: ["bug"], tickets: { filed: [], added: [] } }).pass).toBe(true);
+    expect(grade(k, { reply: "Logged it.", handedOff: false, offers: [], tickets: { filed: [], added: ["ED-101"] } }).why).toEqual([
+      "didn't offer to file a bug",
+      "logged it instead of offering",
+    ]);
+    expect(grade(k, { reply: "File it?", handedOff: false, offers: ["feature"] }).why).toEqual(["didn't offer to file a bug (offered feature)"]);
+  });
+
+  it("route: checks links in any reply when the case lists some", () => {
+    const k = c("route", { route: "none", links: ["run-a-session/troubleshoot-a-live-session"] });
+    const none = { filed: [], added: [] };
+    expect(grade(k, { reply: `Try [this](${DOCS}/run-a-session/troubleshoot-a-live-session).\n\nGlad that sorted it!`, handedOff: false, tickets: none }).pass).toBe(true);
+    expect(grade(k, { reply: "Glad that sorted it!", handedOff: false, tickets: none }).why).toEqual(["no link to run-a-session/troubleshoot-a-live-session"]);
   });
 
   it("finds markdown and bare links", () => {

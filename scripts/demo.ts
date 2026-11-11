@@ -24,34 +24,54 @@ for (const q of ["How do I add a clue to a puzzle?", "invite a game master"]) {
   console.log(q, "=>", searchDocs(db, q, 2).map((h) => `${h.title} > ${h.heading}`));
 }
 // Scripted model: search with the user's words, then answer with the top hit.
-// A report from a widget shortcut: ask for what's missing, then find and file a ticket.
+const said = (m: any) => m.content.filter((c: any) => c.type === "text" && !c.text.startsWith("<app_context>")).map((c: any) => c.text).join("\n");
+const docLink = (out: any) => {
+  const hit = String(typeof out?.value === "string" ? out.value : JSON.stringify(out?.value ?? "")).split("\n");
+  return `[${hit[0].replace(/^## /, "")}](${hit[1]})`;
+};
+const ACCEPT = /^Yes, please file it/;
+const BROKEN = /\b(isn't|aren't|doesn't|don't|won't|stopp?(ed|s)?|broken|blank|wrong|not (showing|working))\b/i;
+// The way a model rewords a problem into a search for a known fix.
+const troubleshoot = (q: string) => `troubleshoot ${q.match(/\b(clues?|tv|timer|screen|sound|audio|media|connection|lights?)\b/gi)?.join(" ") ?? q}`;
+// A report from a widget shortcut or an accepted offer. Bug: offer a fix from the docs first, then gather
+// what's missing and file it, unless they say the fix worked. Feature: ask what it's for, then file it.
 const reportReply = (prompt: any[]) => {
   const last = prompt.at(-1);
-  const said = (m: any) => m.content.filter((c: any) => c.type === "text" && !c.text.startsWith("<app_context>")).map((c: any) => c.text).join("\n");
   const users = prompt.filter((m: any) => m.role === "user").map(said).filter(Boolean);
+  const reported = users.filter((u: string) => !ACCEPT.test(u));
   const bug = prompt.some((m: any) => m.role === "system" && String(m.content).includes('chose "Report a bug"'));
-  if (last.role === "tool") {
-    const out = String(last.content[0]?.output?.value ?? "");
-    if (last.content[0]?.toolName === "find_tickets") {
-      const first = users[0];
-      return { finish: "tool-calls", tool: { id: `f${Date.now()}`, name: "file_ticket", input: { title: first.slice(0, 78), kind: bug ? "bug" : "feature", description: `${first}\n\n${users.slice(1).join("\n")}\n\n## Context\nPage and app version from the widget.`, user_summary: first.charAt(0).toLowerCase() + first.slice(1).replace(/[.!]$/, "") } } };
-    }
-    return { finish: "stop", text: out.startsWith("Filed") ? (bug ? "Thanks, that's everything I need. It's gone straight to the team, and you'll hear back here when it's fixed." : "Thanks! It's gone straight to the team, and you'll hear back here once they've decided.") : "Thanks, I've passed that on." };
-  }
-  const asked = prompt.some((m: any) => m.role === "assistant");
-  if (!asked) return { finish: "stop", text: bug ? "Sorry about that. What did you expect to happen instead, and what steps get you there? Does it happen every time?" : "Nice idea. What would you use it for?" };
-  return { finish: "tool-calls", tool: { id: `t${Date.now()}`, name: "find_tickets", input: { query: users[0].slice(0, 60) } } };
-};
-const reply = (last: any) => {
+  const replies = prompt.filter((m: any) => m.role === "assistant").map((m: any) => (typeof m.content === "string" ? m.content : m.content.filter((c: any) => c.type === "text").map((c: any) => c.text).join("")));
+  const find = { finish: "tool-calls", tool: { id: `t${Date.now()}`, name: "find_tickets", input: { query: reported[0].slice(0, 60) } } };
   if (last.role === "tool") {
     const out = last.content[0]?.output;
-    const hit = String(typeof out?.value === "string" ? out.value : JSON.stringify(out?.value ?? "")).split("\n");
-    return { finish: "stop", text: `Here's the guide that covers it: [${hit[0].replace(/^## /, "")}](${hit[1]}). Let me know if that doesn't do it.` };
+    if (last.content[0]?.toolName === "search_docs") {
+      return { finish: "stop", text: `Sorry about that. ${docLink(out)} has a fix that often sorts this out. Did that do it? If not, tell me what you expected to happen and whether it happens every time, and I'll file it.` };
+    }
+    if (last.content[0]?.toolName === "find_tickets") {
+      const first = reported[0];
+      return { finish: "tool-calls", tool: { id: `f${Date.now()}`, name: "file_ticket", input: { title: first.slice(0, 78), kind: bug ? "bug" : "feature", description: `${first}\n\n${reported.slice(1).join("\n")}\n\n## Context\nPage and app version from the widget.`, user_summary: first.charAt(0).toLowerCase() + first.slice(1).replace(/[.!]$/, "") } } };
+    }
+    return { finish: "stop", text: String(out?.value ?? "").startsWith("Filed") ? (bug ? "Thanks, that's everything I need. It's gone straight to the team, and you'll hear back here when it's fixed." : "Thanks! It's gone straight to the team, and you'll hear back here once they've decided.") : "Thanks, I've passed that on." };
   }
-  const q = String(last.content.filter((c: any) => c.type === "text").at(-1)?.text ?? "");
+  const now = users.at(-1)!;
+  if (!bug) return replies.length ? find : { finish: "stop", text: "Nice idea. What would you use it for?" };
+  const offeredFix = replies.some((r: string) => r.includes("Did that do it?"));
+  if (!offeredFix && !ACCEPT.test(now)) return { finish: "tool-calls", tool: { id: `s${Date.now()}`, name: "search_docs", input: { query: troubleshoot(now) } } };
+  if (/\b(fixed|worked|that did it|sorted)\b/i.test(now) && !/\b(not|didn't|still)\b/i.test(now)) return { finish: "stop", text: "Glad that sorted it! I won't file anything, but tell me here if it comes back." };
+  return find;
+};
+// Ordinary chat: search, answer with the top hit, and offer to file anything that sounds broken.
+const reply = (prompt: any[]) => {
+  const last = prompt.at(-1);
+  const q = said(prompt.filter((m: any) => m.role === "user").at(-1));
+  if (last.role === "tool") {
+    const broken = BROKEN.test(q);
+    const offers = prompt.some((m: any) => m.role === "system" && String(m.content).includes("<offer_report>bug</offer_report>"));
+    return { finish: "stop", text: `Here's the guide that covers it: ${docLink(last.content[0]?.output)}.${broken && offers ? " If it keeps happening after that, want me to file this as a bug?\n<offer_report>bug</offer_report>" : " Let me know if that doesn't do it."}` };
+  }
   if (/snippet|script|code/i.test(q)) return { finish: "stop", text: "From the SDK's MQTT example, publish the win like this:\n\n```python\nfrom escape_director import Device\n\ndevice = Device.from_env()\n\ndef on_win():\n    device.signal(\"tictactoe.won\", {\"board\": \"A\"})  # maps to a signal in Escape Director\n```\n\nThen map `tictactoe.won` to **Complete a puzzle** on the device page." };
   if (/person|human|refund/i.test(q)) return { finish: "tool-calls", tool: { id: "h1", name: "handoff_to_human", input: { reason: q } } };
-  return { finish: "tool-calls", tool: { id: `s${Date.now()}`, name: "search_docs", input: { query: q } } };
+  return { finish: "tool-calls", tool: { id: `s${Date.now()}`, name: "search_docs", input: { query: BROKEN.test(q) ? troubleshoot(q) : q } } };
 };
 const client = {
   languageModel: (id: string) =>
@@ -59,7 +79,7 @@ const client = {
       modelId: id,
       doGenerate: async (options: any) => {
         const guided = options.prompt.some((m: any) => m.role === "system" && /chose "(Report a bug|Request a feature)"/.test(String(m.content)));
-        const r: any = guided ? reportReply(options.prompt) : reply(options.prompt.at(-1));
+        const r: any = guided ? reportReply(options.prompt) : reply(options.prompt);
         return {
           content: r.tool
             ? [{ type: "tool-call" as const, toolCallId: r.tool.id, toolName: r.tool.name, input: JSON.stringify(r.tool.input) }]

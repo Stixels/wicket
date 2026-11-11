@@ -4,11 +4,11 @@ import type { TrackerLog } from "./tracker.js";
 export const caseSchema = z
   .object({
     id: z.number(),
-    kind: z.enum(["answer", "handoff", "decline", "bug", "idea", "code", "hardware", "route"]),
+    kind: z.enum(["answer", "handoff", "decline", "bug", "idea", "code", "hardware", "route", "offer"]),
     question: z.string(),
     /** What the person says next, one message per entry, each after the assistant's reply. */
     then: z.array(z.string()).default([]),
-    /** Fragments of a link the reply should contain, any one of them. */
+    /** Fragments of a link the reply should contain, any one of them. For route, any reply in the chat. */
     links: z.array(z.string()).default([]),
     /** Words the reply should contain, any one of them. For route: file, words the new ticket should contain. */
     mentions: z.array(z.string()).default([]),
@@ -20,10 +20,13 @@ export const caseSchema = z
     ticketKinds: z.array(z.enum(["bug", "feature", "improvement", "docs"])).default([]),
     /** The person started from the widget's "Report a bug" or "Request a feature" shortcut. */
     report: z.enum(["bug", "feature"]).optional(),
+    /** offer: what the assistant should offer to file, on a profile with the report shortcuts. */
+    offer: z.enum(["bug", "feature"]).optional(),
   })
   .strict()
   .refine((c) => c.kind !== "route" || c.route, { message: "a route case needs `route`" })
-  .refine((c) => c.route !== "add" || c.key, { message: "a route: add case needs `key`" });
+  .refine((c) => c.route !== "add" || c.key, { message: "a route: add case needs `key`" })
+  .refine((c) => c.kind !== "offer" || c.offer, { message: "an offer case needs `offer`" });
 export type EvalCase = z.infer<typeof caseSchema>;
 
 export interface Outcome {
@@ -31,6 +34,8 @@ export interface Outcome {
   handedOff: boolean;
   /** What the assistant filed and added to, when the case ran with a tracker. */
   tickets?: TrackerLog;
+  /** What the assistant offered to file, one entry per offer. */
+  offers?: string[];
 }
 
 export interface Grade {
@@ -94,6 +99,14 @@ export function grade(c: EvalCase, o: Outcome): Grade {
       check(OTHER_DEVICES.test(o.reply), "didn't say other boards or MQTT/HTTP devices work");
       check(linksOne(c.links), `no link to ${c.links.join(" or ")}`);
       break;
+    case "offer": {
+      noHandoff();
+      const offers = o.offers ?? [];
+      check(offers.includes(c.offer!), `didn't offer to file a ${c.offer}${offers.length ? ` (offered ${offers.join(", ")})` : ""}`);
+      const { filed, added } = o.tickets ?? { filed: [], added: [] };
+      check(!filed.length && !added.length, "logged it instead of offering");
+      break;
+    }
     case "route": {
       const { filed, added } = o.tickets ?? { filed: [], added: [] };
       const did = [...filed.map((f) => `filed ${f.kind} "${f.title}"`), ...added.map((k) => `added to ${k}`)].join(", ") || "logged nothing";
@@ -106,6 +119,7 @@ export function grade(c: EvalCase, o: Outcome): Grade {
         const body = f ? `${f.title}\n${f.description}`.toLowerCase() : "";
         if (f && c.mentions.length) check(c.mentions.some((m) => body.includes(m.toLowerCase())), `ticket doesn't mention ${c.mentions.join(" or ")}`);
       }
+      if (c.links.length) check(linksOne(c.links), `no link to ${c.links.join(" or ")}`);
       check(!TICKET_KEY.test(o.reply), "told the user a ticket key");
       break;
     }

@@ -33,6 +33,8 @@ export interface PublicMessage {
   evidence?: Evidence[];
   /** On assistant answers: questions to offer next. */
   followUps?: string[];
+  /** On assistant answers: the assistant offered to file a bug or feature request; the widget shows a button. */
+  offer?: ReportKind;
   /** On assistant answers: the person's thumbs up or down. */
   rating?: "up" | "down" | null;
   createdAt: number;
@@ -314,12 +316,12 @@ export class ConversationService {
     // A widget shortcut tags the conversation until something is logged; the profile must offer it.
     const c = this.get(id);
     const started = report && c && this.reportsFor(this.profileFor(c)).includes(report) ? report : null;
-    const msg = this.addMessage(id, "user", text, null, (messageId) => this.files.claim(id, attachmentIds, messageId));
     if (started) {
       this.db.update(schema.conversations).set({ report: started }).where(eq(schema.conversations.id, id)).run();
-      // A tag under the message that started it, in the same order the widget shows it.
+      // A tag before the message that starts it, where the widget showed it from the moment it was chosen.
       this.addMessage(id, "system", MESSAGES.reportStarted(started), null, undefined, { event: "report" });
     }
+    const msg = this.addMessage(id, "user", text, null, (messageId) => this.files.claim(id, attachmentIds, messageId));
     this.enqueue(id, () => this.handleUserMessage(id, msg.body, msg.attachments, started));
     const { memberId: _member, mentions: _mentions, ...pub } = msg;
     return pub;
@@ -733,6 +735,8 @@ export class ConversationService {
       const tickets = profile.tickets ? this.ticketTools(id, cards) : undefined;
       // A report started from a shortcut: the assistant gathers the details and logs it.
       const report = tickets && c.report && this.reportsFor(profile).includes(c.report) ? c.report : undefined;
+      // Otherwise the assistant can offer to start one when a bug or idea comes up.
+      const offers = tickets && !report ? this.reportsFor(profile) : [];
       const result = await this.agent.respond(
         this.history(id),
         {
@@ -751,6 +755,7 @@ export class ConversationService {
           followUps: profile.followUps,
           providerOptions: profile.providerOptions,
           report,
+          offers,
           ...(app ? { maxSteps: this.appToolSteps } : {}),
         },
       );
@@ -761,6 +766,7 @@ export class ConversationService {
         this.addMessage(id, "agent", result.reply, null, undefined, {
           ...(evidence.length ? { evidence } : {}),
           ...(result.followUps.length ? { followUps: result.followUps } : {}),
+          ...(result.offer ? { offer: result.offer } : {}),
         });
         await this.mirror(id, "agent", result.reply);
       }
@@ -890,7 +896,7 @@ export class ConversationService {
     body: string,
     authorName: string | null,
     attach?: (messageId: number) => Attachment[],
-    team: { memberId?: string | null; mentions?: string[]; event?: string; card?: TicketCard; evidence?: Evidence[]; followUps?: string[] } = {},
+    team: { memberId?: string | null; mentions?: string[]; event?: string; card?: TicketCard; evidence?: Evidence[]; followUps?: string[]; offer?: ReportKind } = {},
   ): TeamMessage {
     let row = this.db
       .insert(schema.messages)
@@ -905,6 +911,7 @@ export class ConversationService {
         card: team.card ?? null,
         evidence: team.evidence ?? null,
         followUps: team.followUps ?? null,
+        offer: team.offer ?? null,
         createdAt: new Date(),
       })
       .returning()
@@ -1020,6 +1027,7 @@ function toPublic(m: typeof schema.messages.$inferSelect): PublicMessage {
     ...(m.card ? { card: m.card } : {}),
     ...(m.evidence?.length ? { evidence: m.evidence } : {}),
     ...(m.followUps?.length ? { followUps: m.followUps } : {}),
+    ...(m.offer ? { offer: m.offer } : {}),
     ...(m.author === "agent" ? { rating: m.rating ?? null } : {}),
     createdAt: m.createdAt.getTime(),
   };
