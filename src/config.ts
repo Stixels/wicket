@@ -21,6 +21,14 @@ const schema = z.object({
     .enum(["true", "false"])
     .optional()
     .transform((v) => v !== "false"),
+  /**
+   * The public demo (see "Hosted demo" in the README): a demo tracker, no Discord and a fake signed-in
+   * user. Refuses to boot with any real tracker, Discord or email settings.
+   */
+  DEMO: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => v === "true"),
   PRODUCT_NAME: z.string().default("our product"),
   PRODUCT_DESCRIPTION: z.string().default(""),
 
@@ -103,6 +111,10 @@ export type Config = z.infer<typeof schema>;
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const config = schema.parse(env);
+  if (config.DEMO) {
+    const problems = demoProblems(env);
+    if (problems.length) throw new Error(`DEMO=true refuses to start:\n${problems.map((p) => `  - ${p}`).join("\n")}`);
+  }
   if (config.RELAY === "discord" && (!config.DISCORD_BOT_TOKEN || !(config.DISCORD_GUILD_ID || config.DISCORD_CHANNEL_ID))) {
     throw new Error("RELAY=discord needs DISCORD_BOT_TOKEN and either DISCORD_GUILD_ID or DISCORD_CHANNEL_ID");
   }
@@ -110,4 +122,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (Boolean(config.GITHUB_ISSUES_REPO) !== Boolean(config.GITHUB_ISSUES_TOKEN)) throw new Error("GITHUB_ISSUES_REPO and GITHUB_ISSUES_TOKEN go together");
   if (config.LINEAR_API_KEY && config.GITHUB_ISSUES_REPO) throw new Error("Set up one tracker: Linear (LINEAR_API_KEY) or GitHub (GITHUB_ISSUES_REPO), not both");
   return config;
+}
+
+/** Settings that reach real systems (a tracker, Discord, email) or that the demo can't run without. */
+const DEMO_FORBIDDEN = [/^LINEAR_/, /^GITHUB_ISSUES_/, /^DISCORD_/, /^RESEND_/, /^EMAIL_/, /^TEAM_DISCORD_IDS$/];
+
+/** Why this environment can't run the public demo; empty when it can. */
+export function demoProblems(env: NodeJS.ProcessEnv): string[] {
+  const set = (k: string) => Boolean(env[k]?.trim());
+  const problems: string[] = [];
+  const forbidden = Object.keys(env).filter((k) => set(k) && DEMO_FORBIDDEN.some((re) => re.test(k)));
+  if (forbidden.length) problems.push(`unset ${forbidden.sort().join(", ")}: the demo never talks to a real tracker, Discord or email`);
+  if (env.RELAY && env.RELAY !== "none") problems.push("unset RELAY: the demo has no team inbox");
+  if (env.TEAM_DEV_LOGIN === "true") problems.push("unset TEAM_DEV_LOGIN: it would open the dashboard to anyone");
+  if (!set("IDENTITY_SECRET")) problems.push("set IDENTITY_SECRET: it signs the demo's signed-in user");
+  if (!set("TURNSTILE_SITE_KEY") || !set("TURNSTILE_SECRET_KEY")) problems.push("set TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY: every demo chat passes a bot check");
+  return problems;
 }

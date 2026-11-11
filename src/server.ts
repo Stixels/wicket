@@ -14,6 +14,9 @@ import { INLINE_TYPES, MAX_FILES_PER_CONVERSATION, MAX_FILE_BYTES, allowedType }
 import { verifyWebhook, type ReplyEmails } from "./email.js";
 import { playgroundPage } from "./playground.js";
 import { trailBody } from "./trail.js";
+import { getCookie, setCookie } from "hono/cookie";
+import { DEMO_VISITOR_ID, demoUserToken } from "./demo/index.js";
+import { demoPage, withSiteWidget, type DemoPageInfo } from "./demo/page.js";
 
 export interface ServerOptions {
   allowedOrigins: string[];
@@ -35,7 +38,18 @@ export interface ServerOptions {
   productName?: string;
   /** Emailing unread team replies, and taking replies by email. */
   email?: { replies: ReplyEmails; webhookSecret?: string };
+  /** The public demo: /demo, a demo sign-in, the live widget on the site, a bot check for everyone and tighter limits. */
+  demo?: DemoServerOptions;
 }
+
+export interface DemoServerOptions extends DemoPageInfo {
+  maxMessageLength: number;
+  maxMessagesPerConversation: number;
+  maxMessagesPerIpPerHour: number;
+  maxConversationsPerIpPerHour: number;
+}
+
+const DEMO_COOKIE = "wicket_demo";
 
 const createBody = z.object({
   reporter: z.object({ id: z.string().optional(), name: z.string().optional(), email: z.string().optional() }).default({}),
@@ -75,7 +89,10 @@ export function createServer(service: ConversationService, opts: ServerOptions) 
   const turnstile = opts.turnstile;
   const verifyTurnstile = turnstile ? (turnstile.verify ?? ((token: string, ip: string) => siteverify(turnstile.secretKey, token, ip))) : null;
   /** Visitors on a profile with a bot check must pass it before the assistant answers. */
-  const needsBotCheck = (p: { ai: boolean; botCheck: boolean }, signedIn: boolean) => Boolean(turnstile && p.botCheck && p.ai && service.hasAgent && !signedIn);
+  // In the demo anyone can sign in, so signed-in people pass the check too.
+  const needsBotCheck = (p: { ai: boolean; botCheck: boolean }, signedIn: boolean) =>
+    Boolean(turnstile && p.botCheck && p.ai && service.hasAgent && (!signedIn || opts.demo));
+  const demo = opts.demo;
 
   app.use(
     "/api/*",
@@ -107,6 +124,8 @@ export function createServer(service: ConversationService, opts: ServerOptions) 
     let html: string | undefined;
     app.get("/", (c) => {
       html ??= fs.existsSync(sitePath) ? fs.readFileSync(sitePath, "utf8") : undefined;
+      // Only the demo puts the live widget on the site; anywhere else it would reach a real team.
+      if (html && demo) html = withSiteWidget(html);
       if (!html) return c.text("site not found", 404);
       c.header("Cache-Control", "public, max-age=300");
       return c.html(html);
@@ -127,6 +146,25 @@ export function createServer(service: ConversationService, opts: ServerOptions) 
       const initUser = token ? `userToken: ${JSON.stringify(token)},` : as === "visitor" ? "" : `user: { id: "local-test", name: "Local test" },`;
       const mode = as === "visitor" ? "visitor" : token ? "signed-in" : "unsigned";
       return c.html(playgroundPage({ title, mode, plan, initUser, base }));
+    });
+  }
+
+  if (demo) {
+    app.get("/demo", (c) => {
+      c.header("Cache-Control", "no-store");
+      return c.html(demoPage(c.req.query("as") === "visitor" ? "visitor" : "customer", demo));
+    });
+    // Signs in the demo's one fake customer, with an id kept in a cookie so each browser has its own chats.
+    app.post("/api/demo/token", (c) => {
+      if (!limiter.allow(`demo-token:${clientIp(c)}`, 120)) return c.json({ error: "Too many requests, try again later" }, 429);
+      let visitor = getCookie(c, DEMO_COOKIE);
+      if (!visitor || !DEMO_VISITOR_ID.test(visitor)) {
+        visitor = crypto.randomBytes(18).toString("base64url");
+        const https = c.req.header("x-forwarded-proto") === "https" || new URL(c.req.url).protocol === "https:";
+        setCookie(c, DEMO_COOKIE, visitor, { httpOnly: true, sameSite: "Lax", secure: https, path: "/", maxAge: 30 * 86_400 });
+      }
+      c.header("Cache-Control", "no-store");
+      return c.json({ token: demoUserToken(visitor, opts.identitySecret!) });
     });
   }
 
@@ -160,7 +198,7 @@ export function createServer(service: ConversationService, opts: ServerOptions) 
   });
 
   app.post("/api/conversations", async (c) => {
-    if (!limiter.allow(`ip:${clientIp(c)}`, opts.maxConversationsPerIpPerHour)) {
+    if (!limiter.allow(`ip:${clientIp(c)}`, demo ? Math.min(demo.maxConversationsPerIpPerHour, opts.maxConversationsPerIpPerHour) : opts.maxConversationsPerIpPerHour)) {
       return c.json({ error: "Too many conversations, try again later" }, 429);
     }
     const parsed = createBody.safeParse(await c.req.json().catch(() => ({})));
@@ -209,6 +247,13 @@ export function createServer(service: ConversationService, opts: ServerOptions) 
     }
     const parsed = messageBody.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success || (!parsed.data.body.trim() && !parsed.data.attachments.length)) return c.json({ error: "Invalid message" }, 400);
+    if (demo) {
+      if (parsed.data.body.trim().length > demo.maxMessageLength) return c.json({ error: `Demo messages can be up to ${demo.maxMessageLength} characters` }, 400);
+      if (service.list(conv.id).filter((m) => m.author === "user").length >= demo.maxMessagesPerConversation) {
+        return c.json({ error: "This demo chat is at its limit. Start a new conversation to keep going." }, 429);
+      }
+      if (!limiter.allow(`ip-msg:${clientIp(c)}`, demo.maxMessagesPerIpPerHour)) return c.json({ error: "Too many messages, try again later" }, 429);
+    }
     // Only the profile decides whether a report can be started here, never the browser.
     const report = parsed.data.report;
     if (report && !service.reportsFor(service.profileFor({ ...conv, context: { ...(conv.context ?? {}), ...(parsed.data.context ?? {}) } })).includes(report)) {
@@ -259,6 +304,8 @@ export function createServer(service: ConversationService, opts: ServerOptions) 
   app.post("/api/conversations/:id/files", uploadLimit, async (c) => {
     const conv = service.authorize(c.req.param("id"), bearer(c) ?? "");
     if (!conv) return c.json({ error: "Not found" }, 404);
+    // Public uploads would make the demo a free file host.
+    if (demo) return c.json({ error: "Attachments are off in the demo" }, 403);
     if (Number(c.req.header("Content-Length") ?? 0) > MAX_FILE_BYTES + 64 * 1024) return c.json({ error: "Files can be up to 10 MB" }, 413);
     if (!limiter.allow(`conv:${conv.id}`, opts.maxMessagesPerConversationPerHour)) {
       return c.json({ error: "Too many messages, try again later" }, 429);

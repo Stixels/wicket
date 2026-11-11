@@ -15,7 +15,7 @@ import { LinearTracker } from "./adapters/tracker/linear.js";
 import { draftTicket } from "./agent/tickets.js";
 import { COMMUNITY_ROOM_PREFIX, SUPPORT_ROOM_PREFIX } from "./discord/voiceRooms.js";
 import type { Relay } from "./adapters/types.js";
-import { loadSettings, settingsWarnings } from "./settings.js";
+import { loadSettings, parseSettings, settingsWarnings } from "./settings.js";
 import { FileStore } from "./files.js";
 import { ReplyEmails, ResendMailer } from "./email.js";
 import { priceFor } from "./usage.js";
@@ -23,10 +23,22 @@ import { gatewayModelId } from "./gateway.js";
 import { TicketDesk } from "./tickets.js";
 import { Announcer } from "./announcements.js";
 import { REST, Routes } from "discord.js";
+import { DemoTracker } from "./demo/tracker.js";
+import { demoSettingsProblems, demoTeamReply } from "./demo/index.js";
+import { scriptedModels } from "./demo/scripted.js";
 
 const config = loadConfig();
 const settings = loadSettings(config.WICKET_CONFIG);
 const db = openDb(config.DATABASE_PATH);
+
+// The public demo. loadConfig already refused a real tracker, Discord or email; the settings mustn't reach one either.
+const demo = config.DEMO ? (settings.demo ?? parseSettings("demo: {}").demo!) : null;
+if (demo) {
+  const problems = demoSettingsProblems(settings);
+  if (problems.length) throw new Error(`DEMO=true refuses to start:\n${problems.map((p) => `  - ${p}`).join("\n")}`);
+} else if (settings.demo) {
+  console.log("demo: the settings have a demo section, but DEMO isn't true, so it's ignored");
+}
 
 const sources = knowledgeSources(config, settings);
 
@@ -38,7 +50,10 @@ const models = gateway
   ? createGateway({ apiKey: config.AI_GATEWAY_API_KEY, ...(config.AI_GATEWAY_URL ? { baseURL: config.AI_GATEWAY_URL } : {}) })
   : config.ANTHROPIC_API_KEY
     ? createAnthropic({ apiKey: config.ANTHROPIC_API_KEY })
-    : null;
+    : demo
+      ? scriptedModels // with no key the demo still works, and its page says the answers are scripted
+      : null;
+const scripted = models === scriptedModels;
 const agent = models
   ? new Agent(models, {
       model,
@@ -74,7 +89,9 @@ if (config.RELAY === "discord" && config.DISCORD_GUILD_ID) {
   config.DISCORD_ANNOUNCEMENTS_CHANNEL_ID ||= setup.announcementsId;
 }
 
-const tracker = config.LINEAR_API_KEY
+const tracker = demo
+  ? new DemoTracker(db, { advanceMs: demo.advanceMinutes * 60_000, backlog: demo.backlog })
+  : config.LINEAR_API_KEY
   ? new LinearTracker({ apiKey: config.LINEAR_API_KEY, teamKey: config.LINEAR_TEAM_KEY!, sourceLabel: config.LINEAR_SOURCE_LABEL })
   : config.GITHUB_ISSUES_REPO
     ? new GitHubIssuesTracker({ token: config.GITHUB_ISSUES_TOKEN!, repo: config.GITHUB_ISSUES_REPO, sourceLabel: config.GITHUB_ISSUES_LABEL })
@@ -87,7 +104,16 @@ if (tracker) {
 }
 
 // Remembers which conversations each ticket came from, and tells them when it's done.
-const desk = tracker ? new TicketDesk(db, tracker, { notify: (n) => service.ticketNews(n), log: (msg, err) => console.error(msg, err ?? "") }) : null;
+const desk = tracker
+  ? new TicketDesk(db, tracker, {
+      notify: async (n) => {
+        await service.ticketNews(n);
+        const reply = demo && demoTeamReply(n);
+        if (demo && reply) service.simulatedTeamReply(n.conversationId, demo.teamName, reply);
+      },
+      log: (msg, err) => console.error(msg, err ?? ""),
+    })
+  : null;
 
 let relay: Relay | null = null;
 if (config.RELAY === "discord") {
@@ -127,6 +153,7 @@ const service = new ConversationService(db, agent, relay, {
   tickets: desk,
   publicUrl: config.PUBLIC_URL,
   appToolSteps: config.AGENT_MAX_STEPS_WITH_APP_TOOLS,
+  demo: Boolean(demo),
 });
 const replyEmails = mailer
   ? new ReplyEmails(db, service, mailer, { productName: config.PRODUCT_NAME, publicUrl: config.PUBLIC_URL!, replyDomain: config.EMAIL_REPLY_DOMAIN })
@@ -165,15 +192,17 @@ setInterval(sweepFiles, 6 * 3_600_000).unref();
 setInterval(refreshDocs, config.DOCS_REINDEX_HOURS * 3_600_000).unref();
 
 // Reporters hear back when their ticket is done.
-if (desk?.canFollow && settings.tickets.checkMinutes > 0) {
+// The demo checks often, so a ticket moves on close to when the demo page says it will.
+const checkMs = demo ? 30_000 : settings.tickets.checkMinutes * 60_000;
+if (desk?.canFollow && checkMs > 0) {
   const checkTickets = () =>
     void desk.check().then(
       (n) => n && console.log(`tickets: told ${n} ${n === 1 ? "person" : "people"} their report is done`),
       (err) => console.error("tickets: check failed", err),
     );
   checkTickets();
-  setInterval(checkTickets, settings.tickets.checkMinutes * 60_000).unref();
-  console.log(`tickets: ${settings.tickets.assistant && agent ? "the assistant logs reports, and " : ""}reporters hear back when tickets are done (checked every ${settings.tickets.checkMinutes} min)`);
+  setInterval(checkTickets, checkMs).unref();
+  console.log(`tickets: ${settings.tickets.assistant && agent ? "the assistant logs reports, and " : ""}reporters hear back when tickets are done (checked every ${checkMs / 60_000} min)`);
 }
 
 // New posts in a feed (the product's updates) go to #announcements, and to servers that follow it.
@@ -219,12 +248,24 @@ const app = createServer(service, {
   allowedOrigins: config.ALLOWED_ORIGINS,
   maxMessagesPerConversationPerHour: config.MAX_MESSAGES_PER_CONVERSATION_PER_HOUR,
   maxConversationsPerIpPerHour: config.MAX_CONVERSATIONS_PER_IP_PER_HOUR,
-  playground: config.PLAYGROUND ? { title: `${config.PRODUCT_NAME} Support` } : undefined,
+  // The playground signs everyone in as one shared test user, so the public demo never serves it.
+  playground: config.PLAYGROUND && !demo ? { title: `${config.PRODUCT_NAME} Support` } : undefined,
   site: config.SITE,
   identitySecret: config.IDENTITY_SECRET,
   turnstile: config.TURNSTILE_SITE_KEY && config.TURNSTILE_SECRET_KEY ? { siteKey: config.TURNSTILE_SITE_KEY, secretKey: config.TURNSTILE_SECRET_KEY } : undefined,
   productName: config.PRODUCT_NAME,
   email: replyEmails ? { replies: replyEmails, webhookSecret: config.RESEND_WEBHOOK_SECRET } : undefined,
+  demo: demo
+    ? {
+        scripted,
+        advanceMinutes: demo.advanceMinutes,
+        budget: settings.budgets.monthlyTotal ?? null,
+        maxMessageLength: demo.maxMessageLength,
+        maxMessagesPerConversation: demo.maxMessagesPerConversation,
+        maxMessagesPerIpPerHour: demo.maxMessagesPerIpPerHour,
+        maxConversationsPerIpPerHour: demo.maxConversationsPerIpPerHour,
+      }
+    : undefined,
   team: {
     db,
     productName: config.PRODUCT_NAME,
@@ -243,9 +284,10 @@ const app = createServer(service, {
     discordGuildId: config.DISCORD_GUILD_ID,
   },
 });
-if (!config.DISCORD_CLIENT_ID && !config.TEAM_DEV_LOGIN) console.log("team: needs you: set DISCORD_CLIENT_ID and DISCORD_CLIENT_SECRET to sign in to the dashboard at /admin");
+if (!demo && !config.DISCORD_CLIENT_ID && !config.TEAM_DEV_LOGIN) console.log("team: needs you: set DISCORD_CLIENT_ID and DISCORD_CLIENT_SECRET to sign in to the dashboard at /admin");
 const server = serve({ fetch: app.fetch, port: config.PORT }, (info) => {
-  console.log(`wicket listening on http://localhost:${info.port} (agent: ${agent ? `${model}${gateway ? " via AI Gateway" : ""}` : "off"})`);
+  console.log(`wicket listening on http://localhost:${info.port} (agent: ${scripted ? "scripted demo model" : agent ? `${model}${gateway ? " via AI Gateway" : ""}` : "off"})`);
+  if (demo) console.log(`demo: the public demo is at /demo; tickets stay in this database and move on after ${demo.advanceMinutes} min`);
 });
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
