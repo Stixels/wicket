@@ -1,7 +1,7 @@
 import { Agent, type AgentOptions, type AgentResult, type ModelProvider } from "../agent/agent.js";
 import { ConversationService } from "../conversations.js";
 import { schema, type Db } from "../db/index.js";
-import type { Settings } from "../settings.js";
+import { pathFromContext, resolveProfile, type Settings } from "../settings.js";
 import { TicketDesk } from "../tickets.js";
 import type { TokenUsage } from "../usage.js";
 import { grade, type EvalCase, type Grade, type Outcome } from "./grade.js";
@@ -55,17 +55,22 @@ export async function runCase(
   o.db.delete(schema.tickets).run();
   const tracker = new EvalTracker(o.backlog);
   const agent = new RecordingAgent(o.models, o.agent);
+  // The eval's own spend shouldn't hit the monthly cap, and the assistant always logs tickets here.
+  const settings: Settings = { ...o.settings, budgets: { ...o.settings.budgets, monthlyTotal: undefined }, tickets: { ...o.settings.tickets, assistant: true } };
+  // Every case runs where the report shortcuts are on, as in production: the assistant still logs what it
+  // hears on its own, and cases with `report` start from a shortcut.
+  const { name, ...profile } = resolveProfile(settings, { signedIn: true, plan: null, path: pathFromContext(APP_CONTEXT) });
+  settings.profiles = { ...settings.profiles, [name]: { ...profile, report: "both", ...(c.report ? { tickets: true } : {}) } };
   const service = new ConversationService(o.db, agent, null, {
-    // The eval's own spend shouldn't hit the monthly cap, and the assistant always logs tickets here.
-    settings: { ...o.settings, budgets: { ...o.settings.budgets, monthlyTotal: undefined }, tickets: { ...o.settings.tickets, assistant: true } },
+    settings,
     tickets: new TicketDesk(o.db, tracker, { notify: async () => {}, log: () => {} }),
     publicUrl: "https://wicket.test",
     log: () => {},
   });
   const who = { id: `eval-${++runs}`, name: "Sam", email: "sam@example.com", plan: null, account: null, budget: null, env: null };
   const { id } = service.create({}, APP_CONTEXT, { identity: who });
-  for (const message of [c.question, ...c.then]) {
-    await service.postUserMessage(id, message);
+  for (const [i, message] of [c.question, ...c.then].entries()) {
+    await service.postUserMessage(id, message, undefined, [], null, i === 0 ? { report: c.report, trail: c.trail } : {});
     await service.idle(id);
     if (agent.errors.length) throw agent.errors[0];
   }

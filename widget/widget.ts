@@ -1,5 +1,6 @@
 import { Halftone } from "./halftone.js";
 import { hideEvidenceMarkers } from "./evidence.js";
+import { Trail, clickLabel, pageLabel } from "./trail.js";
 /**
  * Help and feedback widget. Add to any web app:
  *
@@ -80,6 +81,11 @@ interface InitOptions {
   theme?: Theme;
   /** @deprecated use theme.accentColor */
   accentColor?: string;
+  /**
+   * false: don't keep the short trail of recent pages, button clicks, console errors and breadcrumbs
+   * that goes with a bug report. On by default; it stays in the page until a bug is reported.
+   */
+  trail?: boolean;
 }
 
 type UiKey = "title" | "assistantName" | "subtitle" | "welcomeTitle" | "welcomeSubtitle" | "placeholder" | "suggestions";
@@ -112,9 +118,18 @@ interface Session {
   askEmail: boolean;
   /** Present when this visitor must pass a Cloudflare Turnstile check before the assistant answers. */
   botCheck?: { siteKey: string };
+  /** Report shortcuts this profile offers. */
+  reports?: ReportKind[];
   theme?: Theme;
   ui: Partial<Record<UiKey, any>>;
 }
+
+type ReportKind = "bug" | "feature";
+/** The shortcuts that start a guided report, and what the message box asks for. */
+const REPORTS: Record<ReportKind, { label: string; hint: string; tag: string; placeholder: string; icon: "bug" | "idea" }> = {
+  bug: { label: "Report a bug", hint: "Something isn't working", tag: "Bug report", placeholder: "What happened?", icon: "bug" },
+  feature: { label: "Request a feature", hint: "Share an idea", tag: "Feature request", placeholder: "What would you like to be able to do?", icon: "idea" },
+};
 
 interface Summary {
   id: string;
@@ -230,7 +245,33 @@ const recentErrors: string[] = [];
 function rememberError(text: string) {
   recentErrors.push(`${new Date().toISOString()} ${text}`.slice(0, 500));
   if (recentErrors.length > 20) recentErrors.shift();
+  trail.add("error", text.split("\n")[0]!);
 }
+
+// What the person did lately in the host page, sent only with a bug report (see trail.ts).
+const trail = new Trail();
+trail.add("page", pageLabel(location));
+for (const method of ["pushState", "replaceState"] as const) {
+  const original = history[method];
+  history[method] = function (this: History, ...args: Parameters<History["pushState"]>) {
+    const result = original.apply(this, args);
+    trail.add("page", pageLabel(location));
+    return result;
+  };
+}
+window.addEventListener("popstate", () => trail.add("page", pageLabel(location)));
+window.addEventListener("hashchange", () => trail.add("page", pageLabel(location)));
+document.addEventListener(
+  "click",
+  (e) => {
+    const target = e.target as Element | null;
+    // Clicks in the widget itself aren't part of what happened in the app.
+    if (!target || target.closest?.("[data-wicket]")) return;
+    const label = clickLabel(target);
+    if (label) trail.add("click", label);
+  },
+  true,
+);
 const originalConsoleError = console.error;
 console.error = (...args: unknown[]) => {
   try {
@@ -563,6 +604,23 @@ button { font: inherit; color: inherit; }
 .typing .msg i:nth-child(3) { animation-delay: .3s; }
 
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 4px 34px; }
+/* Start screen cards: ask a question, or start a guided report. */
+.shortcuts { display: flex; flex-direction: column; gap: 8px; margin: 14px 0 4px; }
+.shortcut { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 1px 12px; text-align: left; font: inherit; color: inherit;
+  padding: 12px 14px; border-radius: 14px; border: 1px solid var(--wk-border); background: var(--wk-bubble); cursor: pointer;
+  transition: border-color .15s, transform .15s; }
+.shortcut:hover { border-color: color-mix(in srgb, var(--wk-accent) 40%, var(--wk-border)); transform: translateY(-1px); }
+.shortcut:focus-visible, .system.report button:focus-visible { outline: 3px solid color-mix(in srgb, var(--wk-accent) 45%, transparent); outline-offset: 2px; }
+.shortcut > svg:first-child { grid-row: span 2; width: 18px; height: 18px; color: var(--wk-muted); }
+.shortcut b { font-size: 13.5px; font-weight: 600; }
+.shortcut small { grid-column: 2; font-size: 12px; color: var(--wk-muted); }
+.shortcut .go { grid-row: 1 / span 2; grid-column: 3; width: 14px; height: 14px; color: var(--wk-muted); opacity: .7; }
+/* The report a conversation is in, from the moment it's chosen. */
+.system.report { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; color: var(--wk-text); border: 1px solid var(--wk-border); }
+.system.report svg { width: 13px; height: 13px; color: var(--wk-muted); }
+.system.report button { width: 18px; height: 18px; margin: -2px -6px -2px 0; border: 0; border-radius: 50%; background: transparent; color: var(--wk-muted); cursor: pointer; display: grid; place-items: center; padding: 0; }
+.system.report button:hover { color: var(--wk-text); background: color-mix(in srgb, var(--wk-text) 8%, transparent); }
+.system.report button svg { width: 11px; height: 11px; }
 /* Conversation list */
 .recent { margin: 18px 0 4px; display: flex; flex-direction: column; gap: 8px; }
 .recent-h { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; font-weight: 600;
@@ -715,8 +773,18 @@ const ICONS = {
   up: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v11"/><path d="M15 5.9 14 10h5.8a2 2 0 0 1 1.9 2.6l-2.3 7A2 2 0 0 1 17.5 21H4a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1h2.8a2 2 0 0 0 1.8-1.1L12 2a3.1 3.1 0 0 1 3 3.9Z"/></svg>`,
   down: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 14V3"/><path d="M9 18.1 10 14H4.2a2 2 0 0 1-1.9-2.6l2.3-7A2 2 0 0 1 6.5 3H20a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-2.8a2 2 0 0 0-1.8 1.1L12 22a3.1 3.1 0 0 1-3-3.9Z"/></svg>`,
   caret: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>`,
+  ask: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>`,
   spark: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5c.4 3.9 1.9 6.3 4.3 7.6 1.2.7 2.6 1.1 4.2 1.4v1c-3.9.4-6.3 1.9-7.6 4.3-.7 1.2-1.1 2.6-1.4 4.2h-1c-.4-3.9-1.9-6.3-4.3-7.6-1.2-.7-2.6-1.1-4.2-1.4v-1c3.9-.4 6.3-1.9 7.6-4.3.7-1.2 1.1-2.6 1.4-4.2Z"/></svg>`,
 };
+
+/** The tag that marks where a bug report or feature request starts in a conversation. */
+function reportTag(kind: ReportKind): HTMLElement {
+  const el = document.createElement("div");
+  el.className = "system report";
+  el.setAttribute("role", "status");
+  el.innerHTML = `${ICONS[REPORTS[kind].icon]}<span>${escapeHtml(REPORTS[kind].tag)}</span>`;
+  return el;
+}
 
 class Widget {
   private halftone!: Halftone;
@@ -727,6 +795,11 @@ class Widget {
   private log!: HTMLElement;
   private typing!: HTMLElement;
   private chips!: HTMLElement;
+  private shortcuts!: HTMLElement;
+  /** A report shortcut was chosen; the next message starts it. */
+  private reportMode: ReportKind | null = null;
+  /** When the person last sent a message: a trail asked for after the assistant filed a bug ends there. */
+  private lastSentAt = 0;
   private input!: HTMLTextAreaElement;
   private tray!: HTMLElement;
   private pending: { file: File; preview: string | null }[] = [];
@@ -769,6 +842,7 @@ class Widget {
     const apiUrl = (options.apiUrl ?? (scriptSrc ? new URL(scriptSrc).origin : location.origin)).replace(/\/$/, "");
     this.given = options;
     this.opts = { ...DEFAULTS, ...defined(options), apiUrl };
+    if (options.trail === false) trail.disable();
     this.givenTheme = defined(options.theme ?? {});
     if (options.accentColor && !this.givenTheme.accentColor) this.givenTheme.accentColor = options.accentColor;
     this.theme = this.withServerTheme(SERVER_THEME);
@@ -1029,6 +1103,7 @@ class Widget {
       o[key] = (this.given as unknown as Record<string, unknown>)[key] ?? s.ui[key] ?? (s.ai ? undefined : TEAM_ONLY_DEFAULTS[key]) ?? DEFAULTS[key as keyof typeof DEFAULTS];
     }
     this.wrap.classList.toggle("team-only", !s.ai);
+    if (this.reportMode && !this.reports().includes(this.reportMode)) this.setReportMode(null);
     if (s.theme) {
       // The server's theme fills in what init() didn't set; cssVars merge so both can add variables.
       this.theme = this.withServerTheme(s.theme);
@@ -1036,7 +1111,7 @@ class Widget {
     }
     this.updateHeader();
     this.wrap.querySelector(".ask")!.textContent = this.opts.welcomeSubtitle ?? "";
-    this.input.placeholder = this.opts.placeholder ?? "";
+    this.input.placeholder = (this.reportMode && REPORTS[this.reportMode].placeholder) || this.opts.placeholder || "";
     this.renderWelcome();
     this.renderChips();
     this.updateEmailAsk();
@@ -1222,6 +1297,8 @@ class Widget {
       : `<span class="think" role="status">Thinking…</span>`;
     this.chips = document.createElement("div");
     this.chips.className = "chips";
+    this.shortcuts = document.createElement("div");
+    this.shortcuts.className = "shortcuts";
 
     launcher.addEventListener("click", () => this.toggle());
     this.wrap.querySelector(".x")!.addEventListener("click", () => this.close());
@@ -1289,6 +1366,7 @@ class Widget {
   }
 
   private showGreeting() {
+    this.setReportMode(null);
     this.wrap.classList.add("home");
     this.log.innerHTML = "";
     this.lastAuthor = null;
@@ -1320,6 +1398,58 @@ class Widget {
     }
     if (!this.chips.childElementCount) this.chips.remove();
     else if (!this.chips.isConnected) this.log.insertBefore(this.chips, this.log.querySelector(".recent") ?? this.typing);
+    // With report shortcuts, the start screen offers asking a question as a card beside them.
+    this.shortcuts.innerHTML = "";
+    const card = (icon: keyof typeof ICONS, label: string, hint: string, go: () => void) => {
+      const el = document.createElement("button");
+      el.className = "shortcut";
+      el.type = "button";
+      el.innerHTML = `${ICONS[icon]}<b>${escapeHtml(label)}</b><small>${escapeHtml(hint)}</small>${ICONS.caret.replace("<svg", '<svg class="go"')}`;
+      el.addEventListener("click", go);
+      this.shortcuts.appendChild(el);
+    };
+    if (this.reports().length) {
+      card("ask", "Ask a question", "Get an answer from the docs", () => {
+        this.setReportMode(null);
+        this.input.focus();
+      });
+    }
+    for (const kind of this.reports()) card(REPORTS[kind].icon, REPORTS[kind].label, REPORTS[kind].hint, () => this.setReportMode(kind));
+    if (!this.shortcuts.childElementCount) this.shortcuts.remove();
+    else if (!this.shortcuts.isConnected) this.log.insertBefore(this.shortcuts, this.chips.isConnected ? this.chips : (this.log.querySelector(".recent") ?? this.typing));
+  }
+
+  /** The report shortcuts the server offers here. */
+  private reports(): ReportKind[] {
+    return this.session?.ai ? (this.session.reports ?? []).filter((k) => k in REPORTS) : [];
+  }
+
+  /**
+   * Starts (or cancels, with null) a guided report. Its tag goes in the conversation straight away, so the
+   * person sees what kind of chat they're in before they write; their next message starts it on the server.
+   */
+  private setReportMode(kind: ReportKind | null) {
+    // A report doesn't belong in a resolved conversation or the history list.
+    if (kind && ((this.status === "resolved" && !this.replyAnyway && this.conv) || this.wrap.classList.contains("list"))) this.reset();
+    this.reportMode = kind;
+    this.log.querySelector(".system.report.pending")?.remove();
+    if (kind) {
+      this.leaveHome();
+      const r = REPORTS[kind];
+      const tag = reportTag(kind);
+      tag.classList.add("pending");
+      tag.insertAdjacentHTML("beforeend", `<button type="button" title="Cancel" aria-label="Cancel ${escapeAttr(r.tag.toLowerCase())}">${ICONS.x}</button>`);
+      tag.querySelector("button")!.addEventListener("click", () => {
+        this.setReportMode(null);
+        if (!this.conv) this.showGreeting();
+        this.input.focus();
+      });
+      this.log.insertBefore(tag, this.typing);
+      this.lastAuthor = "system";
+      this.scrollDown();
+    }
+    this.input.placeholder = (kind && REPORTS[kind].placeholder) || this.opts.placeholder || "";
+    if (kind) this.input.focus();
   }
 
   /** Up to three earlier conversations under the start screen. */
@@ -1340,6 +1470,7 @@ class Widget {
     this.source = null;
     this.conv = null;
     this.chips.remove();
+    this.shortcuts.remove();
     this.wrap.classList.remove("home");
     this.wrap.classList.add("list");
     this.log.innerHTML = `<div class="empty">Loading…</div>`;
@@ -1404,7 +1535,9 @@ class Widget {
     this.status = "agent";
     this.replyAnyway = false;
     this.setAgent(null);
+    this.setReportMode(null);
     this.chips.remove();
+    this.shortcuts.remove();
     this.log.innerHTML = "";
     this.log.appendChild(this.typing);
     this.wrap.classList.remove("home", "list");
@@ -1524,7 +1657,16 @@ class Widget {
         this.autosize();
       }
       if (files.length) this.tray.classList.add("busy");
-      await this.post(body, files.map((p) => p.file));
+      const starts = typed ? this.reportMode : null;
+      await this.post(body, files.map((p) => p.file), starts);
+      if (starts) {
+        // The tag stays where it is; the server's copy of it arrives next and takes its place.
+        const tag = this.log.querySelector(".system.report.pending");
+        tag?.querySelector("button")?.remove();
+        tag?.classList.replace("pending", "awaiting");
+        this.reportMode = null;
+        this.input.placeholder = this.opts.placeholder || "";
+      }
       for (const p of files) if (p.preview) URL.revokeObjectURL(p.preview);
       if (files.length) {
         this.pending = this.pending.filter((p) => !files.includes(p));
@@ -1542,7 +1684,8 @@ class Widget {
   }
 
   /** Starts the conversation if needed, uploads files, posts the message and shows it. */
-  private async post(body: string, files: File[]) {
+  private async post(body: string, files: File[], report: ReportKind | null = null) {
+    this.lastSentAt = Date.now();
     if (!this.conv) await this.createConversation();
     const conv = this.conv!;
     const attachments: string[] = [];
@@ -1553,6 +1696,9 @@ class Widget {
       // The latest page context and a fresh sign-in token go with every message, for the assistant's app tools.
       context: { page: location.href, ...(this.opts.context ?? {}) },
       userToken: await this.userToken(),
+      ...(report ? { report } : {}),
+      // What they did just before, only when this message starts a bug report.
+      ...(report === "bug" && trail.enabled ? { trail: trail.snapshot(this.lastSentAt) } : {}),
     };
     let res;
     try {
@@ -1701,6 +1847,8 @@ class Widget {
       this.startThinking();
       this.scrollDown();
     });
+    // The assistant logged a bug on its own: the server asks for the trail up to the message that led to it.
+    es.addEventListener("trail", () => this.sendTrail());
     es.addEventListener("idle", () => {
       this.typing.classList.remove("on");
       this.stopThinking();
@@ -1714,6 +1862,12 @@ class Widget {
           .catch(() => {});
       }
     });
+  }
+
+  /** Sends what the person did before their last message, for the bug the assistant just logged. */
+  private sendTrail() {
+    if (!this.conv || !trail.enabled || !this.lastSentAt) return;
+    void this.api(`/api/conversations/${this.conv.id}/trail`, { trail: trail.snapshot(this.lastSentAt) }, true).catch(() => {});
   }
 
   /** This page's connection, so the team can see whether the chat is in view here. */
@@ -1760,6 +1914,7 @@ class Widget {
   private leaveHome() {
     this.wrap.classList.remove("home");
     this.chips.remove();
+    this.shortcuts.remove();
     this.log.querySelector(".recent")?.remove();
   }
 
@@ -1799,6 +1954,18 @@ class Widget {
       if (isResolvedNote(m.body)) {
         el.classList.add("done");
         el.innerHTML = `${ICONS.check}<span>Marked as resolved</span>`;
+      } else if (m.event === "report") {
+        // Already shown since the report was chosen (this can arrive before the send finishes): keep that one.
+        const shown = this.log.querySelector(".system.report.pending, .system.report.awaiting");
+        if (shown) {
+          shown.querySelector("button")?.remove();
+          shown.classList.remove("pending", "awaiting");
+          return;
+        }
+        this.log.insertBefore(reportTag(/bug/i.test(m.body) ? "bug" : "feature"), this.typing);
+        this.lastAuthor = "system";
+        this.scrollDown();
+        return;
       } else {
         el.textContent = m.body;
       }
@@ -2195,6 +2362,8 @@ const api = {
   setAnchor: (el: HTMLElement | null) => instance?.setAnchor(el),
   setQuiet: (quiet: boolean) => instance?.setQuiet(quiet),
   ask: (text: string) => instance?.ask(text),
+  /** Notes a step in the app, like "Paused game", for the trail that goes with a bug report. Works before init. */
+  addBreadcrumb: (label: string) => trail.add("note", label),
   /** Removes the widget. Call init again to bring it back (for example, for the next person to sign in). */
   destroy() {
     instance?.destroy();

@@ -11,7 +11,8 @@
 #   idea      no handoff, and the reply mentions one of `mentions`
 #   code      no code block, says it can't write code, links one of `links`
 #   hardware  mentions the managed boards and MQTT or HTTP devices, links one of `links`
-#   route     files, adds to, or leaves alone the right ticket (see below)
+#   route     files, adds to, or leaves alone the right ticket (see below); links, when given, in any reply
+#   steps     a bug report with the widget's trail: proposes the steps for them to confirm, logs nothing yet
 
 cases:
   - { id: 1, kind: answer, question: "How do I add a timer to the screen players see?", links: [build-your-rooms/configure-live-view] }
@@ -103,6 +104,75 @@ cases:
 
   # A how-to question the docs answer: nothing to log.
   - { id: 39, kind: route, question: "How do I add a clue to a puzzle?", route: none }
+
+  # Started from the widget's "Report a bug" or "Request a feature" shortcut (`report`). The
+  # assistant doesn't decide whether to log these: it asks for what's missing, then logs it. In
+  # bug mode it first offers a fix from the docs, and only the person saying it worked stops the report.
+  # A bug with no steps yet: ask, don't log on the first reply.
+  - { id: 40, kind: bug, report: bug, question: "The Room Sessions page is blank" }
+  - id: 41
+    kind: route
+    report: bug
+    question: "The Room Sessions page is blank"
+    then: ["I click Room Sessions in the sidebar and it's just an empty white page. I expected the list of today's sessions. Every time since this morning."]
+    route: file
+    ticketKinds: [bug]
+    mentions: [blank, white, empty]
+  # The docs have a fix for this one: offer it, and still log it when it doesn't help.
+  - id: 42
+    kind: route
+    report: bug
+    question: "The clue I sent isn't showing on the TV in the room"
+    then: ["I tried that and restarted the TV app, still nothing. Every clue tonight, in every room. They should appear on the TV right away."]
+    links: [run-a-session/troubleshoot-a-live-session]
+    route: add
+    key: ED-102
+  - id: 43
+    kind: route
+    report: feature
+    question: "Let me schedule an automation to run at a set time, like turning the lobby lights on at 9am"
+    route: file
+    ticketKinds: [feature, improvement]
+    mentions: [schedul]
+  - { id: 44, kind: route, report: feature, question: "A weekly email with how each of my rooms did would be great", route: add, key: ED-105 }
+  # The same bug, but the fix from the docs works: nothing is logged.
+  - id: 45
+    kind: route
+    report: bug
+    question: "The clue I sent isn't showing on the TV in the room"
+    then: ["That did it, restarting the TV app fixed it. Thanks!"]
+    links: [run-a-session/troubleshoot-a-live-session]
+    route: none
+
+  # The shortcuts are on for every case, and they don't stop the assistant logging what comes up in an
+  # ordinary chat on its own.
+  - { id: 46, kind: route, question: "Every time I save a puzzle the list jumps back to the top, it's driving me nuts", route: add, key: ED-103 }
+  - { id: 47, kind: route, question: "It would be great if game masters could send a clue as a voice recording", route: add, key: ED-104 }
+
+  # Report a bug with the widget's trail of what they did just before: propose the steps from it and
+  # ask them to confirm, instead of asking what they were doing.
+  - id: 48
+    kind: steps
+    report: bug
+    question: "The clue counter on the dashboard went back to zero"
+    trail: &paused
+      - { ago: 95, type: page, label: "/rooms/treehouse/dashboard" }
+      - { ago: 70, type: click, label: "Pause game" }
+      - { ago: 64, type: note, label: "Paused game" }
+      - { ago: 40, type: click, label: "Resume" }
+      - { ago: 22, type: click, label: "Send Clue" }
+      - { ago: 21, type: note, label: "Sent Clue" }
+    mentions: [paus]
+  # They confirm, so it's logged with the steps they confirmed and the trail.
+  - id: 49
+    kind: route
+    report: bug
+    question: "The clue counter on the dashboard went back to zero"
+    trail: *paused
+    then: ["Yes, that's it. It happens every time I send a clue after resuming."]
+    route: file
+    ticketKinds: [bug]
+    mentions: [counter]
 
 # Open tickets the fake tracker starts with for every case.
 backlog:

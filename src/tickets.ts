@@ -127,6 +127,11 @@ export class TicketDesk {
     return { ticket, already, reports: this.reportCount(id), planned };
   }
 
+  /** Adds a comment to a ticket (by TrackedTicket.id), when the tracker takes comments. */
+  async comment(id: string, body: string): Promise<void> {
+    if (this.tracker.comment) await this.tracker.comment(id, body).catch((err) => this.log(`tickets: couldn't comment on ${id}`, err));
+  }
+
   /** How many conversations are linked to a ticket. */
   private reportCount(id: string): number {
     return this.db.select({ n: sql<number>`count(*)` }).from(schema.ticketLinks).where(eq(schema.ticketLinks.ticketId, id)).get()?.n ?? 0;
