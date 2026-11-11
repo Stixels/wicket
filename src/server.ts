@@ -38,6 +38,8 @@ export interface ServerOptions {
   productName?: string;
   /** Emailing unread team replies, and taking replies by email. */
   email?: { replies: ReplyEmails; webhookSecret?: string };
+  /** The server's public address. Requests to its www. twin are sent there, e.g. www.wicketchat.com to wicketchat.com. */
+  publicUrl?: string;
   /** The public demo: /demo, a demo sign-in, the live widget on the site, a bot check for everyone and tighter limits. */
   demo?: DemoServerOptions;
 }
@@ -93,6 +95,16 @@ export function createServer(service: ConversationService, opts: ServerOptions) 
   const needsBotCheck = (p: { ai: boolean; botCheck: boolean }, signedIn: boolean) =>
     Boolean(turnstile && p.botCheck && p.ai && service.hasAgent && (!signedIn || opts.demo));
   const demo = opts.demo;
+
+  const canonical = opts.publicUrl ? new URL(opts.publicUrl) : null;
+  if (canonical && !canonical.hostname.startsWith("www.")) {
+    const www = `www.${canonical.host}`;
+    app.use("*", async (c, next) => {
+      if (c.req.header("host") !== www) return next();
+      const url = new URL(c.req.url);
+      return c.redirect(`${canonical.origin}${url.pathname}${url.search}`, 301);
+    });
+  }
 
   app.use(
     "/api/*",
