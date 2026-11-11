@@ -1,0 +1,80 @@
+# The public demo at wicketchat.com. Run with DEMO=true and WICKET_CONFIG=config/demo.yaml.
+# See "Hosted demo" in the README. With DEMO=true, Wicket refuses to start with app tools,
+# announcements or the Discord help forum here, as well as with any tracker, Discord or email keys.
+
+# Wicket's own indigo, to match the marketing site.
+theme:
+  accentColor: "#4f46e5"
+  mode: dark
+
+assistant:
+  code: decline
+  instructions: >
+    This is Wicket's public demo. You're the support assistant for Escape Director, software for
+    running escape rooms, and you answer from its docs. There's no team behind this demo: if you
+    hand off, say that in a real install the team would reply in this chat. Never ask for or repeat
+    personal details such as emails, phone numbers or payment information.
+
+# Escape Director's public docs and Device SDK, so the demo needs no docs settings in the environment.
+knowledge:
+  - github: directorhq/escape-director-documentation
+    baseUrl: https://docs.escapedirector.com
+  - github: directorhq/escape-director-device-sdk
+    include: ["*.md", "examples/**/*.ino", "src/EscapeDirectorRoom.h"]
+    exclude: [THIRD_PARTY.md, TRADEMARKS.md]
+
+tickets:
+  assistant: true
+
+profiles:
+  # Not signed in: docs questions after a bot check, and no reports, since nobody could follow up.
+  visitor:
+    botCheck: true
+    tickets: false
+    subtitle: Live demo · answers from the Escape Director docs
+    suggestions:
+      - How do I add a clue to a puzzle?
+      - How do I invite a Game Master?
+    instructions: >
+      This person isn't signed in. If they report a bug or share an idea, thank them and say that
+      signed-in customers can log it from the chat: the "Signed-in customer" switch on this page
+      shows how.
+
+  # The demo's fake customer, Sam, signed in by /api/demo/token. Reports go to the demo tracker.
+  default:
+    botCheck: true
+    report: both
+    subtitle: Live demo · signed in as Sam from Treehouse Escapes
+    suggestions:
+      - How do I add a clue to a puzzle?
+      - The clue counter didn't go up after I sent a Clue
+
+rules:
+  - when: { signedIn: false }
+    profile: visitor
+
+budgets:
+  warnAt: 0.8
+  # One pot for the whole demo, visitors and signed-in alike. When it's spent, the chat says so
+  # and still links docs search results.
+  monthlyTotal: 3
+
+demo:
+  # Tickets move on this long after their last report: bugs to Fixed, ideas to Planned.
+  advanceMinutes: 3
+  teamName: Alex from the team
+  maxMessageLength: 500
+  maxMessagesPerConversation: 20
+  maxMessagesPerIpPerHour: 40
+  maxConversationsPerIpPerHour: 5
+  # Known tickets, so a repeat report joins one instead of filing another.
+  backlog:
+    - key: DEMO-101
+      kind: bug
+      title: Clue counter doesn't go up after sending a Clue from the Room Dashboard
+    - key: DEMO-102
+      kind: bug
+      title: Room timer drifts behind after pausing and resuming a game
+    - key: DEMO-103
+      kind: feature
+      title: Export game history to CSV

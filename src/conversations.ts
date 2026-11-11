@@ -94,7 +94,16 @@ export interface ServiceOptions {
   appToolSteps?: number;
   /** For tests: how app tools are fetched. */
   fetch?: typeof fetch;
+  /** The public demo: there's no team, so handoffs explain that instead, and a spent budget still searches the docs. */
+  demo?: boolean;
 }
+
+/**
+ * The most one demo answer can cost: 6 steps of Claude Haiku 5.5 at its 16k output limit is about
+ * $0.05, plus input. The demo stops starting answers once the month's spend plus this much for each
+ * answer in flight would pass the cap, so the cap holds even under a burst.
+ */
+export const DEMO_ANSWER_RESERVE_MICROS = 100_000;
 
 export const MESSAGES = {
   waiting: (replyTime?: string) =>
@@ -105,6 +114,12 @@ export const MESSAGES = {
   resolved: "Marked as resolved",
   overBudget: "You've reached this month's limit for the assistant, so I've passed your message to the team. Someone will reply here.",
   overTotal: "The assistant is unavailable right now, so I've passed your message to the team. Someone will reply here.",
+  /** The demo has no team to hand off to. */
+  demoHandoff: "This is a demo, so nobody's on the other end. In a real install, this conversation now goes to the team's Discord inbox, and their reply lands right here.",
+  demoOverTotal: (hits: { title: string; heading: string; url: string }[]) =>
+    `The demo's AI budget for this month is spent, so the assistant is off until the 1st.${
+      hits.length ? ` Here's what a plain docs search found:\n\n${hits.map((h) => `- [${h.heading ? `${h.title} › ${h.heading}` : h.title}](${h.url})`).join("\n")}` : ""
+    }`,
   nearBudget: "Heads up: you've used most of this month's assistant allowance. After that, your messages go straight to the team.",
   /** After a thumbs down, when the person asks for someone to look at it. */
   askedForPerson: "Thanks for letting us know. I've passed this to the team.",
@@ -149,6 +164,9 @@ export class ConversationService {
   private publicUrl: string | null;
   private appToolSteps: number;
   private fetchImpl: typeof fetch;
+  private demo: boolean;
+  /** Demo answers running now. Each holds DEMO_ANSWER_RESERVE against the monthly total until it's recorded. */
+  private demoInFlight = 0;
   /** The newest verified user token per conversation, kept in memory only, for app tool calls during an answer. */
   private userTokens = new Map<string, { token: string; env: string | null }>();
   /** The context last shown to the model per conversation, so a change (another page) is sent again. */
@@ -179,6 +197,7 @@ export class ConversationService {
     this.publicUrl = o.publicUrl?.replace(/\/$/, "") ?? null;
     this.appToolSteps = o.appToolSteps ?? 20;
     this.fetchImpl = o.fetch ?? fetch;
+    this.demo = Boolean(o.demo);
   }
 
   /**
@@ -370,7 +389,7 @@ export class ConversationService {
     if (c.status !== "agent") return true;
     this.addMessage(id, "system", MESSAGES.askedForPerson, null);
     await this.handoff(id, reason);
-    this.addMessage(id, "system", this.waitingText(id), null);
+    if (!this.demo) this.addMessage(id, "system", this.waitingText(id), null);
     return true;
   }
 
@@ -601,6 +620,15 @@ export class ConversationService {
     }
   }
 
+  /**
+   * The demo's stand-in for a team reply after a ticket moved. Unlike a real reply, the assistant
+   * keeps the conversation, since nobody is there to answer the next message.
+   */
+  simulatedTeamReply(id: string, name: string, body: string): void {
+    if (!this.demo || !this.get(id)) return;
+    this.addMessage(id, "staff", body.slice(0, MAX_BODY), name);
+  }
+
   /** The conversation behind a relay thread, e.g. to link a ticket the team filed from it. */
   conversationForThread(threadId: string): string | null {
     return this.byThread(threadId)?.id ?? null;
@@ -745,13 +773,13 @@ export class ConversationService {
     const profile = this.profileFor(this.get(id) ?? c);
     if (!this.agent || !profile.ai) {
       await this.handoff(id, this.agent ? `New message (${profile.name}: assistant off).` : "New message (no assistant configured).");
-      this.addMessage(id, "system", this.waitingText(id), null);
+      if (!this.demo) this.addMessage(id, "system", this.waitingText(id), null);
       return;
     }
 
     if (profile.botCheck && !c.userId && !c.verified) {
       await this.handoff(id, "New message (didn't pass the bot check).");
-      this.addMessage(id, "system", this.waitingText(id), null);
+      if (!this.demo) this.addMessage(id, "system", this.waitingText(id), null);
       return;
     }
 
@@ -762,8 +790,15 @@ export class ConversationService {
     );
     const limit = limits.length ? Math.min(...limits) : null;
     const total = this.settings.budgets.monthlyTotal;
-    const overTotal = total !== undefined && this.ledger.spentThisMonth(null) >= dollarsToMicros(total);
+    // The demo also counts answers still running at their worst case, so a burst at the end of the
+    // month can't take the public demo past its cap before their real costs are recorded.
+    const reserved = this.demo ? (this.demoInFlight + 1) * DEMO_ANSWER_RESERVE_MICROS : 0;
+    const overTotal = total !== undefined && this.ledger.spentThisMonth(null) + reserved > dollarsToMicros(total);
     const spent = limit !== null ? this.ledger.spentThisMonth(payer) : 0;
+    if (overTotal && this.demo) {
+      this.addMessage(id, "agent", MESSAGES.demoOverTotal(body ? searchDocs(this.db, body, 3) : []), null);
+      return;
+    }
     if (overTotal || (limit !== null && spent >= limit)) {
       await this.handoff(id, overTotal ? "The assistant's monthly spending cap is reached." : "This person reached their monthly assistant budget.");
       this.addMessage(id, "system", overTotal ? MESSAGES.overTotal : MESSAGES.overBudget, null);
@@ -788,6 +823,7 @@ export class ConversationService {
     this.events.emit(id, { type: "typing" });
     const stopTyping = this.relayTyping(id);
     const cards: TicketCard[] = []; // shown after the reply, so the chat reads "thanks" then "logged"
+    if (this.demo) this.demoInFlight++;
     try {
       const app = await this.appToolsFor(id, profile);
       const tickets = profile.tickets ? this.ticketTools(id, cards) : undefined;
@@ -841,6 +877,7 @@ export class ConversationService {
       await this.mirror(id, "agent", msg);
       if (this.get(id)?.status === "needs_human") this.addMessage(id, "system", this.waitingText(id), null);
     } finally {
+      if (this.demo) this.demoInFlight--;
       stopTyping();
       this.events.emit(id, { type: "idle" });
     }
@@ -879,6 +916,11 @@ export class ConversationService {
   private async handoff(id: string, reason: string) {
     const c = this.get(id);
     if (!c || c.status !== "agent") return;
+    if (this.demo) {
+      // Nobody would answer, so the assistant keeps the conversation and says what would have happened.
+      if (!this.rows(id).some((m) => m.author === "system" && m.body === MESSAGES.demoHandoff)) this.addMessage(id, "system", MESSAGES.demoHandoff, null);
+      return;
+    }
     this.setStatus(id, "needs_human");
     const threadId = await this.ensureThread(id);
     if (threadId && this.relay) {

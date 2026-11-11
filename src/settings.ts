@@ -180,6 +180,28 @@ const settingsSchema = z
       })
       .strict()
       .default({ checkMinutes: 30, latest: 0 }),
+    /** The public demo (DEMO=true only). See config/demo.yaml. */
+    demo: z
+      .object({
+        /** Demo tickets move on after this long (bugs to fixed, ideas to planned), so visitors see the hear-back loop. */
+        advanceMinutes: z.number().min(0).default(3),
+        /** Who the simulated team reply comes from. */
+        teamName: z.string().default("Alex from the team"),
+        /** Longest message, in characters. */
+        maxMessageLength: z.number().int().min(1).default(500),
+        /** Messages a person can send in one conversation. */
+        maxMessagesPerConversation: z.number().int().min(1).default(20),
+        /** Messages one IP can send in an hour, across conversations. */
+        maxMessagesPerIpPerHour: z.number().int().min(1).default(40),
+        /** Conversations one IP can start in an hour. */
+        maxConversationsPerIpPerHour: z.number().int().min(1).default(5),
+        /** Existing tickets, so a repeat report has something to join. */
+        backlog: z
+          .array(z.object({ key: z.string(), kind: z.enum(["bug", "feature", "improvement", "docs", "question"]), title: z.string() }).strict())
+          .default([]),
+      })
+      .strict()
+      .optional(),
     /** Extra repos or sites to search. The main docs come from DOCS_GITHUB_REPO or DOCS_URL. */
     knowledge: z.array(knowledgeSchema).default([]),
     profiles: z.record(z.string(), profileSchema).default({}),

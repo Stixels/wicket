@@ -201,6 +201,41 @@ It uses [Resend](https://resend.com); the free tier is plenty for a small team.
 
 Keep it to one replica. SQLite and the Discord connection expect a single instance.
 
+## Hosted demo
+
+The public demo at [wicketchat.com](https://wicketchat.com) is a separate Wicket service with `DEMO=true`. It runs the real server and real assistant, but nothing it does can reach a real team, tracker or inbox:
+
+- **`/`** is the marketing site with the live widget, signed in as the demo customer.
+- **`/demo`** plays an escape-room app, with a **Visitor / Signed-in customer** switch. Visitors get docs answers only. The customer is Sam, Owner at Treehouse Escapes, signed in by the page's own `POST /api/demo/token`. Each browser gets its own id in a cookie, so nobody sees anyone else's chats. The endpoint only exists with `DEMO=true` and only signs that one user.
+- **Tickets** go to a demo tracker kept in the service's SQLite. Duplicate search only covers the backlog in `config/demo.yaml`, so one visitor's ticket titles never show up in another visitor's chat. A few minutes after a report (`demo.advanceMinutes`), the ticket moves on (bugs to Fixed, ideas to Planned) and a reply labeled as simulated arrives in the chat.
+- **Handoffs** don't go anywhere. The chat says that in a real install this goes to the team's Discord inbox.
+- **Limits:** everyone shares one monthly AI budget (`budgets.monthlyTotal`, $3). When it's spent, the chat says so and still links plain docs search results. Every chat passes a Turnstile bot check, signed in or not. Messages are capped in length and per chat, and both messages and chats are capped per IP per hour (`demo:` in `config/demo.yaml`). Attachments and the playground are off.
+
+Service variables:
+
+| Variable | Value |
+| --- | --- |
+| `DEMO` | `true` |
+| `WICKET_CONFIG` | `config/demo.yaml` |
+| `ANTHROPIC_API_KEY` or `AI_GATEWAY_API_KEY` | the AI key. Without one, answers come from the scripted model and `/demo` says so. |
+| `IDENTITY_SECRET` | a fresh random secret of 32+ characters, not the one any real app uses |
+| `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY` | a Turnstile widget for the demo's domain |
+| `SITE` | leave unset (on) to serve the marketing site at `/` |
+| `PRODUCT_NAME` | `Escape Director` |
+
+Add a volume at `/data` as usual. The docs come from `knowledge:` in `config/demo.yaml`, so no `DOCS_*` variables are needed.
+
+With `DEMO=true`, Wicket refuses to start if any `LINEAR_*`, `GITHUB_ISSUES_*`, `DISCORD_*`, `RESEND_*`, `EMAIL_*` or `TEAM_DISCORD_IDS` variable is set, if `RELAY` isn't `none`, if `TEAM_DEV_LOGIN=true`, or if `IDENTITY_SECRET` or the Turnstile keys are missing. It also refuses settings with `appTools`, `announcements.feed` or `assistant.helpForum`. So it can't be pointed at Escape Director's real Linear, GitHub, Discord or API by mistake.
+
+To try it locally, use Cloudflare's always-pass test keys:
+
+```bash
+npm run build:widget
+DEMO=true WICKET_CONFIG=config/demo.yaml IDENTITY_SECRET=local-demo-secret-local-demo-secret-1234 \
+  TURNSTILE_SITE_KEY=1x00000000000000000000AA TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA \
+  DATABASE_PATH=./data/demo.db npx tsx src/index.ts   # open http://localhost:4318/demo
+```
+
 ## Profiles, rules and budgets
 
 How the assistant behaves lives in one YAML file: [`config/wicket.yaml`](config/wicket.yaml), or the YAML pasted into the `WICKET_CONFIG` variable. [`config/wicket.example.yaml`](config/wicket.example.yaml) lists every option.
