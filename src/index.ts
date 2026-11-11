@@ -33,10 +33,7 @@ const db = openDb(config.DATABASE_PATH);
 
 // The public demo. loadConfig already refused a real tracker, Discord or email; the settings mustn't reach one either.
 const demo = config.DEMO ? (settings.demo ?? parseSettings("demo: {}").demo!) : null;
-if (demo) {
-  const problems = demoSettingsProblems(settings);
-  if (problems.length) throw new Error(`DEMO=true refuses to start:\n${problems.map((p) => `  - ${p}`).join("\n")}`);
-} else if (settings.demo) {
+if (!demo && settings.demo) {
   console.log("demo: the settings have a demo section, but DEMO isn't true, so it's ignored");
 }
 
@@ -46,6 +43,10 @@ const sources = knowledgeSources(config, settings);
 // Through the Vercel AI Gateway any provider's model works ("openai/..."), with its own provider options.
 const gateway = Boolean(config.AI_GATEWAY_API_KEY);
 const model = gateway ? gatewayModelId(config.AGENT_MODEL) : config.AGENT_MODEL;
+if (demo) {
+  const problems = demoSettingsProblems(settings, model);
+  if (problems.length) throw new Error(`DEMO=true refuses to start:\n${problems.map((p) => `  - ${p}`).join("\n")}`);
+}
 const models = gateway
   ? createGateway({ apiKey: config.AI_GATEWAY_API_KEY, ...(config.AI_GATEWAY_URL ? { baseURL: config.AI_GATEWAY_URL } : {}) })
   : config.ANTHROPIC_API_KEY

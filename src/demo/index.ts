@@ -1,5 +1,6 @@
 import { signUserToken } from "../identity.js";
 import type { Settings } from "../settings.js";
+import { priceFor } from "../usage.js";
 import type { TicketNotice } from "../tickets.js";
 
 /** The one person the demo signs in. Each browser gets its own id, so nobody sees anyone else's chats. */
@@ -17,11 +18,18 @@ export function demoUserToken(visitorId: string, secret: string, now = Date.now(
   return signUserToken({ sub: `demo-${visitorId}`, name: DEMO_USER.name }, secret, DEMO_TOKEN_TTL_SECONDS, now);
 }
 
-/** Settings that would reach a real system from the public demo. */
-export function demoSettingsProblems(settings: Settings): string[] {
+/** Output price, in dollars per million tokens, that DEMO_ANSWER_RESERVE_MICROS is sized for (Claude Haiku 5.5). */
+const DEMO_MAX_OUTPUT_PRICE = 0.5;
+
+/** Settings that would reach a real system from the public demo, or let it spend past its cap. */
+export function demoSettingsProblems(settings: Settings, agentModel: string): string[] {
   const problems: string[] = [];
   for (const [name, p] of Object.entries(settings.profiles)) {
     if (p.appTools) problems.push(`profile ${name} has appTools, which would call a real app's API`);
+  }
+  for (const m of new Set([agentModel, ...Object.values(settings.profiles).flatMap((p) => (p.model ? [p.model] : []))])) {
+    const price = priceFor(m, settings.budgets.prices);
+    if (!price || price.output > DEMO_MAX_OUTPUT_PRICE) problems.push(`model ${m} costs more than the demo's per-answer reserve allows; use claude-haiku-5-5`);
   }
   if (settings.announcements.feed) problems.push("announcements.feed posts to Discord");
   if (settings.assistant.helpForum) problems.push("assistant.helpForum answers in Discord");

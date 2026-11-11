@@ -98,6 +98,13 @@ export interface ServiceOptions {
   demo?: boolean;
 }
 
+/**
+ * The most one demo answer can cost: 6 steps of Claude Haiku 5.5 at its 16k output limit is about
+ * $0.05, plus input. The demo stops starting answers once the month's spend plus this much for each
+ * answer in flight would pass the cap, so the cap holds even under a burst.
+ */
+export const DEMO_ANSWER_RESERVE_MICROS = 100_000;
+
 export const MESSAGES = {
   waiting: (replyTime?: string) =>
     replyTime ? `Passed to the team. They usually reply within ${replyTime}.` : "Passed to the team. Someone will reply here.",
@@ -158,6 +165,8 @@ export class ConversationService {
   private appToolSteps: number;
   private fetchImpl: typeof fetch;
   private demo: boolean;
+  /** Demo answers running now. Each holds DEMO_ANSWER_RESERVE against the monthly total until it's recorded. */
+  private demoInFlight = 0;
   /** The newest verified user token per conversation, kept in memory only, for app tool calls during an answer. */
   private userTokens = new Map<string, { token: string; env: string | null }>();
   /** The context last shown to the model per conversation, so a change (another page) is sent again. */
@@ -781,7 +790,10 @@ export class ConversationService {
     );
     const limit = limits.length ? Math.min(...limits) : null;
     const total = this.settings.budgets.monthlyTotal;
-    const overTotal = total !== undefined && this.ledger.spentThisMonth(null) >= dollarsToMicros(total);
+    // The demo also counts answers still running at their worst case, so a burst at the end of the
+    // month can't take the public demo past its cap before their real costs are recorded.
+    const reserved = this.demo ? (this.demoInFlight + 1) * DEMO_ANSWER_RESERVE_MICROS : 0;
+    const overTotal = total !== undefined && this.ledger.spentThisMonth(null) + reserved > dollarsToMicros(total);
     const spent = limit !== null ? this.ledger.spentThisMonth(payer) : 0;
     if (overTotal && this.demo) {
       this.addMessage(id, "agent", MESSAGES.demoOverTotal(body ? searchDocs(this.db, body, 3) : []), null);
@@ -811,6 +823,7 @@ export class ConversationService {
     this.events.emit(id, { type: "typing" });
     const stopTyping = this.relayTyping(id);
     const cards: TicketCard[] = []; // shown after the reply, so the chat reads "thanks" then "logged"
+    if (this.demo) this.demoInFlight++;
     try {
       const app = await this.appToolsFor(id, profile);
       const tickets = profile.tickets ? this.ticketTools(id, cards) : undefined;
@@ -864,6 +877,7 @@ export class ConversationService {
       await this.mirror(id, "agent", msg);
       if (this.get(id)?.status === "needs_human") this.addMessage(id, "system", this.waitingText(id), null);
     } finally {
+      if (this.demo) this.demoInFlight--;
       stopTyping();
       this.events.emit(id, { type: "idle" });
     }

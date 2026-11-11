@@ -106,10 +106,17 @@ describe("demo mode boot", () => {
   });
 
   it("refuses settings that call a real app or post to Discord, and accepts config/demo.yaml", () => {
-    expect(demoSettingsProblems(parseSettings(fs.readFileSync("config/wicket.yaml", "utf8")))).toEqual(
+    expect(demoSettingsProblems(parseSettings(fs.readFileSync("config/wicket.yaml", "utf8")), "claude-haiku-5-5")).toEqual(
       expect.arrayContaining([expect.stringMatching(/appTools/), "announcements.feed posts to Discord"]),
     );
-    expect(demoSettingsProblems(parseSettings(demoYaml))).toEqual([]);
+    expect(demoSettingsProblems(parseSettings(demoYaml), "anthropic/claude-haiku-5.5")).toEqual([]);
+  });
+
+  it("refuses a model that could cost more per answer than the demo reserves", () => {
+    expect(demoSettingsProblems(parseSettings(demoYaml), "anthropic/claude-sonnet-5-5")).toEqual([expect.stringMatching(/claude-sonnet-5-5 costs more/)]);
+    expect(demoSettingsProblems(parseSettings(demoYaml), "some/unpriced-model")).toEqual([expect.stringMatching(/unpriced-model costs more/)]);
+    const pricey = demoYaml.replace("  visitor:\n", "  visitor:\n    model: claude-opus-5-5\n");
+    expect(demoSettingsProblems(parseSettings(pricey), "claude-haiku-5-5")).toEqual([expect.stringMatching(/claude-opus-5-5 costs more/)]);
   });
 });
 
@@ -222,6 +229,23 @@ describe("demo conversations", () => {
     expect(reply.body).toContain("The demo's AI budget for this month is spent");
     expect(reply.body).toContain("[Clues › Adding a clue](https://docs.escapedirector.com/clues#adding)");
     expect(service.get(conv.id)?.status).toBe("agent");
+  });
+
+  it("stops answering while a worst-case answer could still take the month past the cap", async () => {
+    const haiku = (dollars: number) => [{ model: "claude-haiku-5-5", input: Math.round(dollars * 10_000_000), output: 0, cacheRead: 0, cacheWrite: 0 }];
+    const near = setup([text("Open the puzzle and add a clue.")]);
+    near.service.ledger.record("earlier", "shared:visitor", "visitor", haiku(2.85));
+    const ok = await start(near.app);
+    await send(near.app, ok, "How do I add a clue?");
+    await near.service.idle(ok.id);
+    expect(messages(near.service, ok.id).at(-1)!.body).toBe("Open the puzzle and add a clue.");
+
+    const edge = setup([text("never sent")]);
+    edge.service.ledger.record("earlier", "shared:visitor", "visitor", haiku(2.95));
+    const over = await start(edge.app);
+    await send(edge.app, over, "How do I add a clue?");
+    await edge.service.idle(over.id);
+    expect(messages(edge.service, over.id).at(-1)!.body).toContain("The demo's AI budget for this month is spent");
   });
 
   it("caps message length, conversation length and uploads", async () => {
