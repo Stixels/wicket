@@ -32,3 +32,14 @@ describe("home page", () => {
     expect((await a.request("/playground")).status).toBe(404);
   });
 });
+
+describe("www address", () => {
+  it("sends www. to the public address, keeping the path and query", async () => {
+    const a = app({ site: true, publicUrl: "https://wicketchat.com" });
+    const res = await a.request("https://www.wicketchat.com/demo?as=visitor", { headers: { host: "www.wicketchat.com" } });
+    expect(res.status).toBe(301);
+    expect(res.headers.get("location")).toBe("https://wicketchat.com/demo?as=visitor");
+    expect((await a.request("https://wicketchat.com/", { headers: { host: "wicketchat.com" } })).status).toBe(200);
+    expect((await a.request("/health", { headers: { host: "wicket-demo-production.up.railway.app" } })).status).toBe(200);
+  });
+});

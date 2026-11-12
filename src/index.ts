@@ -252,6 +252,7 @@ const app = createServer(service, {
   // The playground signs everyone in as one shared test user, so the public demo never serves it.
   playground: config.PLAYGROUND && !demo ? { title: `${config.PRODUCT_NAME} Support` } : undefined,
   site: config.SITE,
+  publicUrl: config.PUBLIC_URL,
   identitySecret: config.IDENTITY_SECRET,
   turnstile: config.TURNSTILE_SITE_KEY && config.TURNSTILE_SECRET_KEY ? { siteKey: config.TURNSTILE_SITE_KEY, secretKey: config.TURNSTILE_SECRET_KEY } : undefined,
   productName: config.PRODUCT_NAME,
