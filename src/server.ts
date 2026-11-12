@@ -135,9 +135,11 @@ export function createServer(service: ConversationService, opts: ServerOptions) 
     const sitePath = opts.sitePath ?? path.resolve("site/index.html");
     let html: string | undefined;
     app.get("/", (c) => {
-      html ??= fs.existsSync(sitePath) ? fs.readFileSync(sitePath, "utf8") : undefined;
-      // Only the demo puts the live widget on the site; anywhere else it would reach a real team.
-      if (html && demo) html = withSiteWidget(html);
+      // Read once. Only the demo puts the live widget on the site; anywhere else it would reach a real team.
+      if (html === undefined && fs.existsSync(sitePath)) {
+        const file = fs.readFileSync(sitePath, "utf8");
+        html = demo ? withSiteWidget(file) : file;
+      }
       if (!html) return c.text("site not found", 404);
       c.header("Cache-Control", "public, max-age=300");
       return c.html(html);

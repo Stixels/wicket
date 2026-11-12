@@ -166,6 +166,10 @@ describe("demo pages", () => {
     expect(home).toMatch(/<script src="\/widget\.js"><\/script>[\s\S]*\/api\/demo\/token/);
     expect(home).toContain('href="/demo"');
     expect(home).not.toContain("https://wicketchat.com/demo");
+    // The page is cached: later visits get the same single widget, not one more each time.
+    await app.request("/");
+    const again = await (await app.request("/")).text();
+    expect(again.match(/<script src="\/widget\.js">/g)).toHaveLength(1);
   });
 
   it("links the live demo from the site without loading the widget outside demo mode", async () => {
