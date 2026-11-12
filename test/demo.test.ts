@@ -163,7 +163,9 @@ describe("demo pages", () => {
     const visitor = await (await app.request("/demo?as=visitor")).text();
     expect(visitor).not.toContain("userToken:");
     const home = await (await app.request("/")).text();
-    expect(home).toMatch(/<script src="\/widget\.js"><\/script>[\s\S]*\/api\/demo\/token/);
+    expect(home).toContain('<script src="/widget.js"></script>');
+    // Only /demo with "Signed-in customer" picked signs anyone in; the site's widget is a visitor.
+    expect(home).not.toContain("/api/demo/token");
     expect(home).toContain('href="/demo"');
     expect(home).not.toContain("https://wicketchat.com/demo");
     // The page is cached: later visits get the same single widget, not one more each time.
