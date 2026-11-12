@@ -250,7 +250,8 @@ export class TicketDesk {
     this.db.update(L).set({ notifiedAt: new Date() }).where(and(eq(L.ticketId, ticketId), isNull(L.notifiedAt))).run();
   }
 
-  private async lookup(keyOrUrl: string): Promise<TrackedTicket | null> {
+  /** One ticket by key or link: fresh from the tracker when it can say, else as last seen. */
+  async lookup(keyOrUrl: string): Promise<TrackedTicket | null> {
     const text = keyOrUrl.trim();
     const local = this.db
       .select()

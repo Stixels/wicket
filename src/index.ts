@@ -10,12 +10,11 @@ import { reindex, readDoc, searchDocs } from "./knowledge/index.js";
 import { knowledgeSources } from "./knowledge/sources.js";
 import { DiscordRelay } from "./adapters/relay/discord.js";
 import { setupGuild } from "./discord/setup.js";
-import { GitHubIssuesTracker } from "./adapters/tracker/github.js";
-import { LinearTracker } from "./adapters/tracker/linear.js";
 import { draftTicket } from "./agent/tickets.js";
 import { COMMUNITY_ROOM_PREFIX, SUPPORT_ROOM_PREFIX } from "./discord/voiceRooms.js";
 import type { Relay } from "./adapters/types.js";
-import { loadSettings, parseSettings, settingsWarnings } from "./settings.js";
+import { loadSettings, settingsWarnings } from "./settings.js";
+import { createTracker, demoSettings } from "./trackers.js";
 import { FileStore } from "./files.js";
 import { ReplyEmails, ResendMailer } from "./email.js";
 import { priceFor } from "./usage.js";
@@ -23,7 +22,6 @@ import { gatewayModelId } from "./gateway.js";
 import { TicketDesk } from "./tickets.js";
 import { Announcer } from "./announcements.js";
 import { REST, Routes } from "discord.js";
-import { DemoTracker } from "./demo/tracker.js";
 import { demoSettingsProblems, demoTeamReply } from "./demo/index.js";
 import { scriptedModels } from "./demo/scripted.js";
 
@@ -32,7 +30,7 @@ const settings = loadSettings(config.WICKET_CONFIG);
 const db = openDb(config.DATABASE_PATH);
 
 // The public demo. loadConfig already refused a real tracker, Discord or email; the settings mustn't reach one either.
-const demo = config.DEMO ? (settings.demo ?? parseSettings("demo: {}").demo!) : null;
+const demo = demoSettings(config, settings);
 if (!demo && settings.demo) {
   console.log("demo: the settings have a demo section, but DEMO isn't true, so it's ignored");
 }
@@ -90,13 +88,7 @@ if (config.RELAY === "discord" && config.DISCORD_GUILD_ID) {
   config.DISCORD_ANNOUNCEMENTS_CHANNEL_ID ||= setup.announcementsId;
 }
 
-const tracker = demo
-  ? new DemoTracker(db, { advanceMs: demo.advanceMinutes * 60_000, backlog: demo.backlog })
-  : config.LINEAR_API_KEY
-  ? new LinearTracker({ apiKey: config.LINEAR_API_KEY, teamKey: config.LINEAR_TEAM_KEY!, sourceLabel: config.LINEAR_SOURCE_LABEL })
-  : config.GITHUB_ISSUES_REPO
-    ? new GitHubIssuesTracker({ token: config.GITHUB_ISSUES_TOKEN!, repo: config.GITHUB_ISSUES_REPO, sourceLabel: config.GITHUB_ISSUES_LABEL })
-    : null;
+const tracker = createTracker(config, db, demo);
 if (tracker) {
   await tracker.check().then(
     (where) => console.log(`${tracker.name}: ready (${where})`),
@@ -268,6 +260,7 @@ const app = createServer(service, {
         maxConversationsPerIpPerHour: demo.maxConversationsPerIpPerHour,
       }
     : undefined,
+  mcp: config.MCP ? { db } : undefined,
   team: {
     db,
     productName: config.PRODUCT_NAME,
@@ -289,6 +282,7 @@ const app = createServer(service, {
 if (!demo && !config.DISCORD_CLIENT_ID && !config.TEAM_DEV_LOGIN) console.log("team: needs you: set DISCORD_CLIENT_ID and DISCORD_CLIENT_SECRET to sign in to the dashboard at /admin");
 const server = serve({ fetch: app.fetch, port: config.PORT }, (info) => {
   console.log(`wicket listening on http://localhost:${info.port} (agent: ${scripted ? "scripted demo model" : agent ? `${model}${gateway ? " via AI Gateway" : ""}` : "off"})`);
+  if (config.MCP && config.IDENTITY_SECRET) console.log(`mcp: MCP clients can connect at ${config.PUBLIC_URL ?? `http://localhost:${info.port}`}/mcp with a user token`);
   if (demo) console.log(`demo: the public demo is at /demo; tickets stay in this database and move on after ${demo.advanceMinutes} min`);
 });
 

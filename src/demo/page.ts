@@ -10,6 +10,8 @@ export interface DemoPageInfo {
   advanceMinutes: number;
   /** The month's AI budget for the whole demo, in dollars. */
   budget: number | null;
+  /** The MCP server is on: offer a token for Claude Code, after the bot check with this Turnstile site key. */
+  mcp?: { siteKey: string } | null;
 }
 
 export type DemoMode = "visitor" | "customer";
@@ -140,6 +142,11 @@ button.primary:hover{background:#e84545}
 .card ul{margin:0;padding-left:18px;display:grid;gap:8px}
 .card b{color:var(--text);font-weight:600}
 .card code{font:12.5px var(--mono);background:rgba(255,255,255,.06);padding:1px 5px;border-radius:5px;color:#d4d4dc}
+.card pre{margin:10px 0 0;padding:10px 12px;border-radius:10px;background:rgba(0,0,0,.35);box-shadow:inset 0 0 0 1px var(--line);font:12px/1.5 var(--mono);color:#d4d4dc;white-space:pre-wrap;word-break:break-all;max-height:160px;overflow:auto}
+.card .row{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.card .row button{height:34px;font-size:13px}
+#mcp-check:empty{display:none}
+#mcp-check{margin-top:10px}
 .warn{border-radius:14px;padding:12px 14px;font-size:13.5px;background:color-mix(in srgb,var(--amber) 12%,transparent);color:#f7c46b;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--amber) 30%,transparent)}
 @media (max-width:960px){.grid{grid-template-columns:1fr}.head{grid-template-columns:1fr}.who,.view-as{text-align:left}.seg{justify-content:flex-start}}
 @media (max-width:640px){.app{grid-template-columns:1fr}.side{display:none}.panels{grid-template-columns:1fr 1fr}.main{padding:20px 16px}.seg a{padding:8px 12px}}
@@ -219,6 +226,7 @@ button.primary:hover{background:#e84545}
         <h3>Hearing back (simulated)</h3>
         <p>Tickets go to a demo tracker inside this server, never to a real Linear or GitHub. About ${minutes} after you report, the ticket moves on (a bug to <b>Fixed</b>, an idea to <b>Planned</b>) and a simulated team reply arrives in the same chat. Keep the page open or come back later.</p>
       </div>
+      ${info.mcp ? mcpCard() : ""}
       <div class="card">
         <h3>Limits</h3>
         <p>${budget ? `The whole demo shares one AI budget of ${budget} a month. ` : ""}Messages and chats are capped per person. Nothing here reaches a real team: handoffs explain what would happen instead.</p>
@@ -244,6 +252,7 @@ document.getElementById("clue").onclick = function () {
   console.error("TypeError: Cannot read properties of undefined (reading 'clueCount')");
 };
 </script>
+${info.mcp ? mcpScript(info.mcp.siteKey) : ""}
 <script src="/widget.js"></script>
 <script>
 Wicket.init({
@@ -255,4 +264,45 @@ Wicket.init({
 if (window.innerWidth > 1600) Wicket.open();
 </script>
 </body></html>`;
+}
+
+/** The card that hands out a token for MCP clients, signed in as this browser's demo customer. */
+function mcpCard(): string {
+  return `<div class="card" id="mcp">
+        <h3>Try it from Claude Code</h3>
+        <p>Wicket is also an MCP server. Get a command, run it, then ask Claude Code to search the Escape Director docs, report a bug or check on your reports. You're ${DEMO_USER.name} there too, so reports show up in this chat's history.</p>
+        <div id="mcp-check"></div>
+        <div class="row"><button id="mcp-get">Get a command</button></div>
+        <pre id="mcp-cmd" hidden></pre>
+        <div class="row"><button id="mcp-copy" hidden>Copy</button></div>
+        <p id="mcp-note" style="margin-top:10px;font-size:13px" hidden>The token lasts a day. It only works on this demo.</p>
+      </div>`;
+}
+
+/** Runs the bot check, then fetches a token and shows the claude mcp add command. */
+function mcpScript(siteKey: string): string {
+  return `<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
+<script>
+(function () {
+  var get = document.getElementById("mcp-get"), pre = document.getElementById("mcp-cmd"), copy = document.getElementById("mcp-copy"), note = document.getElementById("mcp-note");
+  function fetchToken(turnstileToken) {
+    return fetch("/api/demo/mcp-token", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ turnstileToken: turnstileToken }) })
+      .then(function (r) { return r.json().then(function (d) { if (!r.ok) throw new Error(d.error || "Couldn't get a token"); return d; }); })
+      .then(function (d) {
+        pre.textContent = "claude mcp add --transport http wicket-demo " + d.url + ' --header "Authorization: Bearer ' + d.token + '"';
+        pre.hidden = false; copy.hidden = false; note.hidden = false; get.textContent = "Get a new command";
+      })
+      .catch(function (e) { pre.textContent = e.message; pre.hidden = false; })
+      .finally(function () { get.disabled = false; });
+  }
+  get.onclick = function () {
+    if (!window.turnstile) { pre.textContent = "The bot check is still loading. Try again in a moment."; pre.hidden = false; return; }
+    get.disabled = true;
+    var box = document.getElementById("mcp-check");
+    box.innerHTML = "";
+    turnstile.render(box, { sitekey: ${json(siteKey)}, theme: "dark", callback: function (t) { box.innerHTML = ""; fetchToken(t); }, "error-callback": function () { get.disabled = false; } });
+  };
+  copy.onclick = function () { navigator.clipboard.writeText(pre.textContent).then(function () { copy.textContent = "Copied"; setTimeout(function () { copy.textContent = "Copy"; }, 1500); }); };
+})();
+</script>`;
 }

@@ -4,7 +4,7 @@ import { asc, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { schema, type Db } from "./db/index.js";
 import type { Evidence, TicketCard } from "./db/schema.js";
 import { citedEvidence, loadAppTools, type AppToolsTurn } from "./appTools.js";
-import { ThreadGoneError, type Relay, type RelayFile } from "./adapters/types.js";
+import { ThreadGoneError, type Relay, type RelayFile, type TicketKind } from "./adapters/types.js";
 import { FileStore, MAX_MODEL_IMAGE_BYTES, MODEL_IMAGE_TYPES, formatSize, type Attachment } from "./files.js";
 import type { Agent } from "./agent/agent.js";
 import { blocksOf, type Block, type Turn } from "./agent/transcript.js";
@@ -243,9 +243,12 @@ export class ConversationService {
     return resolveProfile(this.settings, { signedIn: Boolean(who.userId), plan: who.plan, path: pathFromContext(who.context) });
   }
 
-  /** The report shortcuts a profile offers here: only when the assistant can log tickets. */
-  reportsFor(profile: Profile): ReportKind[] {
-    return this.agent && this.tickets && this.settings.tickets.assistant ? reportKinds(profile) : [];
+  /**
+   * The reports a profile takes here: only when tickets can be logged. In the widget the assistant
+   * gathers the details, so it needs one; over MCP the caller's own model does.
+   */
+  reportsFor(profile: Profile, from: "widget" | "mcp" = "widget"): ReportKind[] {
+    return (this.agent || from === "mcp") && this.tickets && this.settings.tickets.assistant ? reportKinds(profile) : [];
   }
 
   /** Saves an email someone left so the team can follow up, and shows it to the team. */
@@ -643,22 +646,8 @@ export class ConversationService {
   private ticketTools(id: string, cards: TicketCard[]): TicketTools | undefined {
     const desk = this.tickets;
     if (!desk || !this.settings.tickets.assistant) return undefined;
-    const source = () => {
-      const c = this.get(id);
-      const who = c?.reporterName ?? c?.reporterEmail ?? "someone";
-      const link = this.dashboardUrl(id);
-      return `${who} in chat${link ? ` (${link})` : ""}`;
-    };
     // The user sees a card saying it's logged and that they'll hear back, so the reply needn't repeat it.
     const hearBack = desk.canFollow ? " They'll also see a card saying it's logged. Thank them briefly and say it went straight to the team and they'll hear back here." : "";
-    // A bug report's trail goes on the ticket under its own heading.
-    const activity = (kind: string | null | undefined) => {
-      const lines = kind === "bug" ? this.trailFor(id) : null;
-      return lines ? `\n\n## Recent activity\n${lines}` : "";
-    };
-    const logged = (kind: TicketCard["kind"], summary: string, others = 0, planned = false) => {
-      if (desk.canFollow) cards.push({ type: "ticket", stage: planned ? "planned" : "logged", kind, summary: summary.trim().slice(0, 300), reportedAt: Date.now(), ...(planned ? { doneAt: Date.now() } : {}), ...(others ? { others } : {}) });
-    };
     return {
       find: async (query) => {
         const found = await desk.find(query);
@@ -666,36 +655,130 @@ export class ConversationService {
         return found.map((t) => `${t.key}: ${t.title}${t.reports ? ` (${t.reports} ${t.reports === 1 ? "report" : "reports"} from chat)` : ""}`).join("\n");
       },
       file: async (input) => {
-        const ticket = await desk.file(
-          { title: String(input.title).slice(0, 200), kind: input.kind, description: `${input.description}${activity(input.kind)}\n\n---\nReported by ${source()}` },
-          { conversationId: id, summary: input.user_summary },
-        );
-        this.askForTrail(id, input.kind, ticket);
-        this.addMessage(id, "note", `Filed ${ticket.key}: ${ticket.title}\n${ticket.url}`, "Assistant");
-        await this.mirror(id, "system", `🎫 Filed [${ticket.key}](${ticket.url}): ${ticket.title}`);
-        logged(input.kind, input.user_summary);
-        this.reportLogged(id);
+        const ticket = await this.fileTicket(desk, id, input, cards);
         return `Filed ${ticket.key}.${hearBack}`;
       },
       add: async (input) => {
-        const result = await desk.add(String(input.key), {
-          conversationId: id,
-          summary: input.user_summary,
-          kind: input.kind,
-          comment: `Another report from ${source()}:\n\n${input.note}${activity(input.kind)}`,
-        });
+        const result = await this.addToTicket(desk, id, input, cards);
         if (!result) return `There's no ticket ${input.key}. Use a key from find_tickets, or file_ticket.`;
         if (result.already) return `This conversation is already on ${result.ticket.key}.`;
-        this.askForTrail(id, input.kind, result.ticket);
-        this.reportLogged(id);
-        this.addMessage(id, "note", `Added this report to ${result.ticket.key}: ${result.ticket.title}\n${result.ticket.url}`, "Assistant");
-        await this.mirror(id, "system", `➕ Added to [${result.ticket.key}](${result.ticket.url}): ${result.ticket.title}`);
         if (result.ticket.state === "done") return `${result.ticket.key} is already done. Tell them it should be fixed already and to make sure they're on the latest version.`;
-        logged(input.kind, input.user_summary, result.reports - 1, result.planned);
         if (result.planned) return `Added to ${result.ticket.key}, which the team already plans to build. Tell them it's planned. They'll see a card saying so.`;
         return `Added to ${result.ticket.key}.${hearBack}`;
       },
     };
+  }
+
+  /** Who reported something from this conversation, and where, for the ticket. */
+  private reportSource(id: string): string {
+    const c = this.get(id);
+    const who = c?.reporterName ?? c?.reporterEmail ?? "someone";
+    const client = c?.context?.via === "mcp" ? (typeof c.context.client === "string" ? c.context.client : "an MCP client") : null;
+    const link = this.dashboardUrl(id);
+    return `${who} ${client ? `from ${client}` : "in chat"}${link ? ` (${link})` : ""}`;
+  }
+
+  /** A bug report's trail goes on the ticket under its own heading. */
+  private activity(id: string, kind: string | null | undefined): string {
+    const lines = kind === "bug" ? this.trailFor(id) : null;
+    return lines ? `\n\n## Recent activity\n${lines}` : "";
+  }
+
+  /** The reporter sees a card saying it's logged, when they'll hear back. */
+  private logged(desk: TicketDesk, cards: TicketCard[], kind: TicketCard["kind"], summary: string, others = 0, planned = false) {
+    if (desk.canFollow) cards.push({ type: "ticket", stage: planned ? "planned" : "logged", kind, summary: summary.trim().slice(0, 300), reportedAt: Date.now(), ...(planned ? { doneAt: Date.now() } : {}), ...(others ? { others } : {}) });
+  }
+
+  /** Files a new ticket from this conversation: the team sees a note and a line in their thread. */
+  private async fileTicket(desk: TicketDesk, id: string, input: { title: string; kind: TicketKind; description: string; user_summary: string }, cards: TicketCard[]) {
+    const ticket = await desk.file(
+      { title: String(input.title).slice(0, 200), kind: input.kind, description: `${input.description}${this.activity(id, input.kind)}\n\n---\nReported by ${this.reportSource(id)}` },
+      { conversationId: id, summary: input.user_summary },
+    );
+    this.askForTrail(id, input.kind, ticket);
+    this.addMessage(id, "note", `Filed ${ticket.key}: ${ticket.title}\n${ticket.url}`, "Assistant");
+    await this.mirror(id, "system", `🎫 Filed [${ticket.key}](${ticket.url}): ${ticket.title}`);
+    this.logged(desk, cards, input.kind, input.user_summary);
+    this.reportLogged(id);
+    return ticket;
+  }
+
+  /** Adds this conversation's report to a ticket that exists. Null when there's no such ticket. */
+  private async addToTicket(desk: TicketDesk, id: string, input: { key: string; kind: TicketKind; note: string; user_summary: string }, cards: TicketCard[]) {
+    const result = await desk.add(String(input.key), {
+      conversationId: id,
+      summary: input.user_summary,
+      kind: input.kind,
+      comment: `Another report from ${this.reportSource(id)}:\n\n${input.note}${this.activity(id, input.kind)}`,
+    });
+    if (!result || result.already) return result;
+    this.askForTrail(id, input.kind, result.ticket);
+    this.reportLogged(id);
+    this.addMessage(id, "note", `Added this report to ${result.ticket.key}: ${result.ticket.title}\n${result.ticket.url}`, "Assistant");
+    await this.mirror(id, "system", `➕ Added to [${result.ticket.key}](${result.ticket.url}): ${result.ticket.title}`);
+    if (result.ticket.state !== "done") this.logged(desk, cards, input.kind, input.user_summary, result.reports - 1, result.planned);
+    return result;
+  }
+
+  /** The "logged" cards from filing, after the reply that mentions them. */
+  private showCards(id: string, cards: TicketCard[]) {
+    for (const card of cards) {
+      const body = card.stage === "planned" ? MESSAGES.alreadyPlanned(card.summary) : MESSAGES.logged(card.summary, card.kind);
+      this.addMessage(id, "system", body, null, undefined, { event: "logged", card });
+    }
+  }
+
+  /**
+   * A report from outside the chat, such as an MCP client, where the caller's own model gathered the
+   * details. It gets its own conversation, so the team sees it like any other and the reporter hears
+   * back there, and it's filed (or added to `duplicateOf`) the same way the assistant does it.
+   * The caller checks the profile allows this kind of report.
+   */
+  async fileReport(input: {
+    identity: Identity | null;
+    visitorKey: string;
+    /** Which app sent it, e.g. "claude-code". */
+    client: string | null;
+    kind: ReportKind;
+    title: string;
+    description: string;
+    /** In the reporter's words, for the "you'll hear back" line. */
+    summary: string;
+    duplicateOf?: string;
+  }): Promise<
+    | { outcome: "filed" | "added" | "planned" | "done" | "already"; conversation: { id: string; token: string }; ticket: { key: string; url: string; title: string } }
+    | { outcome: "no_such_ticket" }
+  > {
+    const desk = this.tickets;
+    if (!desk) throw new Error("no tracker is set up");
+    let existing: { key: string; url: string; title: string } | null = null;
+    if (input.duplicateOf) {
+      existing = await desk.lookup(input.duplicateOf);
+      if (!existing) return { outcome: "no_such_ticket" };
+      // The same person reporting it again, from any of their conversations.
+      const mine = input.identity ? this.forUser(input.identity.id) : [];
+      const key = existing.key.toLowerCase();
+      const earlier = mine.find((m) => desk.forConversation(m.id).some((t) => t.key.toLowerCase() === key));
+      if (earlier) return { outcome: "already", conversation: earlier, ticket: existing };
+    }
+    const conversation = this.create({}, { via: "mcp", ...(input.client ? { client: input.client } : {}) }, { identity: input.identity, visitorKey: input.visitorKey });
+    const id = conversation.id;
+    const body = `${input.title}\n\n${input.description}`.slice(0, MAX_BODY);
+    this.addMessage(id, "system", MESSAGES.reportStarted(input.kind), null, undefined, { event: "report" });
+    this.addMessage(id, "user", body, null);
+    await this.mirror(id, "user", body, this.get(id)?.reporterName);
+    await this.mirror(id, "system", `${input.kind === "bug" ? "🐞" : "💡"} Sent from ${input.client ?? "an MCP client"}`);
+    const cards: TicketCard[] = [];
+    if (existing) {
+      const result = await this.addToTicket(desk, id, { key: existing.key, kind: input.kind, note: input.description, user_summary: input.summary }, cards);
+      this.showCards(id, cards);
+      if (!result) return { outcome: "no_such_ticket" };
+      const outcome = result.ticket.state === "done" ? "done" : result.planned ? "planned" : "added";
+      return { outcome, conversation, ticket: result.ticket };
+    }
+    const ticket = await this.fileTicket(desk, id, { title: input.title, kind: input.kind, description: input.description, user_summary: input.summary }, cards);
+    this.showCards(id, cards);
+    return { outcome: "filed", conversation, ticket };
   }
 
   /** A report from a shortcut is logged, so later messages are an ordinary conversation again. */
@@ -860,10 +943,7 @@ export class ConversationService {
         });
         await this.mirror(id, "agent", result.reply);
       }
-      for (const card of cards) {
-        const body = card.stage === "planned" ? MESSAGES.alreadyPlanned(card.summary) : MESSAGES.logged(card.summary, card.kind);
-        this.addMessage(id, "system", body, null, undefined, { event: "logged", card });
-      }
+      this.showCards(id, cards);
       if (this.get(id)?.status === "needs_human") this.addMessage(id, "system", this.waitingText(id), null);
       if (limit !== null && limit > 0) {
         const warnAt = limit * this.settings.budgets.warnAt;
