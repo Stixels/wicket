@@ -19,15 +19,17 @@ const json = (v: unknown) => JSON.stringify(v).replace(/</g, "\\u003c");
 /** Fetches a fresh token for the demo's signed-in customer; the widget calls it before each message. */
 const TOKEN_FN = `function(){return fetch("/api/demo/token",{method:"POST",credentials:"same-origin"}).then(function(r){if(!r.ok)throw new Error("Couldn't sign in to the demo");return r.json()}).then(function(d){return d.token})}`;
 
-/** The live widget for the marketing page at /, signed in as the demo customer so the report buttons show. */
+/**
+ * The live widget for the marketing page at /. It's always a visitor: Sam is signed in only on
+ * /demo with "Signed-in customer" picked, so the sign-in doesn't follow people around the site.
+ */
 export function siteWidget(): string {
   return `
 <script src="/widget.js"></script>
 <script>
 Wicket.init({
-  user: { id: "demo-customer" },
-  userToken: ${TOKEN_FN},
-  context: { page: location.href, venue: ${json(DEMO_USER.venue)}, role: ${json(DEMO_USER.role)} },
+  user: { id: "demo-visitor" },
+  context: { page: location.href },
   title: "Wicket live demo",
 });
 </script>`;

@@ -205,7 +205,7 @@ Keep it to one replica. SQLite and the Discord connection expect a single instan
 
 The public demo at [wicketchat.com](https://wicketchat.com) is a separate Wicket service with `DEMO=true`. It runs the real server and real assistant, but nothing it does can reach a real team, tracker or inbox:
 
-- **`/`** is the marketing site with the live widget, signed in as the demo customer.
+- **`/`** is the marketing site with the live widget, as a visitor. Nobody is signed in anywhere except `/demo` with **Signed-in customer** picked.
 - **`/demo`** plays an escape-room app, with a **Visitor / Signed-in customer** switch. Visitors get docs answers only. The customer is Sam, Owner at Treehouse Escapes, signed in by the page's own `POST /api/demo/token`. Each browser gets its own id in a cookie, so nobody sees anyone else's chats. The endpoint only exists with `DEMO=true` and only signs that one user.
 - **Tickets** go to a demo tracker kept in the service's SQLite. Duplicate search only covers the backlog in `config/demo.yaml`, so one visitor's ticket titles never show up in another visitor's chat. A few minutes after a report (`demo.advanceMinutes`), the ticket moves on (bugs to Fixed, ideas to Planned) and a reply labeled as simulated arrives in the chat.
 - **Handoffs** don't go anywhere. The chat says that in a real install this goes to the team's Discord inbox.
