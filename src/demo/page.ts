@@ -63,20 +63,38 @@ body{margin:0;background:var(--bg);color:var(--text);font:15px/1.55 var(--sans);
 body::before{content:"";position:fixed;left:50%;top:-320px;width:1200px;height:760px;transform:translateX(-50%);background:radial-gradient(closest-side,rgba(79,70,229,.28),transparent);pointer-events:none;z-index:-1}
 a{color:inherit}
 .wrap{max-width:1160px;margin:0 auto;padding:0 24px}
-.top{display:flex;align-items:center;gap:16px;height:64px;flex-wrap:wrap}
+/* The site's nav (site/index.html), so /demo reads as the same site. */
+.site-nav{position:sticky;top:0;z-index:50;background:rgba(9,9,11,.72);-webkit-backdrop-filter:saturate(1.4) blur(18px);backdrop-filter:saturate(1.4) blur(18px);border-bottom:1px solid var(--line)}
+.site-nav .wrap{display:flex;align-items:center;height:64px;gap:28px}
 .logo{display:flex;align-items:center;gap:10px;font-weight:650;font-size:17px;letter-spacing:-.02em;text-decoration:none}
-.logo i{width:26px;height:26px;border-radius:50%;background:radial-gradient(circle at 32% 26%,#a5a0ff,#4f46e5 55%,#2a2490)}
-.pill{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--acc-hi);border:1px solid color-mix(in srgb,var(--acc-hi) 40%,transparent);border-radius:999px;padding:2px 10px}
-.top .gh{margin-left:auto;display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 14px;border-radius:999px;font-size:14px;font-weight:600;text-decoration:none;background:rgba(255,255,255,.04);box-shadow:inset 0 0 0 1px var(--line2)}
-.top .gh:hover{background:rgba(255,255,255,.08)}
+.nav-links{display:flex;gap:26px;margin-left:auto;font-size:14px;color:var(--muted)}
+.nav-links a{text-decoration:none;transition:color .2s}
+.nav-links a:hover,.nav-links a[aria-current]{color:var(--text)}
+.nav-gh{color:var(--muted);display:grid;place-items:center;width:36px;height:36px;border-radius:10px;transition:color .2s,background .2s}
+.nav-gh:hover{color:var(--text);background:rgba(255,255,255,.06)}
+.btn{display:inline-flex;align-items:center;justify-content:center;height:36px;padding:0 16px;border-radius:999px;font-size:14px;font-weight:600;text-decoration:none;white-space:nowrap;background:#f4f4f7;color:#0b0b0f;box-shadow:0 0 0 1px rgba(255,255,255,.2) inset,0 10px 30px -10px rgba(139,133,255,.6)}
+.btn:hover{background:#fff}
+@media (max-width:760px){.nav-links{display:none}.nav-gh{margin-left:auto}}
+.orb{--s:28px;display:inline-block;position:relative;width:var(--s);height:var(--s);border-radius:50%;flex:none;isolation:isolate;font-size:var(--s)}
+.orb .sw{position:absolute;inset:0;border-radius:50%;overflow:hidden;z-index:-2}
+.orb .sw::before{content:"";position:absolute;inset:-35%;filter:blur(2px);background:conic-gradient(from 0deg,var(--acc),color-mix(in srgb,var(--acc) 50%,white),var(--acc),color-mix(in srgb,var(--acc) 60%,black),var(--acc));animation:spin 8s linear infinite}
+.orb::before{content:"";position:absolute;inset:0;z-index:-1;border-radius:50%;background:radial-gradient(circle at 32% 26%,rgba(255,255,255,.55),transparent 48%)}
+.orb .eyes{display:flex;align-items:center;justify-content:center;width:100%;height:100%;animation:look 9s infinite ease-in-out}
+.orb .eyes i{width:.12em;height:.2em;margin:0 .06em;border-radius:999px;background:#fff;animation:blink 4.6s infinite}
+.orb .eyes i:nth-child(3){width:0;margin:0;opacity:0}
+@keyframes spin{to{transform:rotate(1turn)}}
+@keyframes blink{0%,92%,100%{transform:scaleY(1)}95%{transform:scaleY(.12)}}
+@keyframes look{0%,30%,100%{transform:translate(0,0)}36%,52%{transform:translate(.08em,-.03em)}60%,78%{transform:translate(-.08em,.02em)}}
+@media (prefers-reduced-motion:reduce){.orb .sw::before,.orb .eyes,.orb .eyes i{animation:none}}
 .head{display:grid;grid-template-columns:1fr auto;gap:24px;align-items:end;padding:32px 0 24px}
 h1{margin:0;font-size:clamp(32px,4.4vw,48px);font-weight:640;letter-spacing:-.035em;line-height:1.05}
 h1 .serif{font-family:var(--serif);font-style:italic;font-weight:400;font-size:1.08em}
 .head p{margin:12px 0 0;color:var(--muted);max-width:620px}
-.seg{display:flex;gap:4px;background:rgba(255,255,255,.04);box-shadow:inset 0 0 0 1px var(--line2);border-radius:999px;padding:4px}
-.seg a{padding:8px 16px;border-radius:999px;text-decoration:none;font-size:14px;font-weight:600;color:var(--muted);white-space:nowrap}
+.view-as{font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin-bottom:8px;text-align:right}
+.seg{display:flex;gap:6px;justify-content:flex-end}
+.seg a{display:inline-flex;align-items:center;height:38px;padding:0 16px;border-radius:999px;text-decoration:none;font-size:14px;font-weight:500;color:var(--muted);white-space:nowrap;background:rgba(255,255,255,.035);box-shadow:inset 0 0 0 1px var(--line);transition:color .2s,background .2s,box-shadow .2s}
 .seg a:hover{color:var(--text)}
-.seg a[aria-current]{background:#f4f4f7;color:#0b0b0f}
+.seg a[aria-current]{color:var(--text);background:rgba(255,255,255,.07);box-shadow:inset 0 0 0 1px var(--line2)}
 .who{margin-top:8px;font-size:13px;color:var(--dim);text-align:right}
 .grid{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:24px;padding-bottom:120px}
 /* The stand-in app */
@@ -121,13 +139,24 @@ button.primary:hover{background:#e84545}
 .card b{color:var(--text);font-weight:600}
 .card code{font:12.5px var(--mono);background:rgba(255,255,255,.06);padding:1px 5px;border-radius:5px;color:#d4d4dc}
 .warn{border-radius:14px;padding:12px 14px;font-size:13.5px;background:color-mix(in srgb,var(--amber) 12%,transparent);color:#f7c46b;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--amber) 30%,transparent)}
-@media (max-width:960px){.grid{grid-template-columns:1fr}.head{grid-template-columns:1fr}.who{text-align:left}}
+@media (max-width:960px){.grid{grid-template-columns:1fr}.head{grid-template-columns:1fr}.who,.view-as{text-align:left}.seg{justify-content:flex-start}}
 @media (max-width:640px){.app{grid-template-columns:1fr}.side{display:none}.panels{grid-template-columns:1fr 1fr}.main{padding:20px 16px}.seg a{padding:8px 12px}}
 </style>
 </head><body>
-<header class="wrap top">
-  <a class="logo" href="/"><i></i>Wicket</a><span class="pill">Live demo</span>
-  <a class="gh" href="${REPO_URL}"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.52-1.33-1.28-1.69-1.28-1.69-1.05-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.68 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.41-2.69 5.38-5.25 5.67.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5z"/></svg>Source on GitHub</a>
+<header class="site-nav">
+  <div class="wrap">
+    <a class="logo" href="/" aria-label="Wicket home"><span class="orb" aria-hidden="true"><span class="sw"></span><span class="eyes"><i></i><i></i><i></i></span></span>Wicket</a>
+    <nav class="nav-links" aria-label="Sections">
+      <a href="/#demo">Product</a>
+      <a href="/#how">How it works</a>
+      <a href="/#hear-back">Hear back</a>
+      <a href="/#features">Features</a>
+      <a href="/#faq">FAQ</a>
+      <a href="/demo" aria-current="page">Live demo</a>
+    </nav>
+    <a class="nav-gh" href="${REPO_URL}" aria-label="Wicket on GitHub"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.52-1.33-1.28-1.69-1.28-1.69-1.05-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.68 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.41-2.69 5.38-5.25 5.67.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5z"/></svg></a>
+    <a class="btn" href="/#start">Get started</a>
+  </div>
 </header>
 <main class="wrap">
   <div class="head">
@@ -136,6 +165,7 @@ button.primary:hover{background:#e84545}
       <p>This page plays an escape-room venue's software. The chat in the corner is the real Wicket server, answering from the Escape Director docs. Switch between an anonymous visitor and a signed-in customer to see what each gets.</p>
     </div>
     <div>
+      <div class="view-as" aria-hidden="true">View as</div>
       <nav class="seg" aria-label="View as">${tab("visitor", "Visitor")}${tab("customer", "Signed-in customer")}</nav>
       <div class="who">${customer ? `Signed in as <b>${DEMO_USER.name}</b>, ${DEMO_USER.role} at ${DEMO_USER.venue}` : "Not signed in"}</div>
     </div>
