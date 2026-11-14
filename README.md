@@ -8,6 +8,8 @@ A drop-in help and feedback chat for any web app, plus a Discord community and s
 - **Hands off to a person** when the user asks, is frustrated, or the docs don't cover it, and pings a role you choose.
 - **Cheap to run.** One Node process with SQLite. The assistant runs through the Vercel AI Gateway or Anthropic directly, and it's optional: without a key, every chat goes straight to the team.
 
+- **Works from AI tools.** Wicket is also an MCP server, so people can search your docs, file bugs and check on them from Claude Code, Claude Desktop or Cursor. See [MCP server](#mcp-server).
+
 - **Everyone hears back.** With a tracker set up, the assistant logs bugs, ideas and docs gaps itself. A repeat report becomes another report on the ticket that already exists, not a new one. Everyone who reported it gets a message in their chat (and by email if they're away) when it's fixed, and for ideas, when the team plans it or decides not to.
 
 ## Run the demo (no keys needed)
