@@ -1,8 +1,8 @@
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { Client, StreamableHTTPClientTransport, InMemoryTransport } from "@modelcontextprotocol/client";
 import { openDb } from "../src/db/index.js";
 import { Agent } from "../src/agent/agent.js";
 import { ConversationService } from "../src/conversations.js";
@@ -71,12 +71,15 @@ function demoSetup(o: { demo?: Partial<DemoServerOptions>; yaml?: string } = {})
 type App = ReturnType<typeof createServer>;
 
 /** An MCP client talking to the app over streamable HTTP, without a network. */
-async function connect(app: App, token: string | null, headers: Record<string, string> = {}) {
+/** The protocol revision clients pin to on the 2026-07-28 path; without it a v2 client speaks the 2025 protocol. */
+const MODERN = { versionNegotiation: { mode: { pin: "2026-07-28" } } } as const;
+
+async function connect(app: App, token: string | null, headers: Record<string, string> = {}, options: { versionNegotiation?: typeof MODERN.versionNegotiation; name?: string } = {}) {
   const transport = new StreamableHTTPClientTransport(new URL("https://wicketchat.com/mcp"), {
     requestInit: { headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), "x-forwarded-for": "203.0.113.7", ...headers } },
     fetch: async (url, init) => app.request(String(url), init as RequestInit),
   });
-  const client = new Client({ name: "test-client", version: "1.0.0" });
+  const client = new Client({ name: options.name ?? "test-client", version: "1.0.0" }, options.versionNegotiation ? { versionNegotiation: options.versionNegotiation } : undefined);
   await client.connect(transport);
   return client;
 }
@@ -86,6 +89,13 @@ const sam = (sub = "demo-browser-one-abcdefghijk") => signUserToken({ sub, name:
 const textOf = (r: any) => (r.content as { type: string; text: string }[]).map((c) => c.text).join("\n");
 const rpc = (method: string, params: object = {}) => JSON.stringify({ jsonrpc: "2.0", id: 1, method, params });
 const initialize = rpc("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "curl", version: "0" } });
+/** A JSON-RPC answer, whether it came as JSON or as one SSE message (2025-era requests get SSE from the SDK's stateless fallback). */
+async function rpcBody(res: Response): Promise<unknown> {
+  const text = await res.text();
+  if (!text.startsWith("event:") && !text.startsWith("data:")) return JSON.parse(text);
+  const data = text.split("\n").filter((l) => l.startsWith("data:")).map((l) => l.slice(5).trim()).join("");
+  return JSON.parse(data);
+}
 const mcpHeaders = (token?: string) => ({ "Content-Type": "application/json", Accept: "application/json, text/event-stream", ...(token ? { Authorization: `Bearer ${token}` } : {}) });
 
 describe("MCP auth", () => {
@@ -105,7 +115,7 @@ describe("MCP auth", () => {
 
     const good = await app.request("/mcp", { method: "POST", headers: mcpHeaders(sam()), body: initialize });
     expect(good.status).toBe(200);
-    expect(((await good.json()) as any).result.serverInfo.name).toBe("wicket");
+    expect(((await rpcBody(good)) as any).result.serverInfo.name).toBe("wicket");
   });
 
   it("is stateless: GET and DELETE get a 405", async () => {
@@ -531,11 +541,13 @@ describe("review fixes", () => {
     const { app } = installSetup();
     const res = await app.request("/mcp", {
       method: "OPTIONS",
-      headers: { Origin: "https://inspector.example", "Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "authorization, content-type, mcp-protocol-version" },
+      headers: { Origin: "https://inspector.example", "Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "authorization, content-type, mcp-protocol-version, mcp-method, mcp-name" },
     });
     expect(res.status).toBeLessThan(300);
     expect(res.headers.get("access-control-allow-origin")).toBe("*");
-    expect(res.headers.get("access-control-allow-headers")?.toLowerCase()).toContain("authorization");
+    // 2026-07-28 clients also send Mcp-Method and Mcp-Name; a browser whose preflight lacks them falls back to the 2025 protocol.
+    const allowed = res.headers.get("access-control-allow-headers")?.toLowerCase().split(/,\s*/) ?? [];
+    for (const h of ["authorization", "content-type", "mcp-protocol-version", "mcp-method", "mcp-name"]) expect(allowed).toContain(h);
   });
 
   it("caps demo report descriptions like demo chat messages", async () => {
@@ -554,9 +566,9 @@ describe("the stdio entry", () => {
     IDENTITY_SECRET: SECRET,
     ...extra,
   });
-  const spawn = async (env: Record<string, string>) => {
-    const { StdioClientTransport } = await import("@modelcontextprotocol/sdk/client/stdio.js");
-    const client = new Client({ name: "stdio-test", version: "1.0.0" });
+  const spawn = async (env: Record<string, string>, modern = false) => {
+    const { StdioClientTransport } = await import("@modelcontextprotocol/client/stdio");
+    const client = new Client({ name: "stdio-test", version: "1.0.0" }, modern ? MODERN : undefined);
     await client.connect(new StdioClientTransport({ command: process.execPath, args: ["--import", "tsx", "src/mcp/stdio.ts"], env, stderr: "pipe" }));
     return client;
   };
@@ -569,6 +581,30 @@ describe("the stdio entry", () => {
     await client.close();
   }, 20_000);
 
+  it("serves 2026-07-28 clients too", async () => {
+    const client = await spawn(stdioEnv(), true);
+    expect(client.getProtocolEra()).toBe("modern");
+    expect((await client.listTools()).tools.map((t) => t.name)).toContain("search_docs");
+    await client.close();
+  }, 20_000);
+
+  it("records which app filed a report, from the request itself on 2026-07-28 connections", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wicket-stdio-"));
+    const dbPath = path.join(dir, "wicket.db");
+    // The demo tracker, so filing needs no network.
+    const env = stdioEnv({ DATABASE_PATH: dbPath, DEMO: "true", TURNSTILE_SITE_KEY: "x", TURNSTILE_SECRET_KEY: "y", WICKET_CONFIG: "tickets: { assistant: true }\nprofiles:\n  default:\n    report: both\n" });
+    const { StdioClientTransport } = await import("@modelcontextprotocol/client/stdio");
+    const client = new Client({ name: "cursor", version: "1.0.0" }, MODERN);
+    await client.connect(new StdioClientTransport({ command: process.execPath, args: ["--import", "tsx", "src/mcp/stdio.ts"], env, stderr: "pipe" }));
+    const filed = await client.callTool({ name: "file_report", arguments: { kind: "bug", title: "Export button does nothing", description: "Clicking Export does nothing.", summary: "export not working", new_ticket: true } });
+    expect((filed.structuredContent as any).ticket.key).toBe("DEMO-1001");
+    await client.close();
+    const db = openDb(dbPath);
+    expect(db.$client.prepare("SELECT context FROM conversations").all()).toEqual([{ context: JSON.stringify({ via: "mcp", client: "cursor" }) }]);
+    db.$client.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }, 30_000);
+
   it("refuses a bad WICKET_USER_TOKEN instead of acting as the local user", async () => {
     await expect(spawn(stdioEnv({ WICKET_USER_TOKEN: "not-a-token" }))).rejects.toThrow();
   }, 20_000);
@@ -579,5 +615,40 @@ describe("MCP setting", () => {
     expect(loadConfig({}).MCP).toBe(false);
     expect(loadConfig({ IDENTITY_SECRET: SECRET }).MCP).toBe(false);
     expect(loadConfig({ MCP: "true" }).MCP).toBe(true);
+  });
+});
+
+describe("2026-07-28 clients", () => {
+  it("get the same tools, signed in the same way", async () => {
+    const { app } = demoSetup();
+    const client = await connect(app, sam(), {}, MODERN);
+    expect(client.getProtocolEra()).toBe("modern");
+    expect((await client.listTools()).tools.map((t) => t.name).sort()).toEqual(["file_report", "read_doc", "search_docs", "ticket_status"]);
+    const found = await client.callTool({ name: "search_docs", arguments: { query: "send a clue" } });
+    expect(textOf(found)).toContain("https://docs.example.com/clues#sending-a-clue");
+  });
+
+  it("are refused without a valid token, and the demo still refuses the widget's", async () => {
+    const { app } = demoSetup();
+    await expect(connect(app, null, {}, MODERN)).rejects.toThrow();
+    const widget = (await (await app.request("/api/demo/token", { method: "POST" })).json()) as { token: string };
+    await expect(connect(app, widget.token, {}, MODERN)).rejects.toThrow();
+  });
+
+  it("name themselves on each request, so reports say which app sent them without the User-Agent", async () => {
+    const { app, service } = demoSetup();
+    const client = await connect(app, sam(), { "User-Agent": "some-proxy/1.0" }, { ...MODERN, name: "cursor" });
+    const filed = await client.callTool({ name: "file_report", arguments: { kind: "bug", title: "Hint sound plays twice", description: "The hint chime plays twice.", summary: "double chime", new_ticket: true } });
+    const conv = service.get((filed.structuredContent as any).report_id)!;
+    expect(conv.context).toEqual({ via: "mcp", client: "cursor" });
+  });
+
+  it("share the rate limits with 2025-era clients", async () => {
+    const { app } = demoSetup({ demo: { maxMessagesPerIpPerHour: 2 } });
+    const modern = await connect(app, sam(), {}, MODERN);
+    const legacy = await connect(app, sam());
+    expect((await modern.callTool({ name: "search_docs", arguments: { query: "clue" } })).isError).toBeFalsy();
+    expect((await legacy.callTool({ name: "search_docs", arguments: { query: "clue" } })).isError).toBeFalsy();
+    expect((await modern.callTool({ name: "search_docs", arguments: { query: "clue" } })).isError).toBe(true);
   });
 });

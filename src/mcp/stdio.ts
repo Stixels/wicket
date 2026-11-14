@@ -9,7 +9,7 @@
 // local user running it. It never starts the Discord bot, so the team's Discord doesn't get a
 // thread for reports filed here; the dashboard and the tracker do.
 import os from "node:os";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { loadConfig } from "../config.js";
 import { openDb } from "../db/index.js";
 import { ConversationService } from "../conversations.js";
@@ -54,18 +54,20 @@ if (!indexed && sources.length) {
 }
 
 const limiter = new RateLimiter();
-const server = createMcpServer(
-  { service, db, productName: config.PRODUCT_NAME, publicUrl: config.PUBLIC_URL },
-  {
-    identity,
-    visitorKey: `local:${identity.id}`,
-    allow: {
-      call: () => limiter.allow(`mcp:${identity.id}`, config.MAX_MESSAGES_PER_CONVERSATION_PER_HOUR),
-      report: () => limiter.allow(`ip:${identity.id}`, config.MAX_CONVERSATIONS_PER_IP_PER_HOUR),
+// One connection, either protocol era; the limiter is shared, so a probe instance counts against nothing extra.
+serveStdio(() =>
+  createMcpServer(
+    { service, db, productName: config.PRODUCT_NAME, publicUrl: config.PUBLIC_URL },
+    {
+      identity,
+      visitorKey: `local:${identity.id}`,
+      allow: {
+        call: () => limiter.allow(`mcp:${identity.id}`, config.MAX_MESSAGES_PER_CONVERSATION_PER_HOUR),
+        report: () => limiter.allow(`ip:${identity.id}`, config.MAX_CONVERSATIONS_PER_IP_PER_HOUR),
+      },
     },
-  },
+  ),
 );
-await server.connect(new StdioServerTransport());
 console.error(`wicket mcp: ready on stdio as ${identity.name ?? identity.id}${tracker ? `, filing to ${tracker.name}` : ", no tracker set up"}`);
 
 function whoIsCalling(): Identity {

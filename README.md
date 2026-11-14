@@ -209,7 +209,7 @@ Each report becomes a conversation like one from the widget. The team sees it in
 
 ### Over HTTP
 
-Set `MCP=true` (with `IDENTITY_SECRET`) and the server answers at `/mcp` (streamable HTTP, stateless). It's off by default, since it lets people file into your tracker. Every request needs a user token, the same JWT the widget uses (see [Signed-in users](#signed-in-users)), as `Authorization: Bearer <token>`. Tokens can last up to 24 hours, so give people a way to get one in your app, like a "Connect Claude" button that signs a token for them.
+Set `MCP=true` (with `IDENTITY_SECRET`) and the server answers at `/mcp` over streamable HTTP. It speaks both the 2026-07-28 protocol revision and the 2025 one, so older and newer clients both work. It's built on the official MCP TypeScript SDK (v2), including its bearer-token check. It's off by default, since it lets people file into your tracker. Every request needs a user token, the same JWT the widget uses (see [Signed-in users](#signed-in-users)), as `Authorization: Bearer <token>`. Tokens can last up to 24 hours, so give people a way to get one in your app, like a "Connect Claude" button that signs a token for them.
 
 Limits: each tool call counts against `MAX_MESSAGES_PER_CONVERSATION_PER_HOUR` for that person. Each report counts as starting a chat (`MAX_CONVERSATIONS_PER_IP_PER_HOUR`), both for that person and for their IP. In the demo, calls also share the widget's per-IP limits.
 
@@ -266,7 +266,7 @@ Claude Desktop:
 }
 ```
 
-It uses the same settings, database and tracker as the server, and acts as the local user, or as whoever `WICKET_USER_TOKEN` names. It doesn't start the Discord bot, so reports filed this way go to the tracker and the dashboard but don't open a Discord thread. Run it alongside the server, which does the ticket checks that tell reporters when things move.
+It speaks both protocol revisions too. It uses the same settings, database and tracker as the server, and acts as the local user, or as whoever `WICKET_USER_TOKEN` names. It doesn't start the Discord bot, so reports filed this way go to the tracker and the dashboard but don't open a Discord thread. Run it alongside the server, which does the ticket checks that tell reporters when things move.
 
 ## Deploy on Railway
 
