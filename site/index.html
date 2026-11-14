@@ -6,7 +6,7 @@
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#09090b">
 <title>Wicket · The support chat that closes the loop</title>
-<meta name="description" content="Wicket is a help and feedback chat for your app. It answers from your docs, hands the rest to your team, logs every bug and idea, and tells each person when it ships.">
+<meta name="description" content="Wicket is a help and feedback chat for your app. It answers from your docs, hands the rest to your team, logs every bug and idea, and tells each person when it ships. Also works from Claude Code and Cursor over MCP.">
 <meta property="og:title" content="Wicket · The support chat that closes the loop">
 <meta property="og:description" content="Answers from your docs. Hands off to your team. Logs every bug and idea, and tells each person when it ships.">
 <meta property="og:type" content="website">
@@ -290,11 +290,17 @@ h2 .serif{font-size:1.08em}
 .cell{position:relative;grid-column:span 2;border-radius:22px;padding:26px;background:linear-gradient(180deg,#131318,#0f0f13);box-shadow:inset 0 0 0 1px var(--line);overflow:hidden;min-height:250px;display:flex;flex-direction:column;transition:box-shadow .3s}
 .cell:hover{box-shadow:inset 0 0 0 1px var(--line2)}
 .cell.w3{grid-column:span 3}.cell.w4{grid-column:span 4}
+.cell.w6{grid-column:span 6;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.45fr);gap:32px;align-items:center;min-height:0}
+.cell.w6 .vis{margin:0;padding:0}
+.cell .more{display:inline-block;margin-top:14px;font-size:14px;font-weight:600;color:var(--acc-hi,#8b85ff);text-decoration:none}
+.cell .more:hover{text-decoration:underline}
+.term pre{white-space:pre-wrap;word-break:break-word;font-size:12.5px;line-height:1.65}
+.term .t-ok{color:#86efac}
 .cell h3{font-size:19px;letter-spacing:-.02em;line-height:1.25}
 .cell p{margin:8px 0 0;color:var(--muted);font-size:14.5px;line-height:1.55}
 .cell .vis{margin-top:auto;padding-top:22px}
-@media (max-width:960px){.bento{grid-template-columns:repeat(2,1fr)}.cell,.cell.w3,.cell.w4{grid-column:span 1}.cell.wide-m{grid-column:span 2}}
-@media (max-width:620px){.bento{grid-template-columns:1fr}.cell,.cell.w3,.cell.w4,.cell.wide-m{grid-column:span 1}}
+@media (max-width:960px){.bento{grid-template-columns:repeat(2,1fr)}.cell,.cell.w3,.cell.w4{grid-column:span 1}.cell.wide-m,.cell.w6{grid-column:span 2}.cell.w6{display:flex;gap:0}.cell.w6 .vis{margin-top:auto;padding-top:22px}}
+@media (max-width:620px){.bento{grid-template-columns:1fr}.cell,.cell.w3,.cell.w4,.cell.wide-m,.cell.w6{grid-column:span 1}}
 pre{margin:0;font:13px/1.7 var(--mono);color:#cfcfd8;white-space:pre;overflow-x:auto}
 .code{border-radius:14px;background:#0a0a0d;box-shadow:inset 0 0 0 1px var(--line);padding:16px 18px;position:relative}
 .t-tag{color:#8b85ff}.t-attr{color:#7dd3fc}.t-str{color:#a7f3d0}.t-key{color:#f9a8d4}.t-com{color:#5c5c68}.t-fn{color:#fde68a}
@@ -643,6 +649,22 @@ footer a{text-decoration:none}footer a:hover{color:var(--text)}
             <div class="route" id="route"><span class="node">Chat</span><span class="arrow"></span><span class="node ai">Assistant</span><span class="arrow"></span><span class="node">Team</span></div>
           </div>
         </div>
+        <div class="cell w6 wide-m rv" id="mcp">
+          <div>
+            <h3>Works in Claude Code and Cursor</h3>
+            <p>Wicket is also an MCP server. People can search your docs, report a bug or ask for a feature, and check on it, right from their AI tools. Reports get the same duplicate check, land on the same tracker, and hear back the same way as the chat.</p>
+            <a class="more" href="https://wicketchat.com/demo">Try it from Claude Code on the live demo →</a>
+          </div>
+          <div class="vis"><div class="code term" aria-label="A Claude Code session using Wicket"><pre><span class="t-com">$</span> <span class="t-fn">claude mcp add</span> --transport http yourapp https://support.yourapp.com/mcp \
+    --header <span class="t-str">"Authorization: Bearer $TOKEN"</span>
+
+<span class="t-key">&gt;</span> Export on the reports page does nothing. Can you report it?
+
+<span class="t-tag">⏺</span> yourapp · file_report
+  <span class="t-com">Might be the same: APP-212 "Export fails on the reports page"</span>
+<span class="t-tag">⏺</span> yourapp · file_report <span class="t-com">(duplicate_of: APP-212)</span>
+  <span class="t-ok">Added to APP-212. You'll hear back when it's fixed.</span></pre></div></div>
+        </div>
       </div>
       <div class="details rv">
         <div><b>Signed-in users</b><span>Your backend signs a short token, so plans and budgets follow the real person.</span></div>
@@ -684,6 +706,7 @@ footer a{text-decoration:none}footer a:hover{color:var(--text)}
         <details><summary>Where does my team answer?</summary><p>In the built-in dashboard at <code>/admin</code>, or in Discord, where each conversation becomes its own private post. Replies show up in the person's chat right away, and by email if they've left.</p></details>
         <details><summary>Which docs can it read?</summary><p>Any GitHub repo of Markdown (GitBook Git Sync, Docusaurus, Mintlify and similar), or any hosted docs site through its sitemap. It re-indexes on a schedule and links the exact section in each answer.</p></details>
         <details><summary>How does it know which issues to update?</summary><p>When the assistant files a report, it checks your tracker for the same problem first and adds the person to that ticket if it exists. Wicket then checks the tracker every 15 minutes and messages reporters when a ticket is fixed, planned or turned down. Linear and GitHub Issues work today.</p></details>
+        <details><summary>Can people use it from Claude Code or Cursor?</summary><p>Yes. Wicket is also an MCP server: set <code>MCP=true</code> and people connect Claude Code, Claude Desktop, Cursor or any MCP client with a token from your app. They can search your docs, file bugs and feature requests, and see where their reports stand. Reports follow the same rules, duplicate check and limits as the chat. You can <a href="https://wicketchat.com/demo">try it on the live demo</a>.</p></details>
         <details><summary>Can it see my users' data?</summary><p>Only if you let it. App tools are endpoints on your own backend, called with the person's signed token, so your code decides what they can see on every call.</p></details>
       </div>
     </div>
@@ -700,6 +723,7 @@ footer a{text-decoration:none}footer a:hover{color:var(--text)}
           <button role="tab" aria-selected="false" data-k="html">Add to your app</button>
           <button role="tab" aria-selected="false" data-k="token">Signed-in users</button>
           <button role="tab" aria-selected="false" data-k="yaml">Profiles</button>
+          <button role="tab" aria-selected="false" data-k="mcp">MCP</button>
         </div>
         <div class="code"><button class="copy" id="copy"><svg><use href="#i-copy"/></svg><span>Copy</span></button><pre id="snippet"></pre></div>
       </div>
@@ -964,11 +988,13 @@ footer a{text-decoration:none}footer a:hover{color:var(--text)}
     run: '# Try it with a scripted assistant, no keys needed\ngit clone https://github.com/Stixels/wicket.git\ncd wicket\nnpm install\nnpm run demo        # open http://localhost:4317\n\n# Then deploy it anywhere that runs Node, like Railway', 
     html: '<script src="https://support.yourapp.com/widget.js" defer><\/script>\n<script>\n  window.addEventListener("load", () =>\n    Wicket.init({\n      user: { id: user.id, name: user.name, email: user.email },\n      context: { appVersion: APP_VERSION },\n      title: "Your App Support",\n      theme: { accentColor: "#4f46e5" },\n    }),\n  );\n<\/script>',
     token: '// Your backend signs a short-lived token with the secret Wicket has\njwt.sign(\n  { sub: user.id, name: user.name, email: user.email, plan: user.plan },\n  process.env.WICKET_IDENTITY_SECRET,\n  { expiresIn: "5m" },\n);\n\n// The widget asks for a fresh one with every message\nWicket.init({\n  userToken: () => fetch("/api/wicket-token").then((r) => r.json()).then((d) => d.token),\n});',
+    mcp: '# Set MCP=true, then connect Claude Code with a user token from your app\nclaude mcp add --transport http yourapp https://support.yourapp.com/mcp \\\n  --header "Authorization: Bearer $TOKEN"\n\n# Tools: search_docs, read_doc, file_report, ticket_status',
     yaml: '# config/wicket.yaml\nprofiles:\n  visitor:\n    ai: false          # straight to the team\n    askEmail: true     # so they can hear back\n  default:\n    budget: 3          # dollars per person, per month\nrules:\n  - when: { signedIn: false }\n    profile: visitor\nbudgets:\n  warnAt: 0.8\n  monthlyTotal: 20'
   };
   function hl(k, s) {
     s = esc(s);
     if (k === "run") return s.replace(/(#.*)$/gm, '<span class="t-com">$1</span>').replace(/^(git|cd|npm)\b/gm, '<span class="t-fn">$1</span>');
+    if (k === "mcp") return s.replace(/("[^"\n]*")/g, '<span class="t-str">$1</span>').replace(/(#.*)$/gm, '<span class="t-com">$1</span>').replace(/^(claude mcp add)\b/gm, '<span class="t-fn">$1</span>');
     if (k === "yaml") return s.replace(/(#.*)$/gm, '<span class="t-com">$1</span>').replace(/^(\s*-?\s*)([a-zA-Z]+):/gm, '$1<span class="t-key">$2</span>:');
     return s
       .replace(/^(\s*\/\/.*)$/gm, '<span class="t-com">$1</span>')
