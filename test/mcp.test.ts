@@ -81,7 +81,8 @@ async function connect(app: App, token: string | null, headers: Record<string, s
   return client;
 }
 
-const sam = (sub = "demo-browser-one-abcdefghijk") => signUserToken({ sub, name: "Sam" }, SECRET, 3600);
+/** A token like /api/demo/mcp-token hands out; the demo's /mcp takes no other kind. */
+const sam = (sub = "demo-browser-one-abcdefghijk") => signUserToken({ sub, name: "Sam", scope: "mcp" }, SECRET, 3600);
 const textOf = (r: any) => (r.content as { type: string; text: string }[]).map((c) => c.text).join("\n");
 const rpc = (method: string, params: object = {}) => JSON.stringify({ jsonrpc: "2.0", id: 1, method, params });
 const initialize = rpc("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "curl", version: "0" } });
@@ -366,12 +367,209 @@ describe("MCP over stdio", () => {
 class MemoryTracker implements Tracker {
   name = "memory";
   created: TicketDraft[] = [];
+  searchFails = false;
+  createFails = false;
   async create(t: TicketDraft) {
+    if (this.createFails) throw new Error("tracker is down");
     this.created.push(t);
     const key = `T-${this.created.length}`;
     return { id: key, key, url: `https://tracker.example.com/${key}` };
   }
   async search(): Promise<TrackedTicket[]> {
+    if (this.searchFails) throw new Error("search is down");
     return [];
   }
 }
+
+/** A real install: a tracker that can be made to fail, and the team's Discord. */
+function installSetup(o: { maxConversationsPerIpPerHour?: number; maxMessagesPerConversationPerHour?: number } = {}) {
+  const db = openDb(":memory:");
+  replaceIndex(db, DOCS);
+  const relay = new FakeRelay();
+  const tracker = new MemoryTracker();
+  const settings = parseSettings("tickets: { assistant: true }\nprofiles:\n  default:\n    report: both\n");
+  const desk = new TicketDesk(db, tracker, { notify: (n) => service.ticketNews(n), log: () => {} });
+  const service = new ConversationService(db, null, relay, { settings, tickets: desk, log: () => {} });
+  const app = createServer(service, {
+    allowedOrigins: [],
+    maxConversationsPerIpPerHour: o.maxConversationsPerIpPerHour ?? 50,
+    maxMessagesPerConversationPerHour: o.maxMessagesPerConversationPerHour ?? 200,
+    identitySecret: SECRET,
+    productName: "Acme",
+    publicUrl: "https://support.acme.test",
+    mcp: { db },
+  });
+  return { db, app, service, desk, tracker, relay };
+}
+const user = (sub: string) => signUserToken({ sub, name: sub }, SECRET, 3600);
+const bug = (title: string, extra: object = {}) => ({ kind: "bug", title, description: `${title}, every time.`, summary: title.toLowerCase(), ...extra });
+
+describe("review fixes", () => {
+  it("won't join a ticket the report wasn't offered, so nobody learns another visitor's ticket", async () => {
+    const { app, db } = demoSetup();
+    const alice = await connect(app, sam("demo-alice-abcdefghijklmnop"));
+    await alice.callTool({ name: "file_report", arguments: bug("Lantern puzzle won't reset", { new_ticket: true }) });
+    const bob = await connect(app, sam("demo-bob-abcdefghijklmnopqr"), { "x-forwarded-for": "198.51.100.9" });
+    const peek = await bob.callTool({ name: "file_report", arguments: bug("Something else entirely", { duplicate_of: "DEMO-1001" }) });
+    expect(peek.isError).toBe(true);
+    expect(textOf(peek)).not.toContain("Lantern");
+    // A backlog ticket that search didn't offer for this report is refused too.
+    const offTopic = await bob.callTool({ name: "file_report", arguments: bug("Clue counter stuck after sending a clue", { duplicate_of: "DEMO-103" }) });
+    expect(offTopic.isError).toBe(true);
+    expect(db.$client.prepare("SELECT key, touched_at IS NOT NULL AS touched FROM demo_tickets WHERE key IN ('DEMO-1001','DEMO-103') ORDER BY key").all()).toEqual([
+      { key: "DEMO-1001", touched: 1 },
+      { key: "DEMO-103", touched: 0 },
+    ]);
+    // Alice can still add to her own ticket from a new report.
+    const own = await alice.callTool({ name: "file_report", arguments: bug("Lantern puzzle stuck again", { duplicate_of: "DEMO-1001" }) });
+    expect((own.structuredContent as any).status).toBe("already");
+  });
+
+  it("won't open the demo's /mcp with the widget's token, which comes without a bot check", async () => {
+    const { app } = demoSetup();
+    const widget = (await (await app.request("/api/demo/token", { method: "POST" })).json()) as { token: string };
+    const res = await app.request("/mcp", { method: "POST", headers: mcpHeaders(widget.token), body: initialize });
+    expect(res.status).toBe(401);
+  });
+
+  it("doesn't let a demo report's chat token get assistant answers without a bot check", async () => {
+    const { app, service } = demoSetup();
+    const client = await connect(app, sam());
+    const filed = await client.callTool({ name: "file_report", arguments: bug("Hint sound plays twice", { new_ticket: true }) });
+    const conv = service.get((filed.structuredContent as any).report_id)!;
+    const res = await app.request(`/api/conversations/${conv.id}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${conv.token}` },
+      body: JSON.stringify({ body: "How do I add a clue?" }),
+    });
+    expect(res.status).toBe(201);
+    await service.idle(conv.id);
+    // The FakeClient has no answers queued, so an assistant call would have failed and said sorry.
+    const after = service.list(conv.id).map((m) => m.author);
+    expect(after).not.toContain("agent");
+  });
+
+  it("files nothing when the duplicate check fails", async () => {
+    const { app, tracker, service } = installSetup();
+    tracker.searchFails = true;
+    const client = await connect(app, user("u1"));
+    const res = await client.callTool({ name: "file_report", arguments: bug("Export button does nothing") });
+    expect(res.isError).toBe(true);
+    expect(textOf(res)).toMatch(/nothing was filed/);
+    expect(tracker.created).toHaveLength(0);
+    expect(service.forUser("u1")).toHaveLength(0);
+  });
+
+  it("leaves no conversation or Discord thread behind when the tracker is down", async () => {
+    const { app, tracker, service, relay } = installSetup();
+    tracker.createFails = true;
+    const client = await connect(app, user("u1"));
+    const res = await client.callTool({ name: "file_report", arguments: bug("Export button does nothing", { new_ticket: true }) });
+    expect(res.isError).toBe(true);
+    expect(service.forUser("u1")).toHaveLength(0);
+    expect(relay.threads.size).toBe(0);
+
+    tracker.createFails = false;
+    const ok = await client.callTool({ name: "file_report", arguments: bug("Export button does nothing", { new_ticket: true }) });
+    expect((ok.structuredContent as any).ticket.key).toBe("T-1");
+    const [thread] = relay.threads.values();
+    expect(thread!.posts[0]).toContain("Export button does nothing");
+    expect(thread!.posts.some((p) => p.includes("Filed [T-1]"))).toBe(true);
+  });
+
+  it("limits reports per person, not just per X-Forwarded-For", async () => {
+    const { app, tracker } = installSetup({ maxConversationsPerIpPerHour: 2 });
+    let filed = 0;
+    for (let i = 0; i < 5; i++) {
+      const client = await connect(app, user("u1"), { "x-forwarded-for": `203.0.113.${i}` });
+      const res = await client.callTool({ name: "file_report", arguments: bug(`Report number ${i}`, { new_ticket: true }) });
+      if (!res.isError) filed++;
+    }
+    expect(filed).toBe(2);
+    expect(tracker.created).toHaveLength(2);
+  });
+
+  it("limits tool calls per person outside the demo", async () => {
+    const { app } = installSetup({ maxMessagesPerConversationPerHour: 2 });
+    const client = await connect(app, user("u1"));
+    const search = () => client.callTool({ name: "search_docs", arguments: { query: "clue" } });
+    expect((await search()).isError).toBeFalsy();
+    expect((await search()).isError).toBeFalsy();
+    expect((await search()).isError).toBe(true);
+    // Someone else has their own allowance.
+    const other = await connect(app, user("u2"));
+    expect((await other.callTool({ name: "search_docs", arguments: { query: "clue" } })).isError).toBeFalsy();
+  });
+
+  it("finds a report by id however old it is", async () => {
+    const { app, service } = installSetup();
+    const client = await connect(app, user("u1"));
+    const first = await client.callTool({ name: "file_report", arguments: bug("Old report from long ago", { new_ticket: true }) });
+    const id = (first.structuredContent as any).report_id;
+    const identity = verifyUserToken(user("u1"), SECRET)!;
+    for (let i = 0; i < 55; i++) service.create({}, undefined, { identity, visitorKey: "x" });
+    const status = await client.callTool({ name: "ticket_status", arguments: { report_id: id } });
+    expect(status.isError).toBeFalsy();
+    expect((status.structuredContent as any).reports[0].ticket.title).toBe("Old report from long ago");
+  });
+
+  it("gives each ticket in a conversation its own state", async () => {
+    const { app, service, desk } = installSetup();
+    const identity = verifyUserToken(user("u1"), SECRET)!;
+    const conv = service.create({}, undefined, { identity, visitorKey: "x" });
+    await desk.file({ title: "Timer drifts", kind: "bug", description: "d" }, { conversationId: conv.id, summary: "the timer drifting" });
+    await desk.file({ title: "CSV export", kind: "feature", description: "d" }, { conversationId: conv.id, summary: "exporting to CSV" });
+    await service.ticketNews({ stage: "planned", conversationId: conv.id, key: "T-2", title: "CSV export", kind: "feature", summary: "exporting to CSV", reportedAt: Date.now() });
+    const client = await connect(app, user("u1"));
+    const { reports } = (await client.callTool({ name: "ticket_status", arguments: {} })).structuredContent as any;
+    const byKey = Object.fromEntries(reports.map((r: any) => [r.ticket.key, r]));
+    expect(byKey["T-1"]).toMatchObject({ state: "open", news: null });
+    expect(byKey["T-2"].state).toBe("planned");
+  });
+
+  it("answers CORS preflight for browser-based clients", async () => {
+    const { app } = installSetup();
+    const res = await app.request("/mcp", {
+      method: "OPTIONS",
+      headers: { Origin: "https://inspector.example", "Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "authorization, content-type, mcp-protocol-version" },
+    });
+    expect(res.status).toBeLessThan(300);
+    expect(res.headers.get("access-control-allow-origin")).toBe("*");
+    expect(res.headers.get("access-control-allow-headers")?.toLowerCase()).toContain("authorization");
+  });
+
+  it("caps demo report descriptions like demo chat messages", async () => {
+    const { app } = demoSetup({ demo: { maxMessageLength: 40 } });
+    const client = await connect(app, sam());
+    const long = await client.callTool({ name: "file_report", arguments: { ...bug("Hint sound plays twice", { new_ticket: true }), description: "x".repeat(41) } });
+    expect(long.isError).toBe(true);
+  });
+});
+
+describe("the stdio entry", () => {
+  const stdioEnv = (extra: Record<string, string> = {}) => ({
+    PATH: process.env.PATH ?? "",
+    DATABASE_PATH: ":memory:",
+    WICKET_CONFIG: "tickets: { assistant: true }",
+    IDENTITY_SECRET: SECRET,
+    ...extra,
+  });
+  const spawn = async (env: Record<string, string>) => {
+    const { StdioClientTransport } = await import("@modelcontextprotocol/sdk/client/stdio.js");
+    const client = new Client({ name: "stdio-test", version: "1.0.0" });
+    await client.connect(new StdioClientTransport({ command: process.execPath, args: ["--import", "tsx", "src/mcp/stdio.ts"], env, stderr: "pipe" }));
+    return client;
+  };
+
+  it("serves the tools over stdio, with nothing but protocol on stdout", async () => {
+    const client = await spawn(stdioEnv());
+    const names = (await client.listTools()).tools.map((t) => t.name).sort();
+    // No tracker set up, so no file_report.
+    expect(names).toEqual(["read_doc", "search_docs", "ticket_status"]);
+    await client.close();
+  }, 20_000);
+
+  it("refuses a bad WICKET_USER_TOKEN instead of acting as the local user", async () => {
+    await expect(spawn(stdioEnv({ WICKET_USER_TOKEN: "not-a-token" }))).rejects.toThrow();
+  }, 20_000);
+});

@@ -200,7 +200,7 @@ Wicket is also an [MCP](https://modelcontextprotocol.io) server, so people can r
 |---|---|
 | `search_docs` | Searches the docs index. Returns sections with a snippet and link. |
 | `read_doc` | The full text behind a search result. |
-| `file_report` | Files a bug or feature request. The first call checks open tickets, and if some might be the same thing, it files nothing and sends them back. The client then calls again with `duplicate_of` (joins that ticket as another report) or `new_ticket: true`. Only shows up when the person's profile has `report: bug`, `feature` or `both`, and only offers those kinds. |
+| `file_report` | Files a bug or feature request. The first call checks open tickets, and if some might be the same thing, it files nothing and sends them back. The client then calls again with `duplicate_of` (joins that ticket as another report) or `new_ticket: true`. `duplicate_of` only takes a ticket it offered for that report, or one the person already reported. If the check can't reach the tracker, nothing is filed. Only shows up when the person's profile has `report: bug`, `feature` or `both`, and only offers those kinds. |
 | `ticket_status` | Where the person's reports stand (open, planned, fixed, declined), with the ticket and any team replies. |
 
 Each report becomes a conversation like one from the widget. The team sees it in Discord and the dashboard, and the reporter hears back in it (`ticket_status` reads it, and the `chat_url` it returns opens it in a browser). The client's own model does the writing, so MCP calls don't spend the assistant's budgets.
@@ -209,7 +209,7 @@ Each report becomes a conversation like one from the widget. The team sees it in
 
 The server answers at `/mcp` (streamable HTTP, stateless) whenever `IDENTITY_SECRET` is set. Every request needs a user token, the same JWT the widget uses (see [Signed-in users](#signed-in-users)), as `Authorization: Bearer <token>`. Tokens can last up to 24 hours, so give people a way to get one in your app, like a "Connect Claude" button that signs a token for them. Turn it off with `MCP=false`.
 
-Limits: each tool call counts against `MAX_MESSAGES_PER_CONVERSATION_PER_HOUR` for that person, and each report counts as starting a chat (`MAX_CONVERSATIONS_PER_IP_PER_HOUR`). In the demo they share the widget's per-IP limits.
+Limits: each tool call counts against `MAX_MESSAGES_PER_CONVERSATION_PER_HOUR` for that person. Each report counts as starting a chat (`MAX_CONVERSATIONS_PER_IP_PER_HOUR`), both for that person and for their IP. In the demo, calls also share the widget's per-IP limits.
 
 Claude Code:
 
@@ -282,7 +282,7 @@ The public demo at [wicketchat.com](https://wicketchat.com) is a separate Wicket
 - **`/`** is the marketing site with the live widget, as a visitor. Nobody is signed in anywhere except `/demo` with **Signed-in customer** picked.
 - **`/demo`** plays an escape-room app, with a **Visitor / Signed-in customer** switch. Visitors get docs answers only. The customer is Sam, Owner at Treehouse Escapes, signed in by the page's own `POST /api/demo/token`. Each browser gets its own id in a cookie, so nobody sees anyone else's chats. The endpoint only exists with `DEMO=true` and only signs that one user.
 - **Tickets** go to a demo tracker kept in the service's SQLite. Duplicate search only covers the backlog in `config/demo.yaml`, so one visitor's ticket titles never show up in another visitor's chat. A few minutes after a report (`demo.advanceMinutes`), the ticket moves on (bugs to Fixed, ideas to Planned) and a reply labeled as simulated arrives in the chat.
-- **MCP:** `/demo` hands out a token for Claude Code after the bot check (`POST /api/demo/mcp-token`), for the same Sam as that browser's chats. It lasts a day. `/mcp` files to the same demo tracker, so it can't reach a real one either. See [Try it on the demo](#try-it-on-the-demo).
+- **MCP:** `/demo` hands out a token for Claude Code after the bot check (`POST /api/demo/mcp-token`), for the same Sam as that browser's chats. It lasts a day, and only these tokens open the demo's `/mcp`: the widget's own token comes without a bot check, so it doesn't. A report filed over MCP doesn't get assistant answers in its chat, since no bot check opened it. `/mcp` files to the same demo tracker, so it can't reach a real one either. See [Try it on the demo](#try-it-on-the-demo).
 - **Handoffs** don't go anywhere. The chat says that in a real install this goes to the team's Discord inbox.
 - **Limits:** everyone shares one monthly AI budget (`budgets.monthlyTotal`, $3). When it's spent, the chat says so and still links plain docs search results. Every chat passes a Turnstile bot check, signed in or not. Messages are capped in length and per chat, and both messages and chats are capped per IP per hour (`demo:` in `config/demo.yaml`). Attachments and the playground are off.
 

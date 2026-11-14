@@ -133,7 +133,7 @@ describe("everyone hears back", () => {
 
     // The team sees which ticket each conversation is on.
     expect(s.desk.forConversation(alex.id)).toEqual([
-      { key: "ED-1", url: "https://tracker/ED-1", title: "Timer drifts after pausing", state: "open", relation: "added", notified: false },
+      { key: "ED-1", url: "https://tracker/ED-1", title: "Timer drifts after pausing", state: "open", relation: "added", notified: false, summary: "the timer running fast after pausing" },
     ]);
     const samThread = [...s.relay.threads.values()].find((t) => t.conversation.id === sam.id)!;
     expect(samThread.posts).toContain("system: 🎫 Filed [ED-1](https://tracker/ED-1): Timer drifts after pausing");

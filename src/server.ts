@@ -15,7 +15,7 @@ import { verifyWebhook, type ReplyEmails } from "./email.js";
 import { playgroundPage } from "./playground.js";
 import { trailBody } from "./trail.js";
 import { getCookie, setCookie } from "hono/cookie";
-import { DEMO_MCP_TOKEN_TTL_SECONDS, DEMO_VISITOR_ID, demoUserToken } from "./demo/index.js";
+import { DEMO_MCP_TOKEN_TTL_SECONDS, DEMO_VISITOR_ID, demoMcpToken, demoUserToken } from "./demo/index.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { createMcpServer } from "./mcp/server.js";
 import { demoPage, withSiteWidget, type DemoPageInfo } from "./demo/page.js";
@@ -192,7 +192,7 @@ export function createServer(service: ConversationService, opts: ServerOptions) 
       if (!passed) return c.json({ error: "Please confirm you're not a robot.", botCheck: true }, 403);
       const visitor = demoVisitor(c);
       c.header("Cache-Control", "no-store");
-      const token = demoUserToken(visitor, opts.identitySecret!, Date.now(), DEMO_MCP_TOKEN_TTL_SECONDS);
+      const token = demoMcpToken(visitor, opts.identitySecret!);
       return c.json({ token, expiresAt: Date.now() + DEMO_MCP_TOKEN_TTL_SECONDS * 1000, url: `${publicOrigin(c)}/mcp` });
     });
   }
@@ -202,24 +202,29 @@ export function createServer(service: ConversationService, opts: ServerOptions) 
     app.use("/mcp", cors({ origin: "*", allowHeaders: ["Content-Type", "Authorization", "Mcp-Protocol-Version", "Mcp-Session-Id", "Last-Event-ID"], allowMethods: ["GET", "POST", "DELETE", "OPTIONS"], exposeHeaders: ["Mcp-Session-Id", "WWW-Authenticate"] }));
     // Stateless streamable HTTP: every POST is answered on its own, as the person its token names.
     app.post("/mcp", async (c) => {
-      const identity = verifyUserToken(bearer(c), opts.identitySecret);
+      // In the demo only tokens from /api/demo/mcp-token work: the widget's come without a bot check.
+      const token = bearer(c);
+      const identity = verifyUserToken(token, opts.identitySecret, Date.now(), demo ? "mcp" : undefined);
       if (!identity) {
-        c.header("WWW-Authenticate", 'Bearer realm="wicket", error="invalid_token", error_description="Send a user token from your app (Authorization: Bearer ...)"');
-        return c.json(rpcError(-32001, "Sign in: send a valid, unexpired user token as Authorization: Bearer <token>"), 401);
+        // RFC 6750: no error code when no token came at all.
+        c.header("WWW-Authenticate", token ? 'Bearer realm="wicket", error="invalid_token"' : 'Bearer realm="wicket"');
+        const how = demo ? "Get a token at /demo (Try it from Claude Code)" : "Send a valid, unexpired user token from your app";
+        return c.json(rpcError(-32001, `${token ? "That token isn't valid here or has expired." : "No token."} ${how}, as Authorization: Bearer <token>.`), 401);
       }
       const ip = clientIp(c);
       // The demo shares the widget's per-IP limits, so MCP isn't a way around them.
       const callLimit = demo ? Math.min(demo.maxMessagesPerIpPerHour, opts.maxMessagesPerConversationPerHour) : opts.maxMessagesPerConversationPerHour;
       const reportLimit = demo ? Math.min(demo.maxConversationsPerIpPerHour, opts.maxConversationsPerIpPerHour) : opts.maxConversationsPerIpPerHour;
       const server = createMcpServer(
-        { service, db: mcp.db, productName: opts.productName ?? "our product", publicUrl: opts.publicUrl ?? publicOrigin(c), maxQueryLength: demo?.maxMessageLength, version: mcp.version },
+        { service, db: mcp.db, productName: opts.productName ?? "our product", publicUrl: opts.publicUrl ?? publicOrigin(c), maxTextLength: demo?.maxMessageLength, version: mcp.version },
         {
           identity,
           visitorKey: ip,
           client: c.req.header("User-Agent")?.split(/[\s/]/)[0]?.slice(0, 80) || null,
           allow: {
-            call: () => limiter.allow(demo ? `ip-msg:${ip}` : `mcp:${identity.id}`, callLimit),
-            report: () => limiter.allow(`ip:${ip}`, reportLimit),
+            // Per person as well as per IP: the IP comes from X-Forwarded-For, which only a proxy that overwrites it makes trustworthy.
+            call: () => limiter.allow(`mcp:${identity.id}`, callLimit) && (!demo || limiter.allow(`ip-msg:${ip}`, callLimit)),
+            report: () => limiter.allow(`mcp-report:${identity.id}`, reportLimit) && limiter.allow(`ip:${ip}`, reportLimit),
           },
         },
       );

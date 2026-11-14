@@ -766,19 +766,35 @@ export class ConversationService {
     const body = `${input.title}\n\n${input.description}`.slice(0, MAX_BODY);
     this.addMessage(id, "system", MESSAGES.reportStarted(input.kind), null, undefined, { event: "report" });
     this.addMessage(id, "user", body, null);
-    await this.mirror(id, "user", body, this.get(id)?.reporterName);
-    await this.mirror(id, "system", `${input.kind === "bug" ? "🐞" : "💡"} Sent from ${input.client ?? "an MCP client"}`);
+    // The team's thread opens with the first line mirrored after filing, so a tracker that's down leaves nothing behind.
     const cards: TicketCard[] = [];
-    if (existing) {
-      const result = await this.addToTicket(desk, id, { key: existing.key, kind: input.kind, note: input.description, user_summary: input.summary }, cards);
-      this.showCards(id, cards);
-      if (!result) return { outcome: "no_such_ticket" };
-      const outcome = result.ticket.state === "done" ? "done" : result.planned ? "planned" : "added";
-      return { outcome, conversation, ticket: result.ticket };
+    let result: Awaited<ReturnType<TicketDesk["add"]>> | null = null;
+    let ticket: { key: string; url: string; title: string } | null = null;
+    try {
+      if (existing) result = await this.addToTicket(desk, id, { key: existing.key, kind: input.kind, note: input.description, user_summary: input.summary }, cards);
+      else ticket = await this.fileTicket(desk, id, { title: input.title, kind: input.kind, description: input.description, user_summary: input.summary }, cards);
+    } catch (err) {
+      this.drop(id);
+      throw err;
     }
-    const ticket = await this.fileTicket(desk, id, { title: input.title, kind: input.kind, description: input.description, user_summary: input.summary }, cards);
+    if (existing && !result) {
+      this.drop(id);
+      return { outcome: "no_such_ticket" };
+    }
+    await this.mirror(id, "system", `${input.kind === "bug" ? "🐞" : "💡"} Sent from ${input.client ?? "an MCP client"}`);
     this.showCards(id, cards);
-    return { outcome: "filed", conversation, ticket };
+    if (result) return { outcome: result.ticket.state === "done" ? "done" : result.planned ? "planned" : "added", conversation, ticket: result.ticket };
+    return { outcome: "filed", conversation, ticket: ticket! };
+  }
+
+  /** Removes a conversation that never got going: no thread, no ticket, nothing the team saw. */
+  private drop(id: string) {
+    this.db.transaction((tx) => {
+      tx.delete(schema.messages).where(eq(schema.messages.conversationId, id)).run();
+      tx.delete(schema.ticketLinks).where(eq(schema.ticketLinks.conversationId, id)).run();
+      tx.delete(schema.conversations).where(eq(schema.conversations.id, id)).run();
+    });
+    this.events.emit(TEAM_EVENTS, { type: "deleted", conversationId: id } satisfies TeamEvent);
   }
 
   /** A report from a shortcut is logged, so later messages are an ordinary conversation again. */
@@ -860,7 +876,8 @@ export class ConversationService {
       return;
     }
 
-    if (profile.botCheck && !c.userId && !c.verified) {
+    // In the demo anyone can sign in, so signed-in people need the check too (like starting a chat there).
+    if (profile.botCheck && !c.verified && (!c.userId || this.demo)) {
       await this.handoff(id, "New message (didn't pass the bot check).");
       if (!this.demo) this.addMessage(id, "system", this.waitingText(id), null);
       return;

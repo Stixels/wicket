@@ -24,8 +24,8 @@ export interface McpDeps {
   productName: string;
   /** For absolute links to tickets and chats. */
   publicUrl?: string | null;
-  /** Longest search query; the demo keeps these short like its chat messages. */
-  maxQueryLength?: number;
+  /** Longest search query or report description; the demo keeps these as short as its chat messages. */
+  maxTextLength?: number;
   /** The wicket package version, for the server's info. */
   version?: string;
 }
@@ -74,7 +74,7 @@ export function createMcpServer(deps: McpDeps, caller: McpCaller): McpServer {
     },
     async ({ query, limit }) => {
       if (!caller.allow.call()) return fail(TOO_MANY);
-      if (deps.maxQueryLength && query.length > deps.maxQueryLength) return fail(`Queries can be up to ${deps.maxQueryLength} characters here.`);
+      if (deps.maxTextLength && query.length > deps.maxTextLength) return fail(`Queries can be up to ${deps.maxTextLength} characters here.`);
       const hits = searchDocs(db, query, limit ?? 5);
       if (!hits.length) return ok("No docs sections match. Try other words.", { results: [] });
       const text = hits.map((h, i) => `${i + 1}. ${h.heading ? `${h.title} › ${h.heading}` : h.title}\n   ${h.url}\n   ${h.snippet.replace(/\s+/g, " ").trim()}`).join("\n\n");
@@ -126,8 +126,26 @@ export function createMcpServer(deps: McpDeps, caller: McpCaller): McpServer {
       },
       async (input) => {
         if (!caller.allow.call()) return fail(TOO_MANY);
+        if (deps.maxTextLength && input.description.length > deps.maxTextLength) return fail(`Descriptions can be up to ${deps.maxTextLength} characters here.`);
+        let found: Awaited<ReturnType<typeof desk.find>> = [];
+        if (input.duplicate_of || !input.new_ticket) {
+          try {
+            found = await desk.find(`${input.title}\n${input.summary}`);
+          } catch (err) {
+            console.error("mcp: duplicate search failed", err);
+            return fail("Couldn't check the team's open tickets just now, so nothing was filed. Try again in a bit.");
+          }
+        }
+        // Only a ticket this report was offered, or one this person already reported, can be joined. Any
+        // other key would hand back the title of a ticket they were never shown (another visitor's, or an internal one).
+        if (input.duplicate_of) {
+          const want = input.duplicate_of.trim().toLowerCase();
+          const own = service.forUser(identity.id).flatMap((m) => desk.forConversation(m.id).map((t) => t.key.toLowerCase()));
+          if (!found.some((t) => t.key.toLowerCase() === want) && !own.includes(want)) {
+            return fail(`${input.duplicate_of} isn't one of the tickets offered for this report. Use a key from the list (same title and summary), or new_ticket: true.`);
+          }
+        }
         if (!input.duplicate_of && !input.new_ticket) {
-          const found = await desk.find(`${input.title}\n${input.summary}`).catch(() => []);
           if (found.length) {
             const list = found.map((t) => `- ${t.key}: ${t.title}${t.reports ? ` (${t.reports} ${t.reports === 1 ? "report" : "reports"})` : ""}`).join("\n");
             return ok(
@@ -181,9 +199,9 @@ export function createMcpServer(deps: McpDeps, caller: McpCaller): McpServer {
     async ({ report_id }) => {
       if (!caller.allow.call()) return fail(TOO_MANY);
       if (!desk) return ok("No tracker is set up, so there are no reports to check.", { reports: [] });
-      const mine = service.forUser(identity.id);
-      const ids = report_id ? mine.filter((m) => m.id === report_id) : mine;
-      if (report_id && !ids.length) return fail("No report with that id for this user.");
+      const one = report_id ? service.get(report_id) : null;
+      if (report_id && (!one || one.userId !== identity.id)) return fail("No report with that id for this user.");
+      const ids = one ? [{ id: one.id, token: one.token }] : service.forUser(identity.id);
       const reports = ids.flatMap((conv) => reportStatus(service, conv, absolute, chatUrl)).slice(0, 20);
       if (!reports.length) return ok("No reports yet.", { reports: [] });
       const text = reports
@@ -216,9 +234,12 @@ function reportStatus(
   if (!tickets.length) return [];
   const messages = service.list(conv.id);
   const cards = messages.filter((m) => m.card);
-  const latest = cards.at(-1);
   const replies = messages.filter((m) => m.author === "staff").slice(-3);
   return tickets.map((t) => {
+    // Each ticket's own cards, by the reporter's words for it; news about a ticket uses its title when they gave none.
+    const words = new Set([t.summary?.trim(), `"${t.title}"`].filter(Boolean));
+    const own = cards.filter((m) => words.has(m.card!.summary));
+    const latest = (own.length ? own : tickets.length === 1 ? cards : []).at(-1);
     // The tracker says done or closed; the cards say planned or declined, and what the team said.
     const stage = latest?.card?.stage;
     const state = t.state === "done" ? "done" : t.state === "closed" ? (stage === "declined" ? "declined" : "closed") : stage === "planned" ? "planned" : "open";
@@ -227,7 +248,7 @@ function reportStatus(
       ticket: { key: t.key, title: t.title, url: absolute(t.url) },
       state,
       relation: t.relation,
-      reported_at: (cards[0] ?? messages[0])?.createdAt ?? 0,
+      reported_at: (own[0] ?? cards[0] ?? messages[0])?.createdAt ?? 0,
       news: latest && latest.card?.stage !== "logged" ? latest.body : null,
       team_replies: replies.map((m) => ({ from: m.authorName ?? "The team", body: m.body.slice(0, 1000), at: m.createdAt })),
       chat_url: chatUrl(conv),

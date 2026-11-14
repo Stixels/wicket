@@ -41,6 +41,8 @@ export interface LinkedTicket {
   state: "open" | "done" | "closed";
   relation: "filed" | "added";
   notified: boolean;
+  /** The reporter's words for it, from this conversation. */
+  summary: string | null;
 }
 
 export interface DeskOptions {
@@ -145,7 +147,7 @@ export class TicketDesk {
       .innerJoin(schema.tickets, eq(schema.tickets.id, schema.ticketLinks.ticketId))
       .where(eq(schema.ticketLinks.conversationId, conversationId))
       .all()
-      .map(({ t, l }) => ({ key: t.key, url: t.url, title: t.title, state: t.state, relation: l.relation, notified: Boolean(l.notifiedAt) }));
+      .map(({ t, l }) => ({ key: t.key, url: t.url, title: t.title, state: t.state, relation: l.relation, notified: Boolean(l.notifiedAt), summary: l.summary }));
   }
 
   /**
