@@ -96,11 +96,11 @@ const schema = z.object({
   // Signed-in users: the host app's backend signs a short-lived HS256 JWT with this secret
   // (claims: sub, name, email, plan). Only a valid token counts as signed in.
   IDENTITY_SECRET: z.string().min(32, "IDENTITY_SECRET should be at least 32 characters").optional(),
-  /** The MCP server at /mcp, for signed-in users' MCP clients (needs IDENTITY_SECRET). On unless "false". */
+  /** The MCP server at /mcp, for signed-in users' MCP clients (needs IDENTITY_SECRET). Off unless "true": it files into your tracker. */
   MCP: z
     .enum(["true", "false"])
     .optional()
-    .transform((v) => v !== "false"),
+    .transform((v) => v === "true"),
   // Bot check for visitors (profiles with botCheck: true): a Cloudflare Turnstile widget's keys.
   TURNSTILE_SITE_KEY: z.string().optional(),
   TURNSTILE_SECRET_KEY: z.string().optional(),

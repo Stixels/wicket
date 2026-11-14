@@ -573,3 +573,11 @@ describe("the stdio entry", () => {
     await expect(spawn(stdioEnv({ WICKET_USER_TOKEN: "not-a-token" }))).rejects.toThrow();
   }, 20_000);
 });
+
+describe("MCP setting", () => {
+  it("is off unless MCP=true, so an install doesn't start taking reports from MCP clients by surprise", () => {
+    expect(loadConfig({}).MCP).toBe(false);
+    expect(loadConfig({ IDENTITY_SECRET: SECRET }).MCP).toBe(false);
+    expect(loadConfig({ MCP: "true" }).MCP).toBe(true);
+  });
+});

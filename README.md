@@ -207,7 +207,7 @@ Each report becomes a conversation like one from the widget. The team sees it in
 
 ### Over HTTP
 
-The server answers at `/mcp` (streamable HTTP, stateless) whenever `IDENTITY_SECRET` is set. Every request needs a user token, the same JWT the widget uses (see [Signed-in users](#signed-in-users)), as `Authorization: Bearer <token>`. Tokens can last up to 24 hours, so give people a way to get one in your app, like a "Connect Claude" button that signs a token for them. Turn it off with `MCP=false`.
+Set `MCP=true` (with `IDENTITY_SECRET`) and the server answers at `/mcp` (streamable HTTP, stateless). It's off by default, since it lets people file into your tracker. Every request needs a user token, the same JWT the widget uses (see [Signed-in users](#signed-in-users)), as `Authorization: Bearer <token>`. Tokens can last up to 24 hours, so give people a way to get one in your app, like a "Connect Claude" button that signs a token for them.
 
 Limits: each tool call counts against `MAX_MESSAGES_PER_CONVERSATION_PER_HOUR` for that person. Each report counts as starting a chat (`MAX_CONVERSATIONS_PER_IP_PER_HOUR`), both for that person and for their IP. In the demo, calls also share the widget's per-IP limits.
 
@@ -297,6 +297,7 @@ Service variables:
 | `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY` | a Turnstile widget for the demo's domain |
 | `SITE` | leave unset (on) to serve the marketing site at `/` |
 | `PRODUCT_NAME` | `Escape Director` |
+| `MCP` | `true`, for the Claude Code card on `/demo` and `/mcp` |
 
 Add a volume at `/data` as usual. The docs come from `knowledge:` in `config/demo.yaml`, so no `DOCS_*` variables are needed.
 
@@ -365,7 +366,7 @@ See [`.env.example`](.env.example). The main settings:
 | `RESEND_API_KEY`, `EMAIL_FROM`, `EMAIL_REPLY_DOMAIN`, `RESEND_WEBHOOK_SECRET` | Emailing unread replies to users, and replies by email. See [Email](#email). |
 | `IDENTITY_SECRET` | Shared with your backend to sign user tokens (at least 32 characters). |
 | `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile, for profiles with `botCheck: true`. |
-| `MCP` | The MCP server at `/mcp`, on whenever `IDENTITY_SECRET` is set. `MCP=false` turns it off. See [MCP server](#mcp-server). |
+| `MCP` | `true` turns on the MCP server at `/mcp` (needs `IDENTITY_SECRET`). Off by default. See [MCP server](#mcp-server). |
 | `WICKET_CONFIG` | Profiles, rules, budgets and extra knowledge repos (`knowledge:`, e.g. an SDK with examples): a file path or the YAML itself. Defaults to `config/wicket.yaml`. |
 
 ## How it fits together
