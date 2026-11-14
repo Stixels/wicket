@@ -541,11 +541,13 @@ describe("review fixes", () => {
     const { app } = installSetup();
     const res = await app.request("/mcp", {
       method: "OPTIONS",
-      headers: { Origin: "https://inspector.example", "Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "authorization, content-type, mcp-protocol-version" },
+      headers: { Origin: "https://inspector.example", "Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "authorization, content-type, mcp-protocol-version, mcp-method, mcp-name" },
     });
     expect(res.status).toBeLessThan(300);
     expect(res.headers.get("access-control-allow-origin")).toBe("*");
-    expect(res.headers.get("access-control-allow-headers")?.toLowerCase()).toContain("authorization");
+    // 2026-07-28 clients also send Mcp-Method and Mcp-Name; a browser whose preflight lacks them falls back to the 2025 protocol.
+    const allowed = res.headers.get("access-control-allow-headers")?.toLowerCase().split(/,\s*/) ?? [];
+    for (const h of ["authorization", "content-type", "mcp-protocol-version", "mcp-method", "mcp-name"]) expect(allowed).toContain(h);
   });
 
   it("caps demo report descriptions like demo chat messages", async () => {
