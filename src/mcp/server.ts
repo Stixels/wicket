@@ -1,5 +1,5 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { McpServer } from "@modelcontextprotocol/server";
+import type { CallToolResult } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import type { ConversationService } from "../conversations.js";
 import type { Db } from "../db/index.js";
@@ -66,10 +66,10 @@ export function createMcpServer(deps: McpDeps, caller: McpCaller): McpServer {
     {
       title: "Search the docs",
       description: `Search ${deps.productName}'s documentation. Returns the best-matching sections with a snippet and link each. Use read_doc on a link for its full text before answering from it.`,
-      inputSchema: {
-        query: z.string().min(1).max(500).describe("Keywords or a question"),
-        limit: z.number().int().min(1).max(10).optional().describe("How many sections, 5 by default"),
-      },
+      inputSchema: z.object({
+              query: z.string().min(1).max(500).describe("Keywords or a question"),
+              limit: z.number().int().min(1).max(10).optional().describe("How many sections, 5 by default"),
+            }),
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async ({ query, limit }) => {
@@ -87,7 +87,7 @@ export function createMcpServer(deps: McpDeps, caller: McpCaller): McpServer {
     {
       title: "Read a docs page",
       description: "The full text of a docs section, or a whole page when the link has no #. Pass a link from search_docs.",
-      inputSchema: { url: z.string().min(1).max(2000).describe("A link from search_docs") },
+      inputSchema: z.object({ url: z.string().min(1).max(2000).describe("A link from search_docs") }),
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async ({ url }) => {
@@ -108,20 +108,20 @@ export function createMcpServer(deps: McpDeps, caller: McpCaller): McpServer {
           "First call checks the team's open tickets: if some might be the same thing, nothing is filed and you get them back. " +
           "Then call again with duplicate_of set to the matching key, or new_ticket: true if none match. " +
           `${hearsBack ? "The user hears back when it's fixed, planned or declined: use ticket_status. " : ""}Confirm with the user before filing.`,
-        inputSchema: {
-          kind: z.enum(kinds as [ReportKind, ...ReportKind[]]).describe(`${kindList}`),
-          title: z.string().min(3).max(200).describe("Short and specific, under 80 characters, no trailing period"),
-          description: z
-            .string()
-            .min(10)
-            .max(4000)
-            .describe(
-              "Markdown for an engineer who wasn't there. Bugs: what happened, what they expected, '## Steps to reproduce' and '## Context' (version, platform, error text). Ideas: what they want and why. Only facts from the user; never invent steps.",
-            ),
-          summary: z.string().min(3).max(300).describe("The thing in the user's own words, a short phrase, e.g. \"the timer drifting after a pause\""),
-          duplicate_of: z.string().max(200).optional().describe("Key of an existing ticket this is the same as, from a previous call"),
-          new_ticket: z.boolean().optional().describe("True when you've checked the possible duplicates and none match"),
-        },
+        inputSchema: z.object({
+                  kind: z.enum(kinds as [ReportKind, ...ReportKind[]]).describe(`${kindList}`),
+                  title: z.string().min(3).max(200).describe("Short and specific, under 80 characters, no trailing period"),
+                  description: z
+                    .string()
+                    .min(10)
+                    .max(4000)
+                    .describe(
+                      "Markdown for an engineer who wasn't there. Bugs: what happened, what they expected, '## Steps to reproduce' and '## Context' (version, platform, error text). Ideas: what they want and why. Only facts from the user; never invent steps.",
+                    ),
+                  summary: z.string().min(3).max(300).describe("The thing in the user's own words, a short phrase, e.g. \"the timer drifting after a pause\""),
+                  duplicate_of: z.string().max(200).optional().describe("Key of an existing ticket this is the same as, from a previous call"),
+                  new_ticket: z.boolean().optional().describe("True when you've checked the possible duplicates and none match"),
+                }),
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
       },
       async (input) => {
@@ -193,7 +193,7 @@ export function createMcpServer(deps: McpDeps, caller: McpCaller): McpServer {
     {
       title: "Check on reports",
       description: "Where this user's reports stand: open, planned, fixed or declined, with the ticket and anything the team wrote back. Pass report_id for one report, or nothing for their recent ones.",
-      inputSchema: { report_id: z.string().max(64).optional().describe("From file_report") },
+      inputSchema: z.object({ report_id: z.string().max(64).optional().describe("From file_report") }),
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async ({ report_id }) => {

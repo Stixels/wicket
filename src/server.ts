@@ -16,7 +16,7 @@ import { playgroundPage } from "./playground.js";
 import { trailBody } from "./trail.js";
 import { getCookie, setCookie } from "hono/cookie";
 import { DEMO_MCP_TOKEN_TTL_SECONDS, DEMO_VISITOR_ID, demoMcpToken, demoUserToken } from "./demo/index.js";
-import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/server";
 import { createMcpServer } from "./mcp/server.js";
 import { demoPage, withSiteWidget, type DemoPageInfo } from "./demo/page.js";
 

@@ -1,8 +1,6 @@
 import fs from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { Client, StreamableHTTPClientTransport, InMemoryTransport } from "@modelcontextprotocol/client";
 import { openDb } from "../src/db/index.js";
 import { Agent } from "../src/agent/agent.js";
 import { ConversationService } from "../src/conversations.js";
@@ -555,7 +553,7 @@ describe("the stdio entry", () => {
     ...extra,
   });
   const spawn = async (env: Record<string, string>) => {
-    const { StdioClientTransport } = await import("@modelcontextprotocol/sdk/client/stdio.js");
+    const { StdioClientTransport } = await import("@modelcontextprotocol/client/stdio");
     const client = new Client({ name: "stdio-test", version: "1.0.0" });
     await client.connect(new StdioClientTransport({ command: process.execPath, args: ["--import", "tsx", "src/mcp/stdio.ts"], env, stderr: "pipe" }));
     return client;

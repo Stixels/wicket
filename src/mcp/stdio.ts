@@ -9,7 +9,7 @@
 // local user running it. It never starts the Discord bot, so the team's Discord doesn't get a
 // thread for reports filed here; the dashboard and the tracker do.
 import os from "node:os";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { loadConfig } from "../config.js";
 import { openDb } from "../db/index.js";
 import { ConversationService } from "../conversations.js";
