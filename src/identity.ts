@@ -21,11 +21,15 @@ export interface Identity {
 /** The furthest out a token's expiry may be. Hosts should sign tokens for minutes, not days. */
 export const MAX_TOKEN_LIFETIME_MS = 24 * 3_600_000;
 
-/** Returns the identity in the token, or null when it is missing, malformed, expired, has no expiry or is wrongly signed. */
-export function verifyUserToken(token: string | undefined | null, secret: string | undefined, now = Date.now()): Identity | null {
+/**
+ * Returns the identity in the token, or null when it is missing, malformed, expired, has no expiry or is wrongly signed.
+ * With `scope`, only a token signed for that scope counts (e.g. the demo's tokens for MCP clients).
+ */
+export function verifyUserToken(token: string | undefined | null, secret: string | undefined, now = Date.now(), scope?: "mcp"): Identity | null {
   const claims = verifiedClaims(token, secret, now);
   // An erase token says who to delete, not who is signed in.
   if (!claims || claims.scope === "erase") return null;
+  if (scope && claims.scope !== scope) return null;
   const id = str(claims.sub) ?? str(claims.userId) ?? str(claims.id);
   if (!id) return null;
   const budget = typeof claims.budget === "number" && Number.isFinite(claims.budget) && claims.budget >= 0 ? claims.budget : null;
@@ -74,7 +78,7 @@ function verifiedClaims(token: string | undefined | null, secret: string | undef
 
 /** Signs a user token. The host's backend does this; Wicket uses it for the playground and tests. */
 export function signUserToken(
-  claims: { sub: string; name?: string; email?: string; plan?: string; account?: string; budget?: number; env?: string; scope?: "erase" },
+  claims: { sub: string; name?: string; email?: string; plan?: string; account?: string; budget?: number; env?: string; scope?: "erase" | "mcp" },
   secret: string,
   ttlSeconds = 300,
   now = Date.now(),

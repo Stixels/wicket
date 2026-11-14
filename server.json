@@ -1,0 +1,26 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.Stixels/wicket",
+  "title": "Wicket",
+  "description": "Search a product's docs, file bugs and feature requests, and hear back when they ship.",
+  "version": "1.0.0",
+  "websiteUrl": "https://wicketchat.com",
+  "repository": {
+    "url": "https://github.com/Stixels/wicket",
+    "source": "github"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://wicketchat.com/mcp",
+      "headers": [
+        {
+          "name": "Authorization",
+          "description": "Bearer token for the live demo. Get one at https://wicketchat.com/demo (Try it from Claude Code). It lasts a day.",
+          "isRequired": true,
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}

@@ -41,6 +41,8 @@ export interface LinkedTicket {
   state: "open" | "done" | "closed";
   relation: "filed" | "added";
   notified: boolean;
+  /** The reporter's words for it, from this conversation. */
+  summary: string | null;
 }
 
 export interface DeskOptions {
@@ -145,7 +147,7 @@ export class TicketDesk {
       .innerJoin(schema.tickets, eq(schema.tickets.id, schema.ticketLinks.ticketId))
       .where(eq(schema.ticketLinks.conversationId, conversationId))
       .all()
-      .map(({ t, l }) => ({ key: t.key, url: t.url, title: t.title, state: t.state, relation: l.relation, notified: Boolean(l.notifiedAt) }));
+      .map(({ t, l }) => ({ key: t.key, url: t.url, title: t.title, state: t.state, relation: l.relation, notified: Boolean(l.notifiedAt), summary: l.summary }));
   }
 
   /**
@@ -250,7 +252,8 @@ export class TicketDesk {
     this.db.update(L).set({ notifiedAt: new Date() }).where(and(eq(L.ticketId, ticketId), isNull(L.notifiedAt))).run();
   }
 
-  private async lookup(keyOrUrl: string): Promise<TrackedTicket | null> {
+  /** One ticket by key or link: fresh from the tracker when it can say, else as last seen. */
+  async lookup(keyOrUrl: string): Promise<TrackedTicket | null> {
     const text = keyOrUrl.trim();
     const local = this.db
       .select()

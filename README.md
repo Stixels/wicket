@@ -192,6 +192,80 @@ It uses [Resend](https://resend.com); the free tier is plenty for a small team.
 1. In Resend, verify the domain you'll send from and create an API key. Set `RESEND_API_KEY`, `EMAIL_FROM` (e.g. `Escape Director <support@escapedirector.com>`) and `PUBLIC_URL`.
 2. For replies by email: add a receiving domain in Resend (e.g. `reply.escapedirector.com`) and set it as `EMAIL_REPLY_DOMAIN`. Add a webhook for `email.received` pointing at `https://YOUR-SERVER/email/inbound` and set its signing secret as `RESEND_WEBHOOK_SECRET`. A reply only counts if it comes from the address we emailed, to that conversation's own reply address.
 
+## MCP server
+
+Wicket is also an [MCP](https://modelcontextprotocol.io) server, so people can reach your docs and your tracker from Claude Code, Claude Desktop, Cursor or any other MCP client. It uses the same code as the widget: the same docs index, the same tracker, the same duplicate check, and the same per-profile rules.
+
+| Tool | What it does |
+|---|---|
+| `search_docs` | Searches the docs index. Returns sections with a snippet and link. |
+| `read_doc` | The full text behind a search result. |
+| `file_report` | Files a bug or feature request. The first call checks open tickets, and if some might be the same thing, it files nothing and sends them back. The client then calls again with `duplicate_of` (joins that ticket as another report) or `new_ticket: true`. `duplicate_of` only takes a ticket it offered for that report, or one the person already reported. If the check can't reach the tracker, nothing is filed. Only shows up when the person's profile has `report: bug`, `feature` or `both`, and only offers those kinds. |
+| `ticket_status` | Where the person's reports stand (open, planned, fixed, declined), with the ticket and any team replies. |
+
+Each report becomes a conversation like one from the widget. The team sees it in Discord and the dashboard, and the reporter hears back in it (`ticket_status` reads it, and the `chat_url` it returns opens it in a browser). The client's own model does the writing, so MCP calls don't spend the assistant's budgets.
+
+### Over HTTP
+
+Set `MCP=true` (with `IDENTITY_SECRET`) and the server answers at `/mcp` (streamable HTTP, stateless). It's off by default, since it lets people file into your tracker. Every request needs a user token, the same JWT the widget uses (see [Signed-in users](#signed-in-users)), as `Authorization: Bearer <token>`. Tokens can last up to 24 hours, so give people a way to get one in your app, like a "Connect Claude" button that signs a token for them.
+
+Limits: each tool call counts against `MAX_MESSAGES_PER_CONVERSATION_PER_HOUR` for that person. Each report counts as starting a chat (`MAX_CONVERSATIONS_PER_IP_PER_HOUR`), both for that person and for their IP. In the demo, calls also share the widget's per-IP limits.
+
+Claude Code:
+
+```bash
+claude mcp add --transport http wicket https://YOUR-SERVER/mcp --header "Authorization: Bearer $WICKET_TOKEN"
+```
+
+Cursor (`~/.cursor/mcp.json`):
+
+```json
+{ "mcpServers": { "wicket": { "url": "https://YOUR-SERVER/mcp", "headers": { "Authorization": "Bearer YOUR_TOKEN" } } } }
+```
+
+Claude Desktop's config file takes local servers, so bridge it with [`mcp-remote`](https://www.npmjs.com/package/mcp-remote) (Settings › Developer › Edit Config):
+
+```json
+{
+  "mcpServers": {
+    "wicket": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://YOUR-SERVER/mcp", "--header", "Authorization:${WICKET_AUTH}"],
+      "env": { "WICKET_AUTH": "Bearer YOUR_TOKEN" }
+    }
+  }
+}
+```
+
+### Try it on the demo
+
+[wicketchat.com/demo](https://wicketchat.com/demo) has a **Try it from Claude Code** card. It runs the bot check, then gives you a `claude mcp add` command with a day-long token for Sam, the demo customer. Then ask Claude Code something like "search the Escape Director docs for adding a clue", "report a bug: the clue counter doesn't go up after I send a clue", or "check on my reports". Reports go to the demo tracker and move on after a few minutes, like in the widget, and they show up in the widget's history in the same browser.
+
+### Over stdio
+
+For a client on the machine with Wicket's config and database, such as a self-hosted install:
+
+```bash
+npm run build
+claude mcp add wicket -- sh -c 'cd /path/to/wicket && node --env-file-if-exists=.env dist/src/mcp/stdio.js'
+```
+
+Claude Desktop:
+
+```json
+{
+  "mcpServers": {
+    "wicket": {
+      "command": "node",
+      "args": ["--env-file=/path/to/wicket/.env", "/path/to/wicket/dist/src/mcp/stdio.js"],
+      "env": { "DATABASE_PATH": "/path/to/wicket/data/wicket.db", "WICKET_CONFIG": "/path/to/wicket/config/wicket.yaml" }
+    }
+  }
+}
+```
+
+It uses the same settings, database and tracker as the server, and acts as the local user, or as whoever `WICKET_USER_TOKEN` names. It doesn't start the Discord bot, so reports filed this way go to the tracker and the dashboard but don't open a Discord thread. Run it alongside the server, which does the ticket checks that tell reporters when things move.
+
 ## Deploy on Railway
 
 1. In Railway, choose **New → GitHub Repo** and pick this repo. It builds from the `Dockerfile` and redeploys on every push to `main`. The build runs the typecheck and tests first, so a failing push never replaces the running version.
@@ -208,6 +282,7 @@ The public demo at [wicketchat.com](https://wicketchat.com) is a separate Wicket
 - **`/`** is the marketing site with the live widget, as a visitor. Nobody is signed in anywhere except `/demo` with **Signed-in customer** picked.
 - **`/demo`** plays an escape-room app, with a **Visitor / Signed-in customer** switch. Visitors get docs answers only. The customer is Sam, Owner at Treehouse Escapes, signed in by the page's own `POST /api/demo/token`. Each browser gets its own id in a cookie, so nobody sees anyone else's chats. The endpoint only exists with `DEMO=true` and only signs that one user.
 - **Tickets** go to a demo tracker kept in the service's SQLite. Duplicate search only covers the backlog in `config/demo.yaml`, so one visitor's ticket titles never show up in another visitor's chat. A few minutes after a report (`demo.advanceMinutes`), the ticket moves on (bugs to Fixed, ideas to Planned) and a reply labeled as simulated arrives in the chat.
+- **MCP:** `/demo` hands out a token for Claude Code after the bot check (`POST /api/demo/mcp-token`), for the same Sam as that browser's chats. It lasts a day, and only these tokens open the demo's `/mcp`: the widget's own token comes without a bot check, so it doesn't. A report filed over MCP doesn't get assistant answers in its chat, since no bot check opened it. `/mcp` files to the same demo tracker, so it can't reach a real one either. See [Try it on the demo](#try-it-on-the-demo).
 - **Handoffs** don't go anywhere. The chat says that in a real install this goes to the team's Discord inbox.
 - **Limits:** everyone shares one monthly AI budget (`budgets.monthlyTotal`, $3). When it's spent, the chat says so and still links plain docs search results. Every chat passes a Turnstile bot check, signed in or not. Messages are capped in length and per chat, and both messages and chats are capped per IP per hour (`demo:` in `config/demo.yaml`). Attachments and the playground are off.
 
@@ -222,6 +297,7 @@ Service variables:
 | `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY` | a Turnstile widget for the demo's domain |
 | `SITE` | leave unset (on) to serve the marketing site at `/` |
 | `PRODUCT_NAME` | `Escape Director` |
+| `MCP` | `true`, for the Claude Code card on `/demo` and `/mcp` |
 
 Add a volume at `/data` as usual. The docs come from `knowledge:` in `config/demo.yaml`, so no `DOCS_*` variables are needed.
 
@@ -290,6 +366,7 @@ See [`.env.example`](.env.example). The main settings:
 | `RESEND_API_KEY`, `EMAIL_FROM`, `EMAIL_REPLY_DOMAIN`, `RESEND_WEBHOOK_SECRET` | Emailing unread replies to users, and replies by email. See [Email](#email). |
 | `IDENTITY_SECRET` | Shared with your backend to sign user tokens (at least 32 characters). |
 | `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile, for profiles with `botCheck: true`. |
+| `MCP` | `true` turns on the MCP server at `/mcp` (needs `IDENTITY_SECRET`). Off by default. See [MCP server](#mcp-server). |
 | `WICKET_CONFIG` | Profiles, rules, budgets and extra knowledge repos (`knowledge:`, e.g. an SDK with examples): a file path or the YAML itself. Defaults to `config/wicket.yaml`. |
 
 ## How it fits together

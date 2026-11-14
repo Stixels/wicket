@@ -9,6 +9,9 @@ export const DEMO_USER = { name: "Sam", role: "Owner", venue: "Treehouse Escapes
 /** Short-lived: the widget asks for a fresh one with every message. */
 export const DEMO_TOKEN_TTL_SECONDS = 600;
 
+/** For MCP clients, whose config holds the token: a day, the longest a user token may last. */
+export const DEMO_MCP_TOKEN_TTL_SECONDS = 24 * 3600 - 60;
+
 /** A browser's demo id, from its cookie. Random and unguessable, so it's safe to key a person's chats on. */
 export const DEMO_VISITOR_ID = /^[A-Za-z0-9_-]{22,64}$/;
 
@@ -16,6 +19,15 @@ export const DEMO_VISITOR_ID = /^[A-Za-z0-9_-]{22,64}$/;
 export function demoUserToken(visitorId: string, secret: string, now = Date.now()): string {
   if (!DEMO_VISITOR_ID.test(visitorId)) throw new Error("bad demo visitor id");
   return signUserToken({ sub: `demo-${visitorId}`, name: DEMO_USER.name }, secret, DEMO_TOKEN_TTL_SECONDS, now);
+}
+
+/**
+ * The same customer, for MCP clients: lasts a day, and only these work on the demo's /mcp. The widget's
+ * token comes without a bot check, so it mustn't open /mcp; this one is only handed out after one.
+ */
+export function demoMcpToken(visitorId: string, secret: string, now = Date.now()): string {
+  if (!DEMO_VISITOR_ID.test(visitorId)) throw new Error("bad demo visitor id");
+  return signUserToken({ sub: `demo-${visitorId}`, name: DEMO_USER.name, scope: "mcp" }, secret, DEMO_MCP_TOKEN_TTL_SECONDS, now);
 }
 
 /** Output price, in dollars per million tokens, that DEMO_ANSWER_RESERVE_MICROS is sized for (Claude Haiku 5.5). */
