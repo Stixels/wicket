@@ -1,5 +1,5 @@
-import { McpServer } from "@modelcontextprotocol/server";
-import type { CallToolResult } from "@modelcontextprotocol/server";
+import { CLIENT_INFO_META_KEY, McpServer } from "@modelcontextprotocol/server";
+import type { CallToolResult, Implementation, ServerContext } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import type { ConversationService } from "../conversations.js";
 import type { Db } from "../db/index.js";
@@ -124,7 +124,7 @@ export function createMcpServer(deps: McpDeps, caller: McpCaller): McpServer {
                 }),
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
       },
-      async (input) => {
+      async (input, ctx) => {
         if (!caller.allow.call()) return fail(TOO_MANY);
         if (deps.maxTextLength && input.description.length > deps.maxTextLength) return fail(`Descriptions can be up to ${deps.maxTextLength} characters here.`);
         let found: Awaited<ReturnType<typeof desk.find>> = [];
@@ -156,7 +156,7 @@ export function createMcpServer(deps: McpDeps, caller: McpCaller): McpServer {
         }
         // Each report starts a conversation, so it counts against the same limit as starting a chat.
         if (!caller.allow.report()) return fail("Too many reports, try again later.");
-        const client = caller.client ?? clientName(server);
+        const client = clientName(server, ctx) ?? caller.client ?? null;
         try {
           const result = await service.fileReport({
             identity,
@@ -256,10 +256,16 @@ function reportStatus(
   });
 }
 
-/** The client's name from the handshake, e.g. "claude-code". */
-function clientName(server: McpServer): string | null {
-  const info = server.server.getClientVersion();
-  return info?.name ? info.name.slice(0, 80) : null;
+/**
+ * The client's own name, e.g. "claude-code": from the request itself on the 2026-07-28 revision,
+ * or from the handshake on a 2025-era connection. Stateless 2025-era HTTP has neither, so the
+ * caller falls back to the User-Agent.
+ */
+function clientName(server: McpServer, ctx: ServerContext): string | null {
+  // RequestMetaEnvelope is published as {} in 2.4.0 (typescript-sdk#3171), so index it by key.
+  const envelope = ctx.mcpReq.envelope as Record<string, unknown> | undefined;
+  const info = (envelope?.[CLIENT_INFO_META_KEY] as Implementation | undefined) ?? server.server.getClientVersion();
+  return typeof info?.name === "string" && info.name ? info.name.slice(0, 80) : null;
 }
 
 function ok(text: string, structured?: Record<string, unknown>): CallToolResult {

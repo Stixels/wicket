@@ -7,7 +7,7 @@ import { streamSSE } from "hono/streaming";
 import { bodyLimit } from "hono/body-limit";
 import { z } from "zod";
 import { isNews, type ConversationService, type PublicMessage } from "./conversations.js";
-import { signUserToken, verifyEraseToken, verifyUserToken } from "./identity.js";
+import { signUserToken, tokenExpiry, verifyEraseToken, verifyUserToken, type Identity } from "./identity.js";
 import { teamRoutes, type TeamOptions } from "./team/routes.js";
 import type { Db } from "./db/index.js";
 import { INLINE_TYPES, MAX_FILES_PER_CONVERSATION, MAX_FILE_BYTES, allowedType } from "./files.js";
@@ -16,7 +16,7 @@ import { playgroundPage } from "./playground.js";
 import { trailBody } from "./trail.js";
 import { getCookie, setCookie } from "hono/cookie";
 import { DEMO_MCP_TOKEN_TTL_SECONDS, DEMO_VISITOR_ID, demoMcpToken, demoUserToken } from "./demo/index.js";
-import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/server";
+import { createMcpHandler, OAuthError, OAuthErrorCode, requireBearerAuth } from "@modelcontextprotocol/server";
 import { createMcpServer } from "./mcp/server.js";
 import { demoPage, withSiteWidget, type DemoPageInfo } from "./demo/page.js";
 
@@ -199,47 +199,52 @@ export function createServer(service: ConversationService, opts: ServerOptions) 
 
   if (opts.mcp && opts.identitySecret) {
     const mcp = opts.mcp;
-    app.use("/mcp", cors({ origin: "*", allowHeaders: ["Content-Type", "Authorization", "Mcp-Protocol-Version", "Mcp-Session-Id", "Last-Event-ID"], allowMethods: ["GET", "POST", "DELETE", "OPTIONS"], exposeHeaders: ["Mcp-Session-Id", "WWW-Authenticate"] }));
-    // Stateless streamable HTTP: every POST is answered on its own, as the person its token names.
-    app.post("/mcp", async (c) => {
-      // In the demo only tokens from /api/demo/mcp-token work: the widget's come without a bot check.
-      const token = bearer(c);
-      const identity = verifyUserToken(token, opts.identitySecret, Date.now(), demo ? "mcp" : undefined);
-      if (!identity) {
-        // RFC 6750: no error code when no token came at all.
-        c.header("WWW-Authenticate", token ? 'Bearer realm="wicket", error="invalid_token"' : 'Bearer realm="wicket"');
-        const how = demo ? "Get a token at /demo (Try it from Claude Code)" : "Send a valid, unexpired user token from your app";
-        return c.json(rpcError(-32001, `${token ? "That token isn't valid here or has expired." : "No token."} ${how}, as Authorization: Bearer <token>.`), 401);
-      }
-      const ip = clientIp(c);
-      // The demo shares the widget's per-IP limits, so MCP isn't a way around them.
-      const callLimit = demo ? Math.min(demo.maxMessagesPerIpPerHour, opts.maxMessagesPerConversationPerHour) : opts.maxMessagesPerConversationPerHour;
-      const reportLimit = demo ? Math.min(demo.maxConversationsPerIpPerHour, opts.maxConversationsPerIpPerHour) : opts.maxConversationsPerIpPerHour;
-      const server = createMcpServer(
-        { service, db: mcp.db, productName: opts.productName ?? "our product", publicUrl: opts.publicUrl ?? publicOrigin(c), maxTextLength: demo?.maxMessageLength, version: mcp.version },
-        {
-          identity,
-          visitorKey: ip,
-          client: c.req.header("User-Agent")?.split(/[\s/]/)[0]?.slice(0, 80) || null,
-          allow: {
-            // Per person as well as per IP: the IP comes from X-Forwarded-For, which only a proxy that overwrites it makes trustworthy.
-            call: () => limiter.allow(`mcp:${identity.id}`, callLimit) && (!demo || limiter.allow(`ip-msg:${ip}`, callLimit)),
-            report: () => limiter.allow(`mcp-report:${identity.id}`, reportLimit) && limiter.allow(`ip:${ip}`, reportLimit),
-          },
+    const secret = opts.identitySecret;
+    app.use("/mcp", cors({ origin: "*", allowHeaders: ["Content-Type", "Authorization", "Mcp-Protocol-Version", "Mcp-Session-Id", "Mcp-Method", "Mcp-Name", "Last-Event-ID"], allowMethods: ["GET", "POST", "DELETE", "OPTIONS"], exposeHeaders: ["Mcp-Session-Id", "WWW-Authenticate"] }));
+    // The SDK's bearer check, with the widget's identity token as the access token.
+    // In the demo only tokens from /api/demo/mcp-token work: the widget's come without a bot check.
+    const gate = requireBearerAuth({
+      verifier: {
+        async verifyAccessToken(token) {
+          const identity = verifyUserToken(token, secret, Date.now(), demo ? "mcp" : undefined);
+          const expiresAt = identity && tokenExpiry(token);
+          if (!identity || !expiresAt) {
+            throw new OAuthError(OAuthErrorCode.InvalidToken, demo ? "Get a token at /demo (Try it from Claude Code)" : "Send a valid, unexpired user token from your app");
+          }
+          return { token, clientId: identity.id, scopes: [], expiresAt, extra: { identity } };
         },
-      );
-      const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true, maxRequestBodySize: 64 * 1024 });
-      await server.connect(transport);
-      try {
-        return await transport.handleRequest(c.req.raw);
-      } finally {
-        await server.close();
-      }
+      },
     });
-    // No session to stream or end: everything comes back on the POST.
-    app.on(["GET", "DELETE"], "/mcp", (c) => {
-      c.header("Allow", "POST");
-      return c.json(rpcError(-32000, "Method not allowed: this server is stateless, POST JSON-RPC to /mcp"), 405);
+    // The demo shares the widget's per-IP limits, so MCP isn't a way around them.
+    const callLimit = demo ? Math.min(demo.maxMessagesPerIpPerHour, opts.maxMessagesPerConversationPerHour) : opts.maxMessagesPerConversationPerHour;
+    const reportLimit = demo ? Math.min(demo.maxConversationsPerIpPerHour, opts.maxConversationsPerIpPerHour) : opts.maxConversationsPerIpPerHour;
+    // One server per request, built for the person the token names: the tools and report kinds follow their profile.
+    // Serves the 2026-07-28 revision and, statelessly, 2025-era clients.
+    const handler = createMcpHandler(
+      ({ authInfo, requestInfo }) => {
+        const identity = authInfo!.extra!.identity as Identity;
+        const ip = ipOf(requestInfo!.headers);
+        return createMcpServer(
+          { service, db: mcp.db, productName: opts.productName ?? "our product", publicUrl: opts.publicUrl ?? originOf(requestInfo!), maxTextLength: demo?.maxMessageLength, version: mcp.version },
+          {
+            identity,
+            visitorKey: ip,
+            client: requestInfo!.headers.get("User-Agent")?.split(/[\s/]/)[0]?.slice(0, 80) || null,
+            allow: {
+              // Per person as well as per IP: the IP comes from X-Forwarded-For, which only a proxy that overwrites it makes trustworthy.
+              call: () => limiter.allow(`mcp:${identity.id}`, callLimit) && (!demo || limiter.allow(`ip-msg:${ip}`, callLimit)),
+              report: () => limiter.allow(`mcp-report:${identity.id}`, reportLimit) && limiter.allow(`ip:${ip}`, reportLimit),
+            },
+          },
+        );
+      },
+      // Default response mode: these tools send nothing mid-call, so answers come back as plain JSON.
+      { maxRequestBodySize: 64 * 1024, onerror: (err) => console.error("mcp:", err.message) },
+    );
+    app.on(["GET", "POST", "DELETE"], "/mcp", async (c) => {
+      const auth = await gate(c.req.raw);
+      if (auth instanceof Response) return auth;
+      return handler.fetch(c.req.raw, { authInfo: auth });
     });
   }
 
@@ -543,13 +548,13 @@ function demoVisitor(c: Context): string {
 
 /** The address people reach this server at, behind a proxy too. */
 function publicOrigin(c: Context): string {
-  const url = new URL(c.req.url);
-  const proto = c.req.header("x-forwarded-proto") ?? url.protocol.replace(":", "");
-  return `${proto}://${c.req.header("x-forwarded-host") ?? c.req.header("host") ?? url.host}`;
+  return originOf(c.req.raw);
 }
 
-function rpcError(code: number, message: string) {
-  return { jsonrpc: "2.0" as const, error: { code, message }, id: null };
+function originOf(req: Request): string {
+  const url = new URL(req.url);
+  const proto = req.headers.get("x-forwarded-proto") ?? url.protocol.replace(":", "");
+  return `${proto}://${req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? url.host}`;
 }
 
 function fileUrl(f: { id: string; name: string }): string {
@@ -578,7 +583,11 @@ function bearer(c: Context): string | null {
 }
 
 function clientIp(c: Context): string {
-  return c.req.header("x-forwarded-for")?.split(",")[0]?.trim() || c.req.header("x-real-ip") || "unknown";
+  return ipOf(c.req.raw.headers);
+}
+
+function ipOf(headers: Headers): string {
+  return headers.get("x-forwarded-for")?.split(",")[0]?.trim() || headers.get("x-real-ip") || "unknown";
 }
 
 /** Fixed one-hour windows kept in memory; enough for a single instance. */

@@ -36,6 +36,16 @@ export function verifyUserToken(token: string | undefined | null, secret: string
   return { id, name: str(claims.name), email: str(claims.email), plan: str(claims.plan), account: str(claims.account), budget, env: str(claims.env) };
 }
 
+/** When a token says it expires, in seconds since the epoch. Only for a token that already passed verifyUserToken. */
+export function tokenExpiry(token: string): number | null {
+  try {
+    const exp = JSON.parse(Buffer.from(token.split(".")[1] ?? "", "base64url").toString("utf8")).exp;
+    return typeof exp === "number" ? exp : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Whose conversations to delete: everything the user started, and everything billed to the account. */
 export interface Erasure {
   userId: string;
